@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Локальный Twitch-бот</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="logo">🤖</span> Локальный Twitch-бот</div>
+    <div class="chips">
+      <span class="chip" id="chip-config">настройки</span>
+      <span class="chip" id="chip-auth">вход</span>
+      <span class="chip" id="chip-conn">чат</span>
+      <span class="chip dim" id="chip-version"></span>
+    </div>
+  </header>
+
+  <div id="banner" class="banner hidden"></div>
+
+  <nav>
+    <button class="tab active" data-tab="dashboard">Дашборд</button>
+    <button class="tab" data-tab="commands">Команды</button>
+    <button class="tab" data-tab="rp">🎭 Фан</button>
+    <button class="tab" data-tab="events">События</button>
+    <button class="tab" data-tab="autoso">Автошатауты</button>
+    <button class="tab" data-tab="timers">Таймеры</button>
+    <button class="tab" data-tab="modules">🧩 Модули</button>
+    <button class="tab" data-tab="settings">Настройки</button>
+  </nav>
+
+  <!-- ============ МАСТЕР ПЕРВОГО ЗАПУСКА ============ -->
+  <section id="onboarding" class="card hidden">
+    <h2>🚀 Первичная настройка — 4 шага</h2>
+    <ol class="steps">
+      <li id="step1">
+        Создай приложение на <a href="https://dev.twitch.tv/console/apps/create" target="_blank" rel="noreferrer">dev.twitch.tv/console/apps/create</a>.
+        OAuth Redirect URL укажи точно: <code class="copy" id="redirect-uri">http://localhost:8080/auth/callback</code> (клик — скопировать).
+        Категория — любая (лучше «Chat Bot»), клиент — Confidential. Скопируй <b>Client ID</b> и создай <b>Client Secret</b>.
+      </li>
+      <li id="step2">Открой вкладку <a href="#" class="goto-tab" data-tab="settings">Настройки</a>, вставь Client ID и Client Secret и нажми «Сохранить». Затем добавь <b>свой канал</b> в список «Каналы, где работает бот» (это НЕ аккаунт бота!).</li>
+      <li id="step3">На той же вкладке нажми <b>«Войти как бот»</b>. Важно: в Twitch надо быть залогинена под <u>аккаунтом бота</u> (не под своим стримерским!). Удобно открыть окно инкогнито или сначала переключить аккаунт.</li>
+      <li id="step4">У себя в чате напиши <code>/mod ИмяБота</code> — без прав модератора не работают шатауты, анонсы, закрепы и фоллоу-приветствия.</li>
+    </ol>
+  </section>
+
+  <main>
+    <!-- ============ ДАШБОРД ============ -->
+    <section id="tab-dashboard" class="tabpane active">
+      <div class="statgrid">
+        <div class="stat"><div class="num" id="st-uptime">—</div><div class="lbl">панель работает</div></div>
+        <div class="stat"><div class="num" id="st-msg">0</div><div class="lbl">сообщений в чате</div></div>
+        <div class="stat"><div class="num" id="st-cmd">0</div><div class="lbl">команд выполнено</div></div>
+        <div class="stat"><div class="num" id="st-follow">0</div><div class="lbl">фоллоу 💜</div></div>
+        <div class="stat"><div class="num" id="st-raid">0</div><div class="lbl">рейдов 🚀</div></div>
+        <div class="stat"><div class="num" id="st-sub">0</div><div class="lbl">сабов 🎉</div></div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <h2>⚡ Быстрые действия</h2>
+          <div class="qa">
+            <span class="lbl">в канал:</span>
+            <select id="qa-channel" style="min-width:170px"></select>
+          </div>
+          <div class="qa">
+            <input id="qa-say" placeholder="написать от бота…" maxlength="480" />
+            <button class="act" data-act="say">Сказать</button>
+          </div>
+          <div class="qa">
+            <input id="qa-announce" placeholder="анонс (цветное системное сообщение)…" maxlength="480" />
+            <select id="qa-announce-color">
+              <option value="purple">фиолетовый</option>
+              <option value="primary">акцент канала</option>
+              <option value="blue">синий</option>
+              <option value="green">зелёный</option>
+              <option value="orange">оранжевый</option>
+            </select>
+            <button class="act" data-act="announce">Анонс</button>
+          </div>
+          <div class="qa">
+            <input id="qa-pin" placeholder="текст для закрепа в чате…" maxlength="480" />
+            <select id="qa-pin-duration">
+              <option value="0">на 20 минут</option>
+              <option value="600">на 10 минут</option>
+              <option value="1800">на 30 минут</option>
+            </select>
+            <button class="act" data-act="pin">📌 Закрепить</button>
+            <button class="act ghost" data-act="unpin">Снять закреп</button>
+          </div>
+          <div class="qa">
+            <input id="qa-so" placeholder="ник стримера для шатаута…" maxlength="32" />
+            <button class="act" data-act="so">📣 Шатаут</button>
+          </div>
+          <div class="qa testrow">
+            <span class="lbl">Проверить шаблоны:</span>
+            <button class="act ghost" data-test="follow">тест фоллоу</button>
+            <button class="act ghost" data-test="raid">тест рейда</button>
+            <button class="act ghost" data-test="sub">тест саба</button>
+            <button class="act ghost" data-test="resub">тест продления</button>
+            <button class="act ghost" data-test="subgift">тест подарка</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>📡 Лента событий</h2>
+          <div class="log" id="log-events"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>💬 Живой чат</h2>
+        <div class="log tall" id="log-chat"></div>
+      </div>
+    </section>
+
+    <!-- ============ КОМАНДЫ ============ -->
+    <section id="tab-commands" class="tabpane">
+      <div class="card">
+        <h2>🧩 Кастомные команды</h2>
+        <p class="hint">Полный список: правь тексты, доступ, кулдауны. Режим ответа, таргет, шанс и диапазоны настраиваются в меню команды на вкладке <span class="goto-tab" data-tab="rp" style="text-decoration:underline">🎭 Фан</span>. В чате: <code>!addcmd !имя ответ</code>, <code>!editcmd</code>, <code>!delcmd</code> (мод+). Переменные: <code>{user}</code>, <code>{target}</code>, <code>{args}</code>, <code>{channel}</code>, <code>{uptime}</code>, <code>{game}</code>, <code>{random:1-100}</code>, в рандом-числе <code>{roll}</code>.</p>
+        <table class="cmds" id="cmds-table">
+          <thead>
+            <tr><th>Команда</th><th>Режим</th><th>Ответ / Варианты</th><th>Доступ</th><th>Кулдаун, сек</th><th>Вкл</th><th></th></tr>
+          </thead>
+          <tbody id="cmds-body"></tbody>
+        </table>
+        <h3>Добавить</h3>
+        <div class="addrow">
+          <input id="add-name" placeholder="!команда" maxlength="34" />
+          <input id="add-content" placeholder="текст ответа…" maxlength="480" class="wide" />
+          <select id="add-level">
+            <option value="everyone">все</option>
+            <option value="sub">сабы</option>
+            <option value="vip">vip</option>
+            <option value="mod">моды</option>
+          </select>
+          <input id="add-cooldown" type="number" min="0" max="3600" value="5" style="width:70px" />
+          <button class="act" id="add-btn">Добавить</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>🔧 Встроенные</h2>
+        <div id="builtins" class="chips"></div>
+      </div>
+    </section>
+
+    <!-- ============ ФАН-КОМАНДЫ ============ -->
+    <section id="tab-rp" class="tabpane">
+      <div class="card">
+        <h2>➕ Создать фан-команду</h2>
+        <p class="hint">Сначала имя и условие активации: если включить «🎯 нужен @ник», команда без <code>@ник</code> ответит подсказкой. Дальше режим ответа — остальное донастраивается в меню команды (ткни её в списке ниже, чтобы раскрыть).</p>
+        <div class="addrow">
+          <input id="fan-add-name" placeholder="!команда" maxlength="34" />
+          <label class="lbl"><input id="fan-add-target" type="checkbox" /> 🎯 нужен @ник</label>
+          <select id="fan-add-mode">
+            <option value="text">один ответ</option>
+            <option value="variants">несколько вариантов</option>
+            <option value="roll">рандом-число</option>
+          </select>
+          <input id="fan-add-text" class="wide" maxlength="480" placeholder="текст ответа — например: {user} обнимает {target} 🤗" />
+          <input id="fan-add-min" type="number" min="0" max="1000000" value="0" style="width:64px" title="число от" />
+          <input id="fan-add-max" type="number" min="0" max="1000000" value="100" style="width:64px" title="число до" />
+          <button class="act" id="fan-add-btn">Создать</button>
+        </div>
+        <p class="hint" id="fan-add-hint">Переменные везде: <code>{user}</code>, <code>{target}</code>, <code>{channel}</code>, <code>{uptime}</code>, <code>{game}</code>, <code>{random:1-100}</code>. В «рандом-числе»: <code>{roll}</code> = выпавшее число.</p>
+      </div>
+      <div class="card">
+        <h2>🎭 Фан-команды</h2>
+        <p class="hint">Ткни команду, чтобы раскрыть меню настроек: режим, таргет, шанс, диапазоны. Это те же кастомные команды — они также видны на вкладке «Команды».</p>
+        <div id="fan-list"></div>
+      </div>
+      <div class="card">
+        <h2>⚡ Готовые шаблоны</h2>
+        <p class="hint">Ткни чип — команда создастся сразу (и уже настроена). Существующее имя не перезапишется: правь его в списке выше.</p>
+        <div id="fan-presets" class="chips"></div>
+      </div>
+    </section>
+
+    <!-- ============ СОБЫТИЯ ============ -->
+    <section id="tab-events" class="tabpane">
+      <div class="card">
+        <h2>🎉 Реакции на события</h2>
+        <p class="hint">Режим «текст» — обычное сообщение бота (можно сразу закрепить на 20 минут). Режим «анонс» — цветное системное объявление (закреп недоступен). «Закреп» заменит текущий закреп канала.</p>
+        <div id="events-list"></div>
+      </div>
+      <div class="card">
+        <h2>📣 Шаблон шатаута (!so)</h2>
+        <div class="addrow">
+          <input id="so-template" class="wide" maxlength="400" />
+          <button class="act" id="so-save">Сохранить</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>📌 Автозакреп на старте стрима</h2>
+        <p class="hint">Стрим стартанул → бот сам отправит сообщение и закрепит его в чате. Режим «до конца стрима» — Twitch снимет закреп сам, когда стрим закончится. Если бот перезапустили во время стрима, закреп обновится только там, где его нет (чужой закреп не трогаем). Работает в каждом канале, где бот модератор.</p>
+        <div class="evcard">
+          <label><input type="checkbox" id="ap-enabled" /> автозакреп включен</label>
+          <label>режим закрепа
+            <select id="ap-mode">
+              <option value="stream">до конца стрима</option>
+              <option value="20">на 20 минут</option>
+            </select>
+          </label>
+          <label>текст сообщения (переменная <code>{channel}</code> доступна)</label>
+          <input type="text" id="ap-template" maxlength="400" />
+          <div class="row">
+            <button class="act" id="ap-save">Сохранить</button>
+            <button class="act ghost" id="ap-test">Тест: закрепить прямо сейчас</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ АВТОШАТАУТЫ ============ -->
+    <section id="tab-autoso" class="tabpane">
+      <div class="card">
+        <h2>📣 Автошатауты</h2>
+        <p class="hint">Кто-то из списка пишет <u>любое</u> сообщение в канале → бот сам кидает настоящий шатаут Twitch (карточка + кнопка Follow) и пишет строку с текстом. Лимиты Twitch: карточка — раз в 2 минуты на канал, одному человеку — раз в час; поэтому у автошатаутов свой кулдаун (по умолчанию 4 часа). Переменные: <code>{target}</code>, <code>{target_login}</code>, <code>{channel}</code>.</p>
+        <div class="evcard">
+          <label><input type="checkbox" id="aso-enabled" /> автошатауты включены</label>
+          <label>кулдаун на человека, минут <input type="number" id="aso-cooldown" min="1" max="1440" style="width:90px" /></label>
+          <label>текст по умолчанию (если у человека нет своего)</label>
+          <input type="text" id="aso-default" maxlength="400" />
+          <div class="row"><button class="act" id="aso-save">Сохранить</button></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>👥 Список стримеров</h2>
+        <table class="cmds">
+          <thead><tr><th>Ник</th><th>Свой текст (пусто = текст по умолчанию)</th><th></th></tr></thead>
+          <tbody id="aso-body"></tbody>
+        </table>
+        <h3>Добавить</h3>
+        <div class="addrow">
+          <input id="aso-add-login" placeholder="ник на твиче" maxlength="40" />
+          <input id="aso-add-text" placeholder="свой текст (необязательно)" maxlength="400" class="wide" />
+          <button class="act" id="aso-add-btn">Добавить</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ ТАЙМЕРЫ ============ -->
+    <section id="tab-timers" class="tabpane">
+      <div class="card">
+        <h2>⏰ Периодические сообщения</h2>
+        <p class="hint">Бот сам напоминает о соцсетях, дискорде и правилах по расписанию. Переменные в тексте: <code>{channel}</code>, <code>{uptime}</code>, <code>{game}</code>, <code>{title}</code>, <code>{random:1-100}</code>. У каждого таймера условие выхода («режим»): <b>по времени</b> — раз в N минут; <b>по сообщениям</b> — после N сообщений в чате; <b>и время, и сообщения</b> — ждём оба условия; <b>или время, или сообщения</b> — любого из них. Счётчик сообщений обнуляется после каждого выхода, сообщения самого бота не считаются. Совет: интервалы 10–20 минут, чтобы чат не уставал; сообщения — 10–20, чтобы не реагировать на пустой чат.</p>
+        <div class="evcard">
+          <label><input type="checkbox" id="t-enabled" /> таймеры включены</label>
+          <label><input type="checkbox" id="t-onlylive" /> писать только когда стрим в эфире</label>
+          <div class="row"><button class="act" id="t-save">Сохранить</button></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>📋 Список таймеров</h2>
+        <table class="cmds">
+          <thead><tr><th>Название</th><th>Текст</th><th>Мин</th><th>Сообщ.</th><th>Режим</th><th>Вкл</th><th></th></tr></thead>
+          <tbody id="t-body"></tbody>
+        </table>
+        <h3>Добавить</h3>
+        <div class="addrow">
+          <input id="t-add-name" placeholder="название (для себя)" maxlength="40" />
+          <input id="t-add-text" placeholder="текст сообщения…" maxlength="400" class="wide" />
+          <input id="t-add-interval" type="number" min="1" max="720" value="15" style="width:80px" title="интервал в минутах" />
+          <input id="t-add-minmsg" type="number" min="1" max="1000" value="5" style="width:80px" title="сколько сообщений в чате ждать (для режимов про сообщения)" />
+          <select id="t-add-mode" title="условие выхода">
+            <option value="time">по времени</option>
+            <option value="messages">по сообщениям</option>
+            <option value="and">и время, и сообщения</option>
+            <option value="or">или время, или сообщения</option>
+          </select>
+          <button class="act" id="t-add-btn">Добавить</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ МОДУЛИ ============ -->
+    <section id="tab-modules" class="tabpane">
+      <div class="card">
+        <h2>🧩 Модули</h2>
+        <p class="hint">Модуль — это обычный <code>.js</code>-файл в папке <code>modules/</code> проекта: команды, хуки на события и настройки. Изменения файлов подхватываются на лету; упавший модуль не роняет бота. Каждому модулю доступны свои настройки (правятся здесь) и API: <code>api.say/announce/pin/shoutout</code>, <code>api.settings</code>, <code>api.saveSettings()</code>, <code>api.channel</code>, <code>api.log()</code>. Примеры событий: <code>chat.message</code>, <code>follow</code>, <code>raid</code>, <code>sub</code>, <code>resub</code>, <code>subgift</code>, <code>stream.online</code>, <code>stream.offline</code>, <code>tick</code> (раз в 20 сек). Как писать — в README, раздел «Модули».</p>
+        <div class="rp-row" style="margin-bottom:10px">
+          <button class="act ghost" id="modules-reload">⟳ Перечитать модули</button>
+          <span class="hint" id="modules-count"></span>
+        </div>
+        <div id="modules-list"></div>
+      </div>
+    </section>
+
+    <!-- ============ НАСТРОЙКИ ============ -->
+    <section id="tab-settings" class="tabpane">
+      <div class="card">
+        <h2>🔌 Приложение и канал</h2>
+        <div class="form">
+          <label>Каналы, где работает бот <span class="hint">— твой канал и любые другие, где боту дали модератора. <u>Не аккаунт самого бота!</u> Добавление/удаление применяется на ходу.</span></label>
+          <div class="chips" id="cfg-channels"></div>
+          <div class="qa">
+            <input id="cfg-channel-add" placeholder="ник канала на твиче…" maxlength="40" />
+            <button class="act" id="channel-add-btn">Добавить канал</button>
+          </div>
+          <div class="hint hidden" id="channel-self-warn">⚠️ В списке аккаунт самого бота — он будет слушать «свой» чат. Убери его и добавь именно свой канал!</div>
+          <label>Client ID приложения</label>
+          <input id="cfg-client-id" placeholder="из dev.twitch.tv/console" />
+          <label>Client Secret <span class="hint" id="cfg-secret-hint"></span></label>
+          <input id="cfg-client-secret" type="password" placeholder="оставь пустым, если уже задан" />
+          <label>Порт панели <span class="hint">(изменение — только после перезапуска)</span></label>
+          <input id="cfg-port" type="number" min="1024" max="65535" />
+          <button class="act" id="cfg-save">Сохранить</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>🤖 Аккаунт бота</h2>
+        <div id="auth-info" class="hint"></div>
+        <div class="authbtns">
+          <a class="act" id="auth-login" href="/auth/bot">Войти как бот</a>
+          <button class="act ghost" id="auth-logout">Выйти (сбросить токен)</button>
+        </div>
+        <p class="hint">Бот войдёт под тем аккаунтом, под которым залогинен Twitch в этом браузере. Нужен <u>аккаунт бота</u> — если браузер держит твой стримерский, открой ссылку в инкогнито (сначала залогинься в Twitch как бот).<br>
+        Учти: на канале бота нужно сделать модератором — <code>/mod имя_бота</code> в своём чате.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

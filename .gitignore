@@ -1,0 +1,7 @@
+# секреты и данные бота — в репозиторий никогда
+config.json
+data/
+overlay-media/
+node_modules/
+*.log
+*.tmp

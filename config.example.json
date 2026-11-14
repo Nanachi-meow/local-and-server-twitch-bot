@@ -1,0 +1,6 @@
+{
+  "port": 8080,
+  "channel": "имя_твоего_канала",
+  "clientId": "ClientID_из_консоли_разработчика",
+  "clientSecret": "ClientSecret_из_консоли_разработчика"
+}
