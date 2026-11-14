@@ -899,6 +899,73 @@ $('#t-body').addEventListener('click', async (e) => {
   } catch (err) { toast(err.message, true); }
 });
 
+// ---------------- оверлей (алерты для OBS) ----------------
+
+const OV_KINDS = [
+  ['follow', '💜 Фоллоу'],
+  ['sub', '🎉 Саб'],
+  ['resub', '💖 Продление'],
+  ['subgift', '🎁 Подарок'],
+  ['raid', '🚀 Рейд'],
+];
+
+let __mediaFiles = [];
+
+async function loadOverlaySettings() {
+  const [st, media] = await Promise.all([api('/api/settings'), api('/api/media')]);
+  const a = st.alerts ?? {};
+  __mediaFiles = media.files ?? [];
+  $('#ov-url').value = `${location.origin}/overlay`;
+  $('#ov-open').href = `${location.origin}/overlay?test=follow`;
+  $('#ov-enabled').checked = Boolean(a.enabled);
+  const body = $('#ov-body');
+  body.innerHTML = OV_KINDS.map(([kind, label]) => {
+    const c = a[kind] ?? {};
+    const soundOptions = ['<option value="">— без звука —</option>',
+      ...__mediaFiles.map((f) => `<option value="${esc(f)}" ${c.sound === f ? 'selected' : ''}>${esc(f)}</option>`)].join('');
+    return `
+    <tr data-kind="${kind}">
+      <td class="cellname">${label}</td>
+      <td class="cellresp"><input class="o-template" value="${esc(c.template || '')}" maxlength="200" /></td>
+      <td class="cellcd"><select class="o-sound">${soundOptions}</select></td>
+      <td class="cellcd"><input class="o-duration" type="number" min="2" max="20" value="${c.duration ?? 5}" /></td>
+      <td class="cellon"><input class="o-enabled" type="checkbox" ${c.enabled ? 'checked' : ''} /></td>
+      <td><button class="act o-test" title="показать в открытом оверлее">Тест</button></td>
+    </tr>`;
+  }).join('');
+}
+
+$('#ov-copy').addEventListener('click', async () => {
+  const v = $('#ov-url').value;
+  try { await navigator.clipboard.writeText(v); toast('Скопировано ✅'); }
+  catch { $('#ov-url').select(); toast('Выделила поле — Ctrl+C', true); }
+});
+
+$('#ov-save').addEventListener('click', async () => {
+  const alerts = { enabled: $('#ov-enabled').checked };
+  document.querySelectorAll('#ov-body tr[data-kind]').forEach((row) => {
+    alerts[row.dataset.kind] = {
+      enabled: row.querySelector('.o-enabled').checked,
+      template: row.querySelector('.o-template').value,
+      sound: row.querySelector('.o-sound').value,
+      duration: Number(row.querySelector('.o-duration').value) || 5,
+    };
+  });
+  try {
+    await putSettings({ alerts });
+    toast('Алерты сохранены ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#ov-body').addEventListener('click', async (e) => {
+  const row = e.target.closest('tr[data-kind]');
+  if (!row || !e.target.classList.contains('o-test')) return;
+  try {
+    await api('/api/actions/overlaytest', { method: 'POST', body: JSON.stringify({ kind: row.dataset.kind }) });
+    toast('Алерт отправлен — смотри оверлей (страница должна быть открыта)');
+  } catch (err) { toast(err.message, true); }
+});
+
 // ---------------- модули ----------------
 
 async function loadModules() {
@@ -1053,5 +1120,6 @@ handleHash();
 loadCommands().catch(() => {});
 loadSettings().catch(() => {});
 loadModules().catch(() => {});
+loadOverlaySettings().catch(() => {});
 poll();
 setInterval(poll, 2000);

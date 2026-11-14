@@ -26,6 +26,7 @@
     <button class="tab" data-tab="events">События</button>
     <button class="tab" data-tab="autoso">Автошатауты</button>
     <button class="tab" data-tab="timers">Таймеры</button>
+    <button class="tab" data-tab="overlay">📺 Оверлей</button>
     <button class="tab" data-tab="modules">🧩 Модули</button>
     <button class="tab" data-tab="settings">Настройки</button>
   </nav>
@@ -272,6 +273,30 @@
           </select>
           <button class="act" id="t-add-btn">Добавить</button>
         </div>
+      </div>
+    </section>
+
+    <!-- ============ ОВЕРЛЕЙ ============ -->
+    <section id="tab-overlay" class="tabpane">
+      <div class="card">
+        <h2>📺 Оверлей алертов для OBS</h2>
+        <p class="hint">В OBS: «Источники» → <b>+</b> → <b>Браузер</b> → в URL вставь адрес ниже (ш: 1920, в: 1080, галка «обновлять при активации» — по вкусу). Фон прозрачный. Звуки: кидай mp3/wav/ogg в папку <code>overlay-media/</code> проекта — появятся в списке. «Тест» показывает алерт прямо в оверлее (боту работать необязательно).</p>
+        <div class="addrow">
+          <input id="ov-url" class="wide" readonly />
+          <button class="act" id="ov-copy">Скопировать</button>
+          <a class="act ghost" id="ov-open" target="_blank">Открыть страницу</a>
+        </div>
+        <div class="evcard">
+          <label><input type="checkbox" id="ov-enabled" /> алерты включены</label>
+          <div class="row"><button class="act" id="ov-save">Сохранить</button></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>🔔 Всплывающие уведомления</h2>
+        <table class="cmds">
+          <thead><tr><th>Событие</th><th>Текст</th><th>Звук</th><th>Сек</th><th>Вкл</th><th></th></tr></thead>
+          <tbody id="ov-body"></tbody>
+        </table>
       </div>
     </section>
 

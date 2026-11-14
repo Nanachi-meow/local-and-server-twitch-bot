@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>Оверлей алертов — Twitch-бот</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: transparent; overflow: hidden;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+  #stage {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: flex-start;
+    padding-top: 6vh; gap: 18px;
+  }
+  .alert {
+    display: flex; align-items: center; gap: 18px;
+    padding: 18px 30px; border-radius: 18px;
+    background: rgba(10, 8, 20, 0.82);
+    border: 2px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 0 42px var(--glow, rgba(168, 85, 247, .55));
+    color: #fff; text-shadow: 0 2px 8px rgba(0, 0, 0, .6);
+    opacity: 0; transform: scale(.6) translateY(-16px);
+    animation: pop-in .45s cubic-bezier(.2, 1.6, .4, 1) forwards;
+    max-width: 82vw;
+  }
+  .alert.leaving { animation: pop-out .4s ease-in forwards; }
+  @keyframes pop-in {
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  @keyframes pop-out {
+    to { opacity: 0; transform: scale(.85) translateY(-10px); }
+  }
+  .alert .emoji { font-size: 54px; line-height: 1; }
+  .alert .text { font-size: 30px; font-weight: 700; letter-spacing: .3px; }
+  .alert .text small { display: block; font-size: 16px; font-weight: 500; opacity: .75; }
+  .k-follow  { --glow: rgba(168, 85, 247, .55); }
+  .k-sub     { --glow: rgba(34, 197, 94, .55); }
+  .k-resub   { --glow: rgba(236, 72, 153, .55); }
+  .k-subgift { --glow: rgba(250, 204, 21, .5); }
+  .k-raid    { --glow: rgba(59, 130, 246, .6); }
+  #conn {
+    position: fixed; left: 10px; bottom: 8px;
+    font-size: 13px; color: rgba(255, 255, 255, .45);
+    text-shadow: 0 1px 3px #000;
+  }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="conn">…</div>
+<script>
+  const EMOJI = { follow: '💜', sub: '🎉', resub: '💖', subgift: '🎁', raid: '🚀' };
+  const SUBLINE = { follow: 'новый фолловер', sub: 'новая подписка', resub: 'продление подписки', subgift: 'подаренная подписка', raid: 'рейд на канал' };
+  const KINDS = ['follow', 'sub', 'resub', 'subgift', 'raid'];
+  let cfg = { enabled: true };
+  const queue = [];
+  let active = 0;
+  const MAX_ACTIVE = 2;
+
+  async function loadCfg() {
+    try {
+      const r = await fetch('/api/settings');
+      cfg = (await r.json()).alerts ?? { enabled: true };
+    } catch {}
+  }
+  setInterval(loadCfg, 60_000);
+
+  function render(text, vars) {
+    return String(text ?? '')
+      .replace(/\{(\w+)\}/g, (_, k) => (vars[k] !== undefined && vars[k] !== null ? String(vars[k]) : ''));
+  }
+
+  function show(ev) {
+    const kindCfg = cfg?.[ev.kind];
+    if (!cfg?.enabled || !kindCfg?.enabled || !kindCfg?.template) return;
+    const vars = { channel: ev.channel, user: ev.user, viewers: ev.viewers, months: ev.months, recipient: ev.recipient };
+    const text = render(kindCfg.template, vars);
+    if (!text) return;
+
+    const el = document.createElement('div');
+    el.className = `alert k-${ev.kind}`;
+    el.innerHTML = `<div class="emoji">${EMOJI[ev.kind] || '✨'}</div>
+      <div class="text">${escapeHtml(text)}<small>${SUBLINE[ev.kind] || ''}${ev.channel ? ` · #${ev.channel}` : ''}</small></div>`;
+    document.getElementById('stage').appendChild(el);
+    active += 1;
+
+    if (kindCfg.sound) {
+      try {
+        const a = new Audio(`/media/${encodeURIComponent(kindCfg.sound)}?t=${Date.now()}`);
+        a.volume = 0.85;
+        a.play().catch(() => {});
+      } catch {}
+    }
+    const ms = Math.max(2, Math.min(20, Number(kindCfg.duration) || 5)) * 1000;
+    setTimeout(() => {
+      el.classList.add('leaving');
+      setTimeout(() => { el.remove(); active -= 1; pump(); }, 420);
+    }, ms);
+  }
+
+  function pump() {
+    while (queue.length && active < MAX_ACTIVE) show(queue.shift());
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  const es = new EventSource('/overlay/feed');
+  es.onopen = () => { document.getElementById('conn').textContent = ''; };
+  es.onerror = () => { document.getElementById('conn').textContent = 'нет связи с ботом…'; };
+  es.onmessage = (m) => {
+    try {
+      const ev = JSON.parse(m.data);
+      if (KINDS.includes(ev.kind)) {
+        queue.push(ev);
+        pump();
+      }
+    } catch {}
+  };
+
+  // режим позиционирования: /overlay?test=follow|sub|resub|subgift|raid
+  const params = new URLSearchParams(location.search);
+  if (params.get('test')) {
+    loadCfg().then(() => setTimeout(() => {
+      show({ kind: params.get('test'), channel: 'твой канал', user: 'ТестовыйЗритель', viewers: 42, months: 12, recipient: 'ТестовыйДруг' });
+    }, 800));
+  } else {
+    loadCfg();
+  }
+</script>
+</body>
+</html>

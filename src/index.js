@@ -5,6 +5,7 @@ import { CommandEngine, loadSettings } from './bot/commands.js';
 import { EventProcessor } from './bot/events.js';
 import { TimerRunner } from './bot/timers.js';
 import { ModuleManager } from './bot/modules.js';
+import { overlay } from './bot/alerts.js';
 import { createHttpServer } from './server.js';
 import { logs } from './logs.js';
 import {
@@ -295,6 +296,20 @@ const app = {
           .filter((t) => t.text);
       }
     }
+    // алерты оверлея (для OBS)
+    if (patch.alerts && typeof patch.alerts === 'object') {
+      const a = patch.alerts;
+      const cur = settings.alerts;
+      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      for (const kind of ['follow', 'sub', 'resub', 'subgift', 'raid']) {
+        const k = a[kind];
+        if (!k || typeof k !== 'object' || !cur[kind]) continue;
+        if (k.enabled !== undefined) cur[kind].enabled = Boolean(k.enabled);
+        if (k.template !== undefined) cur[kind].template = String(k.template).slice(0, 200);
+        if (k.sound !== undefined) cur[kind].sound = String(k.sound).replace(/[\\/]/g, '').slice(0, 120);
+        if (k.duration !== undefined) cur[kind].duration = Math.max(2, Math.min(20, Number(k.duration) || 5));
+      }
+    }
     saveJson(SETTINGS_FILE, settings);
   },
 
@@ -406,6 +421,17 @@ const app = {
         });
         if (!ran) throw new Error('Команда не найдена, выключена или на кулдауне');
         return { tested: cName, channel: ch.login };
+      }
+      case 'overlaytest': {
+        overlay.push({
+          kind: String(body.kind || 'follow'),
+          channel: channels.list()[0]?.login ?? null,
+          user: 'ТестовыйЗритель',
+          viewers: 42,
+          months: 12,
+          recipient: 'ТестовыйДруг',
+        });
+        return { tested: body.kind || 'follow' };
       }
       case 'modulesreload': {
         await modules.reload();

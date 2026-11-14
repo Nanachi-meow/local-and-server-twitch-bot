@@ -463,6 +463,16 @@ await mm.reload();
 ok('модуль: reload живой', mm.list().some((m) => m.name === 'mtest' && !m.error));
 mm.stop();
 
+// ---------- алерты оверлея: fire() пушит в шину ----------
+const { overlay } = await import('../src/bot/alerts.js');
+const ovCaptured = [];
+overlay.clients.add({ write: (s) => ovCaptured.push(String(s)) });
+await processor.fire('follow', { user: 'N' }, { broadcasterId: '200' });
+ok('алерт: follow уходит в шину оверлея', ovCaptured.some((s) => s.includes('"kind":"follow"') && s.includes('"user":"N"')));
+await processor2.onRaid({ user: 'R', login: 'rr', viewers: 5, toId: '100' });
+ok('алерт: raid уходит в шину оверлея', ovCaptured.some((s) => s.includes('"kind":"raid"')));
+overlay.clients.clear();
+
 console.log(`\nВсе ${passed} тестов прошли ✅`);
 fs.rmSync(process.env.BOT_DATA_DIR, { recursive: true, force: true });
 process.exit(0);

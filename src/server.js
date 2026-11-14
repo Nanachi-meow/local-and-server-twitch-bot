@@ -1,13 +1,23 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PUBLIC_DIR } from './store.js';
+import { PUBLIC_DIR, ROOT } from './store.js';
+import { overlay } from './bot/alerts.js';
 
 const STATIC = {
   '/': { file: 'index.html', type: 'text/html; charset=utf-8' },
   '/index.html': { file: 'index.html', type: 'text/html; charset=utf-8' },
   '/app.js': { file: 'app.js', type: 'text/javascript; charset=utf-8' },
   '/style.css': { file: 'style.css', type: 'text/css; charset=utf-8' },
+  '/overlay': { file: 'overlay.html', type: 'text/html; charset=utf-8' },
+};
+
+/** Папка с медиа-файлами для алертов (звуки/картинки). Файлы отдаются на /media/<имя>. */
+const MEDIA_DIR = path.join(ROOT, 'overlay-media');
+const MEDIA_EXT = {
+  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4',
+  '.mp4': 'video/mp4', '.webm': 'video/webm', '.gif': 'image/gif',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
 };
 
 const ANNOUNCE_COLORS = ['primary', 'blue', 'green', 'orange', 'purple'];
@@ -58,6 +68,55 @@ export function createHttpServer({ app }) {
       } catch {
         send(res, 404, 'not found');
       }
+      return;
+    }
+
+    // ---------- медиа-файлы алертов: /media/<имя> из папки overlay-media ----------
+    if (route.startsWith('/media/') && req.method === 'GET') {
+      const name = path.basename(decodeURIComponent(route.slice('/media/'.length)));
+      const ext = path.extname(name).toLowerCase();
+      const type = MEDIA_EXT[ext];
+      const full = path.join(MEDIA_DIR, name);
+      if (!type || !fs.existsSync(full)) {
+        send(res, 404, 'not found');
+        return;
+      }
+      try {
+        const body = fs.readFileSync(full);
+        send(res, 200, body, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+      } catch {
+        send(res, 404, 'not found');
+      }
+      return;
+    }
+
+    if (route === '/api/media' && req.method === 'GET') {
+      let files = [];
+      try {
+        files = fs.readdirSync(MEDIA_DIR)
+          .filter((f) => MEDIA_EXT[path.extname(f).toLowerCase()])
+          .sort();
+      } catch {}
+      sendJson(res, 200, { files });
+      return;
+    }
+
+    // ---------- оверлей: поток событий (SSE) ----------
+    if (route === '/overlay/feed' && req.method === 'GET') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-store',
+        Connection: 'keep-alive',
+      });
+      overlay.clients.add(res);
+      res.write(': welcome\n\n');
+      const keep = setInterval(() => {
+        try { res.write(': ping\n\n'); } catch {}
+      }, 25_000);
+      req.on('close', () => {
+        clearInterval(keep);
+        overlay.clients.delete(res);
+      });
       return;
     }
 

@@ -1,5 +1,6 @@
 import { renderTemplate } from './render.js';
 import { HelixError } from '../twitch/helix.js';
+import { overlay } from './alerts.js';
 
 export const EVENT_KINDS = ['follow', 'raid', 'sub', 'resub', 'subgift'];
 
@@ -202,6 +203,8 @@ export class EventProcessor {
   async fire(kind, vars = {}, { force = false, broadcasterId } = {}) {
     const bId = broadcasterId ?? this.ctx.broadcasterId;
     const channel = this.channels?.loginOf(bId) ?? this.ctx.channel;
+    // в шину оверлея событие уходит всегда — включённость алерта решает сам оверлей
+    overlay.push({ kind, channel, ...vars });
     const cfg = this.settings?.events?.[kind];
     const text = cfg ? renderTemplate(cfg.template, { channel, ...vars }) : '';
     if (!cfg || (!cfg.enabled && !force)) {

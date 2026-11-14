@@ -546,5 +546,14 @@ export function loadSettings() {
       ],
       ...(stored.timers ?? {}),
     },
+    alerts: {
+      enabled: true,
+      follow: { enabled: true, template: '💜 {user} зафолловил(а) канал!', sound: '', duration: 5 },
+      sub: { enabled: true, template: '🎉 {user} оформил(а) подписку!', sound: '', duration: 6 },
+      resub: { enabled: true, template: '💖 {user} продлил(а) подписку — уже {months} мес.!', sound: '', duration: 6 },
+      subgift: { enabled: true, template: '🎁 {user} дарит подписку → {recipient}!', sound: '', duration: 6 },
+      raid: { enabled: true, template: '🚀 РЕЙД от {user}! {viewers} зрителей с нами!', sound: '', duration: 7 },
+      ...(stored.alerts ?? {}),
+    },
   };
 }
