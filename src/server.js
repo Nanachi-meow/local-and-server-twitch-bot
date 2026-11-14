@@ -203,6 +203,11 @@ export function createHttpServer({ app }) {
       return;
     }
 
+    if (route === '/api/points' && req.method === 'GET') {
+      sendJson(res, 200, { top: app.points.top(20), settings: app.settings.points });
+      return;
+    }
+
     if (route === '/api/modules' && req.method === 'GET') {
       sendJson(res, 200, { modules: app.modules.list() });
       return;

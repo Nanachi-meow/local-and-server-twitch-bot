@@ -5,6 +5,7 @@ import { CommandEngine, loadSettings } from './bot/commands.js';
 import { EventProcessor } from './bot/events.js';
 import { TimerRunner } from './bot/timers.js';
 import { ModuleManager } from './bot/modules.js';
+import { PointsManager } from './bot/points.js';
 import { overlay } from './bot/alerts.js';
 import { createHttpServer } from './server.js';
 import { logs } from './logs.js';
@@ -61,10 +62,17 @@ commands.setModules(modules);
 await modules.load(); // файлы из modules/ — до старта сервера
 modules.start(); // тик 'tick' каждые 20с + автоподхват правок файлов
 
+const points = new PointsManager({ helix, auth, logs, settings, channels });
+commands.setPoints(points);
+points.start(); // начисление за просмотр + автосохранение
+
 const socket = new EventSocket({
   helix,
   onEvent: (type, event) => {
-    if (type === 'channel.chat.message') timers.noteChat(event); // счётчик для таймеров
+    if (type === 'channel.chat.message') {
+      timers.noteChat(event); // счётчик для таймеров
+      points.noteMessage(event?.chatter_user_login, event?.chatter_user_name); // бонус за сообщение
+    }
     processor.dispatch(type, event);
     modules.dispatch(type, event).catch(() => {}); // хуки модулей (ошибки логируются внутри)
   },
@@ -189,6 +197,7 @@ const app = {
   commands,
   processor,
   modules,
+  points,
   socket,
   logs,
   settings,
@@ -308,6 +317,44 @@ const app = {
         if (k.template !== undefined) cur[kind].template = String(k.template).slice(0, 200);
         if (k.sound !== undefined) cur[kind].sound = String(k.sound).replace(/[\\/]/g, '').slice(0, 120);
         if (k.duration !== undefined) cur[kind].duration = Math.max(2, Math.min(20, Number(k.duration) || 5));
+      }
+    }
+    // баллы/колесо/мем-магазин
+    if (patch.points && typeof patch.points === 'object') {
+      const a = patch.points;
+      const cur = settings.points;
+      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (a.intervalMin !== undefined) cur.intervalMin = Math.max(1, Math.min(60, Number(a.intervalMin) || 10));
+      if (a.amount !== undefined) cur.amount = Math.max(0, Math.min(1000, Number(a.amount) || 10));
+      if (a.perMessage !== undefined) cur.perMessage = Math.max(0, Math.min(10, Number(a.perMessage) || 0));
+    }
+    if (patch.wheel && typeof patch.wheel === 'object') {
+      const a = patch.wheel;
+      const cur = settings.wheel;
+      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (a.minBet !== undefined) cur.minBet = Math.max(1, Math.min(100_000, Number(a.minBet) || 10));
+      if (a.maxBet !== undefined) cur.maxBet = Math.max(cur.minBet, Math.min(1_000_000, Number(a.maxBet) || 1000));
+      if (a.cooldown !== undefined) cur.cooldown = Math.max(0, Math.min(3600, Number(a.cooldown) || 60));
+      if (Array.isArray(a.items)) {
+        cur.items = a.items.slice(0, 20).map((it) => ({
+          label: String(it?.label || '').trim().slice(0, 60),
+          weight: Math.max(0, Math.min(100, Number(it?.weight) || 0)),
+          multiplier: Math.max(0, Math.min(100, Number(it?.multiplier) || 0)),
+        })).filter((it) => it.label);
+      }
+    }
+    if (patch.memShop && typeof patch.memShop === 'object') {
+      const a = patch.memShop;
+      const cur = settings.memShop;
+      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (Array.isArray(a.items)) {
+        cur.items = a.items.slice(0, 30).map((it) => ({
+          name: String(it?.name || '').trim().toLowerCase().replace(/^!/, '').slice(0, 32),
+          price: Math.max(0, Math.min(1_000_000, Number(it?.price) || 0)),
+          text: String(it?.text || '').trim().slice(0, 200),
+          sound: String(it?.sound || '').replace(/[\\/]/g, '').slice(0, 120),
+          enabled: it?.enabled !== false,
+        })).filter((it) => it.name);
       }
     }
     saveJson(SETTINGS_FILE, settings);
@@ -523,6 +570,7 @@ const shutdown = async () => {
   commands.flushCounters();
   timers.stop();
   modules.stop();
+  points.stop();
   await socket.stop();
   server.close();
   process.exit(0);

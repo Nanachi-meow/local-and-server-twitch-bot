@@ -1,12 +1,14 @@
 import { COMMANDS_FILE, SETTINGS_FILE, loadJson, saveJson } from '../store.js';
-import { renderTemplate, fmtDuration, humanizeSince } from './render.js';
+import { renderTemplate, fmtDuration, humanizeSince, plural } from './render.js';
 import { HelixError } from '../twitch/helix.js';
+import { overlay } from './alerts.js';
 
 export const LEVELS = { everyone: 0, sub: 1, vip: 2, mod: 3, broadcaster: 4 };
 
 export const RESERVED = new Set([
   'commands', 'help', 'so', 'pin', 'unpin', 'announce', 'uptime', 'game', 'title',
   'followage', 'addcmd', 'editcmd', 'delcmd', 'bot',
+  'баллы', 'топ', 'дать', 'перевести', 'колесо', 'мем',
 ]);
 
 const NAME_RE = /^!?[A-Za-zА-Яа-яЁё0-9_\-]{1,32}$/;
@@ -66,6 +68,10 @@ export class CommandEngine {
 
   setModules(modules) {
     this.modules = modules;
+  }
+
+  setPoints(points) {
+    this.points = points;
   }
 
   // ---------------- хранилище ----------------
@@ -445,6 +451,88 @@ export class CommandEngine {
           await engine.say(session, `${user.display_name} с нами уже ${humanizeSince(follower.followed_at)}! 💜`);
         },
       },
+
+      // ---------- баллы канала ----------
+      баллы: {
+        level: 'everyone', label: 'баллы: !баллы [ник]',
+        async run(session, args) {
+          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
+          const who = (args[0] || session.login).replace(/^@/, '').toLowerCase();
+          const bal = engine.points.balance(who);
+          const known = engine.points.store[who];
+          await engine.say(session, who === session.login
+            ? `@${session.login}, у тебя ${bal} ${plural(bal, ['балл', 'балла', 'баллов'])} 💎`
+            : `${known?.name || who}: ${bal} ${plural(bal, ['балл', 'балла', 'баллов'])} 💎`);
+        },
+      },
+      топ: {
+        level: 'everyone', label: 'топ богачей канала',
+        async run(session) {
+          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
+          const rows = engine.points.top(5);
+          if (!rows.length) { await engine.say(session, 'Пока никто не накопил баллов — сиди в чате, они капают за просмотр 💎'); return; }
+          const text = rows.map((r, i) => `${i + 1}. ${r.login} — ${r.points}`).join(' | ');
+          await engine.say(session, `Топ баллов: ${text} 💎`);
+        },
+      },
+      дать: {
+        level: 'mod', label: 'выдать баллы: !дать @ник N (мод+)',
+        async run(session, args) {
+          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
+          const to = (args[0] || '').replace(/^@/, '').toLowerCase();
+          const n = Number(args[1]) || 0;
+          if (!to || n <= 0) { await engine.say(session, 'Использование: !дать @ник сколько'); return; }
+          engine.points.add(to, n);
+          await engine.say(session, `@${session.login} выдал(а) ${to} ${n} ${plural(n, ['балл', 'балла', 'баллов'])} 💎`);
+        },
+      },
+      перевести: {
+        level: 'everyone', label: 'передать баллы: !перевести @ник N',
+        async run(session, args) {
+          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
+          const to = (args[0] || '').replace(/^@/, '');
+          const n = Number(args[1]) || 0;
+          if (!to || n <= 0) { await engine.say(session, 'Использование: !перевести @ник сколько'); return; }
+          const r = engine.points.transfer(session.login, to, n);
+          if (!r.ok) { await engine.say(session, `@${session.login}, не вышло: ${r.error}`); return; }
+          await engine.say(session, `@${session.login} перевёл(а) ${n} ${plural(n, ['балл', 'балла', 'баллов'])} → @${r.to} 💎 (осталось ${r.balance})`);
+        },
+      },
+
+      // ---------- колесо-рулетка за баллы ----------
+      колесо: {
+        level: 'everyone', label: 'рулетка: !колесо N — крути на баллы',
+        async run(session, args) {
+          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
+          const cfg = engine.points.settings?.wheel ?? {};
+          const bet = Number(args[0]) || 0;
+          if (bet <= 0) { await engine.say(session, `Использование: !колесо ставка (от ${cfg.minBet ?? 10} до ${cfg.maxBet ?? 1000}) 🎡`); return; }
+          const r = engine.points.spin(session.login, session.displayName, bet);
+          if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
+          overlay.push({ kind: 'wheel', channel: null, user: session.displayName || session.login, text: `${session.displayName || session.login}: ${r.item.label}` });
+          const verdict = r.multiplier === 0
+            ? 'ставка сгорела 💥'
+            : r.multiplier === 1
+              ? 'ставка вернулась 🙂'
+              : `выигрыш x${r.multiplier}! 🎉`;
+          await engine.say(session, `🎡 ${session.displayName || session.login} поставил(а) ${r.bet} → ${r.item.label} — ${verdict} (баланс: ${engine.points.balance(session.login)})`);
+        },
+      },
+
+      // ---------- мем-магазин за баллы ----------
+      мем: {
+        level: 'everyone', label: 'купить мем-алерт: !мем [название]',
+        async run(session, args) {
+          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
+          const r = engine.points.buyMeme(session.login, session.displayName, args[0] ?? '');
+          if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
+          if (r.list) {
+            await engine.say(session, `Мем-магазин: ${r.list.slice(0, 6).join(' · ') || 'пусто'}. Покупка: !мем название 💎`);
+            return;
+          }
+          await engine.say(session, `@${session.login} купил(а) «${r.item.name}» за ${r.price} ${plural(r.price, ['балл', 'балла', 'баллов'])} — смотри стрим! 🎬 (осталось: ${engine.points.balance(session.login)})`);
+        },
+      },
       addcmd: {
         level: 'mod', label: 'добавить: !addcmd !имя <ответ> (мод+)',
         async run(session, args) {
@@ -553,7 +641,41 @@ export function loadSettings() {
       resub: { enabled: true, template: '💖 {user} продлил(а) подписку — уже {months} мес.!', sound: '', duration: 6 },
       subgift: { enabled: true, template: '🎁 {user} дарит подписку → {recipient}!', sound: '', duration: 6 },
       raid: { enabled: true, template: '🚀 РЕЙД от {user}! {viewers} зрителей с нами!', sound: '', duration: 7 },
+      meme: { enabled: true, duration: 6 },
+      wheel: { enabled: true, duration: 5 },
       ...(stored.alerts ?? {}),
+    },
+    points: {
+      enabled: true,
+      intervalMin: 10, // раз в столько минут — опрос чаттеров
+      amount: 10,      // столько баллов за интервал просмотра
+      perMessage: 1,   // бонус за сообщение в чате (0 = выкл)
+      ...(stored.points ?? {}),
+    },
+    wheel: {
+      enabled: true,
+      minBet: 10,
+      maxBet: 1000,
+      cooldown: 60, // сек между спинами одного юзера
+      items: [
+        { label: '💥 мимо', weight: 50, multiplier: 0 },
+        { label: '🙂 возврат ставки', weight: 20, multiplier: 1 },
+        { label: '✌️ x2', weight: 18, multiplier: 2 },
+        { label: '🔥 x3', weight: 8, multiplier: 3 },
+        { label: '🚀 x5', weight: 3.5, multiplier: 5 },
+        { label: '💎 ДЖЕКПОТ x10', weight: 0.5, multiplier: 10 },
+      ],
+      ...(stored.wheel ?? {}),
+    },
+    memShop: {
+      enabled: true,
+      items: [
+        { name: 'ричка', price: 150, text: '🐭 {user} запустил РИЧКУ!', sound: '', enabled: true },
+        { name: 'жаба', price: 200, text: '🐸 {user} напустил жабу в чат!', sound: '', enabled: true },
+        { name: 'кринж', price: 100, text: '😬 {user} оплатил сеанс кринжа', sound: '', enabled: true },
+        { name: 'пирамида', price: 300, text: '🔺 {user} построил пирамиду за баллы', sound: '', enabled: true },
+      ],
+      ...(stored.memShop ?? {}),
     },
   };
 }

@@ -41,6 +41,8 @@
   .k-resub   { --glow: rgba(236, 72, 153, .55); }
   .k-subgift { --glow: rgba(250, 204, 21, .5); }
   .k-raid    { --glow: rgba(59, 130, 246, .6); }
+  .k-meme    { --glow: rgba(249, 115, 22, .6); }
+  .k-wheel   { --glow: rgba(139, 92, 246, .65); }
   #conn {
     position: fixed; left: 10px; bottom: 8px;
     font-size: 13px; color: rgba(255, 255, 255, .45);
@@ -52,9 +54,9 @@
   <div id="stage"></div>
   <div id="conn">…</div>
 <script>
-  const EMOJI = { follow: '💜', sub: '🎉', resub: '💖', subgift: '🎁', raid: '🚀' };
-  const SUBLINE = { follow: 'новый фолловер', sub: 'новая подписка', resub: 'продление подписки', subgift: 'подаренная подписка', raid: 'рейд на канал' };
-  const KINDS = ['follow', 'sub', 'resub', 'subgift', 'raid'];
+  const EMOJI = { follow: '💜', sub: '🎉', resub: '💖', subgift: '🎁', raid: '🚀', meme: '🎬', wheel: '🎡' };
+  const SUBLINE = { follow: 'новый фолловер', sub: 'новая подписка', resub: 'продление подписки', subgift: 'подаренная подписка', raid: 'рейд на канал', meme: 'мем за баллы', wheel: 'колесо баллов' };
+  const KINDS = ['follow', 'sub', 'resub', 'subgift', 'raid', 'meme', 'wheel'];
   let cfg = { enabled: true };
   const queue = [];
   let active = 0;
@@ -75,9 +77,12 @@
 
   function show(ev) {
     const kindCfg = cfg?.[ev.kind];
-    if (!cfg?.enabled || !kindCfg?.enabled || !kindCfg?.template) return;
+    if (!cfg?.enabled || kindCfg?.enabled === false) return;
+    // мем/колесо несут готовый текст (и, у мема, свой звук) прямо в событии
+    const isInjected = ev.kind === 'meme' || ev.kind === 'wheel';
+    if (!isInjected && (!kindCfg?.enabled || !kindCfg?.template)) return;
     const vars = { channel: ev.channel, user: ev.user, viewers: ev.viewers, months: ev.months, recipient: ev.recipient };
-    const text = render(kindCfg.template, vars);
+    const text = isInjected ? (ev.text || '') : render(kindCfg.template, vars);
     if (!text) return;
 
     const el = document.createElement('div');
@@ -87,14 +92,15 @@
     document.getElementById('stage').appendChild(el);
     active += 1;
 
-    if (kindCfg.sound) {
+    const sound = (isInjected && ev.sound) || kindCfg?.sound || '';
+    if (sound) {
       try {
-        const a = new Audio(`/media/${encodeURIComponent(kindCfg.sound)}?t=${Date.now()}`);
+        const a = new Audio(`/media/${encodeURIComponent(sound)}?t=${Date.now()}`);
         a.volume = 0.85;
         a.play().catch(() => {});
       } catch {}
     }
-    const ms = Math.max(2, Math.min(20, Number(kindCfg.duration) || 5)) * 1000;
+    const ms = Math.max(2, Math.min(20, Number(kindCfg?.duration) || 5)) * 1000;
     setTimeout(() => {
       el.classList.add('leaving');
       setTimeout(() => { el.remove(); active -= 1; pump(); }, 420);

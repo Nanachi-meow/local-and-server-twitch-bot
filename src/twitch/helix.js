@@ -56,8 +56,7 @@ export class Helix {
 
   // ---------- users / streams ----------
 
-  async getUserByLogin(login) {
-    const key = String(login || '').toLowerCase();
+  async getUserByLogin(login) {    const key = String(login || '').toLowerCase();
     const cached = this._userCache.get(key);
     if (cached && Date.now() - cached.at < 10 * 60_000) return cached.user;
     const json = await this.call('GET', '/users', { query: { login: key } });
@@ -75,6 +74,21 @@ export class Helix {
     this._streamCache = this._streamCache ?? new Map();
     this._streamCache.set(key, { at: Date.now(), stream });
     return stream;
+  }
+
+  /** Активные зрители чата (для баллов за просмотр). Нужно: moderator:read:chatters + бот-модератор. */
+  async getChatters({ broadcasterId, moderatorId, limit = 500 }) {
+    const out = [];
+    let cursor;
+    for (let page = 0; page < 5 && out.length < limit; page += 1) {
+      const json = await this.call('GET', '/chat/chatters', {
+        query: { broadcaster_id: broadcasterId, moderator_id: moderatorId, first: 100, after: cursor },
+      });
+      for (const c of json?.data ?? []) out.push({ login: c.user_login, name: c.user_name });
+      cursor = json?.pagination?.cursor;
+      if (!cursor) break;
+    }
+    return out;
   }
 
   // ---------- chat ----------

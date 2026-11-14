@@ -26,6 +26,7 @@
     <button class="tab" data-tab="events">События</button>
     <button class="tab" data-tab="autoso">Автошатауты</button>
     <button class="tab" data-tab="timers">Таймеры</button>
+    <button class="tab" data-tab="points">💎 Баллы</button>
     <button class="tab" data-tab="overlay">📺 Оверлей</button>
     <button class="tab" data-tab="modules">🧩 Модули</button>
     <button class="tab" data-tab="settings">Настройки</button>
@@ -273,6 +274,58 @@
           </select>
           <button class="act" id="t-add-btn">Добавить</button>
         </div>
+      </div>
+    </section>
+
+    <!-- ============ БАЛЛЫ ============ -->
+    <section id="tab-points" class="tabpane">
+      <div class="card">
+        <h2>💎 Баллы канала</h2>
+        <p class="hint">Зрители копят баллы: за просмотр (бот опрашивает, кто в чате, раз в N минут — нужен скоуп <code>moderator:read:chatters</code>: при его нехватке в логе будет подсказка перезайти ботом) и за сообщения в чате. Тратят на <b>колесо</b> (<code>!колесо N</code>) и <b>мем-алерты</b> (<code>!мем название</code> — покупка всплывает в оверлее). Команды: <code>!баллы</code>, <code>!топ</code>, <code>!перевести @ник N</code>, <code>!дать @ник N</code> (мод+).</p>
+        <div class="evcard">
+          <label><input type="checkbox" id="pts-enabled" /> баллы включены</label>
+          <label>начислять каждые, минут <input type="number" id="pts-interval" min="1" max="60" style="width:70px" /></label>
+          <label>столько за интервал <input type="number" id="pts-amount" min="0" max="1000" style="width:70px" /></label>
+          <label>бонус за сообщение <input type="number" id="pts-permsg" min="0" max="10" style="width:60px" title="0 = выкл" /></label>
+          <div class="row"><button class="act" id="pts-save">Сохранить</button></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>🏆 Топ зрителей</h2>
+        <table class="cmds">
+          <thead><tr><th>#</th><th>Зритель</th><th>Баллы</th><th>Минут просмотра</th></tr></thead>
+          <tbody id="pts-top"></tbody>
+        </table>
+        <button class="act ghost" id="pts-refresh">Обновить</button>
+      </div>
+      <div class="card">
+        <h2>🎡 Колесо (рулетка за баллы)</h2>
+        <p class="hint">Взвешенная рулетка: вес = как часто выпадает, множитель ×N — во сколько раз вернётся ставка. Мем-алерт результата крутится в оверлее.</p>
+        <div class="evcard">
+          <label><input type="checkbox" id="wh-enabled" /> колесо включено</label>
+          <label>мин. ставка <input type="number" id="wh-min" min="1" style="width:70px" /></label>
+          <label>макс. ставка <input type="number" id="wh-max" min="1" style="width:80px" /></label>
+          <label>кулдаун, сек <input type="number" id="wh-cd" min="0" max="3600" style="width:70px" /></label>
+          <div class="row"><button class="act" id="wh-save">Сохранить</button></div>
+        </div>
+        <table class="cmds">
+          <thead><tr><th>Выпадает</th><th>Вес</th><th>Множитель</th></tr></thead>
+          <tbody id="wh-body"></tbody>
+        </table>
+        <button class="act ghost" id="wh-add">+ вариант</button>
+      </div>
+      <div class="card">
+        <h2>🎬 Мем-магазин (алерты за баллы)</h2>
+        <p class="hint">Зритель пишет <code>!мем название</code> → баллы списываются, на оверлей летит текст (со звуком, если выбран). Звуки — файлы в папке <code>overlay-media/</code>.</p>
+        <div class="evcard">
+          <label><input type="checkbox" id="ms-enabled" /> магазин включен</label>
+          <div class="row"><button class="act" id="ms-save">Сохранить</button></div>
+        </div>
+        <table class="cmds">
+          <thead><tr><th>Название</th><th>Текст алерта ({user})</th><th>Цена</th><th>Звук</th><th>Вкл</th><th></th></tr></thead>
+          <tbody id="ms-body"></tbody>
+        </table>
+        <button class="act ghost" id="ms-add">+ мем</button>
       </div>
     </section>
 

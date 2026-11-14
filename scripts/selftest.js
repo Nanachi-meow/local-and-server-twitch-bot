@@ -473,6 +473,66 @@ await processor2.onRaid({ user: 'R', login: 'rr', viewers: 5, toId: '100' });
 ok('алерт: raid уходит в шину оверлея', ovCaptured.some((s) => s.includes('"kind":"raid"')));
 overlay.clients.clear();
 
+// ---------- баллы канала ----------
+const { PointsManager } = await import('../src/bot/points.js');
+const fakeHelixPts = {
+  sendMessage: async (b) => { sent.push(b.text); return { message_id: 'm' }; },
+  getStreamByLogin: async (login) => (login === 'alpha' ? { started_at: new Date().toISOString(), game_name: 'G', title: 'T' } : null),
+  getChatters: async () => [{ login: 'vasya', name: 'Vasya' }, { login: 'petya', name: 'Petya' }],
+  getUserByLogin: async (login) => ({ id: '55', login, display_name: login }),
+};
+const ptsSettings = {
+  events: {},
+  points: { enabled: true, intervalMin: 10, amount: 10, perMessage: 1 },
+  wheel: { enabled: true, minBet: 10, maxBet: 1000, cooldown: 0, items: [{ label: 'x2', weight: 10, multiplier: 2 }] },
+  memShop: { enabled: true, items: [{ name: 'ричка', price: 150, text: '🐭 {user} запустил РИЧКУ!', sound: '', enabled: true }] },
+};
+const ptsDataFile = path.join(process.env.BOT_DATA_DIR, 'points.json');
+const pts = new PointsManager({ helix: fakeHelixPts, auth: fakeAuth, logs, settings: ptsSettings, channels: registry, dataFile: ptsDataFile });
+engine.setPoints(pts);
+
+pts.add('petya', 500, 'Petya');
+ok('баллы: add/balance', pts.balance('petya') === 500);
+ok('баллы: spend не пускает больше имеющегося', !pts.spend('petya', 600) && pts.spend('petya', 100) && pts.balance('petya') === 400);
+const tr = pts.transfer('petya', 'Vova', 50, 'Vova');
+ok('баллы: перевод работает', tr.ok && pts.balance('petya') === 350 && pts.balance('vova') === 50);
+
+await pts.accrueTick();
+ok('баллы: начисление зрителям живого канала (бота не считаем)', pts.balance('vasya') === 10 && pts.balance('petya') === 360);
+pts.noteMessage('vasya', 'Vasya');
+ok('баллы: бонус за сообщение', pts.balance('vasya') === 11);
+ok('баллы: топ сортирует', pts.top(2)[0].login === 'petya');
+pts.saveNow();
+ok('баллы: файл сохраняется', JSON.parse(fs.readFileSync(ptsDataFile, 'utf8')).petya.points === 360);
+
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!баллы', badges: [] });
+ok('баллы: !баллы отвечает балансом', sent.at(-1).includes('360') && sent.at(-1).includes('@petya'));
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!топ', badges: [] });
+ok('баллы: !топ отвечает списком', sent.at(-1).startsWith('Топ баллов:'));
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!перевести @vova 50', badges: [] });
+ok('баллы: !перевести списывает и начисляет', pts.balance('petya') === 310 && pts.balance('vova') === 100);
+await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!дать @petya 500', badges: [{ set_id: 'moderator' }] });
+ok('баллы: !дать (мод+) работает', pts.balance('petya') === 810);
+
+// колесо: единственный вариант x2 — детерминированно
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!колесо 100', badges: [] });
+ok('колесо: x2 удваивает ставку', pts.balance('petya') === 910 && sent.at(-1).includes('выигрыш x2'));
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!колесо 5', badges: [] });
+ok('колесо: минимальная ставка отсекается', sent.at(-1).includes('минимальная ставка'));
+
+// мем-магазин
+overlay.clients.add({ write: (s) => ovCaptured.push(String(s)) });
+ovCaptured.length = 0;
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!мем', badges: [] });
+ok('мем: без названия — список', sent.at(-1).includes('Мем-магазин') && sent.at(-1).includes('ричка'));
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!мем ричка', badges: [] });
+ok('мем: покупка списывает баллы', pts.balance('petya') === 910 - 150);
+ok('мем: алерт ушёл в оверлей с текстом', ovCaptured.some((s) => s.includes('"kind":"meme"') && s.includes('Petya запустил РИЧКУ')));
+pts.add('vasya', 5, 'Vasya');
+await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!мем ричка', badges: [] });
+ok('мем: не хватает баллов — отказ', sent.at(-1).includes('меньше') && pts.balance('vasya') === 16);
+pts.stop();
+
 console.log(`\nВсе ${passed} тестов прошли ✅`);
 fs.rmSync(process.env.BOT_DATA_DIR, { recursive: true, force: true });
 process.exit(0);

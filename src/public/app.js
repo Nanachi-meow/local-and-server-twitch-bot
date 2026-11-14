@@ -899,6 +899,145 @@ $('#t-body').addEventListener('click', async (e) => {
   } catch (err) { toast(err.message, true); }
 });
 
+// ---------------- баллы ----------------
+
+let __mediaList = [];
+
+async function loadPointsTab() {
+  const [pts, st, media] = await Promise.all([api('/api/points'), api('/api/settings'), api('/api/media')]);
+  __mediaList = media.files ?? [];
+  const p = st.points ?? {};
+  $('#pts-enabled').checked = Boolean(p.enabled);
+  $('#pts-interval').value = p.intervalMin ?? 10;
+  $('#pts-amount').value = p.amount ?? 10;
+  $('#pts-permsg').value = p.perMessage ?? 1;
+
+  $('#pts-top').innerHTML = (pts.top ?? []).map((r, i) => `
+    <tr><td>${i + 1}</td><td class="cellname">${esc(r.name || r.login)}</td>
+    <td>${r.points} 💎</td><td>${r.watchedMin ?? 0}</td></tr>`).join('')
+    || '<tr><td colspan="4" class="hint">Пока никто не накопил — баллы капают, когда ты стримишь и идёт чат</td></tr>';
+
+  // колесо
+  const w = st.wheel ?? {};
+  $('#wh-enabled').checked = Boolean(w.enabled);
+  $('#wh-min').value = w.minBet ?? 10;
+  $('#wh-max').value = w.maxBet ?? 1000;
+  $('#wh-cd').value = w.cooldown ?? 60;
+  $('#wh-body').innerHTML = (w.items ?? []).map((it) => `
+    <tr class="wh-row">
+      <td class="cellresp"><input class="wh-label" value="${esc(it.label)}" maxlength="60" /></td>
+      <td class="cellcd"><input class="wh-weight" type="number" min="0" max="100" step="0.5" value="${it.weight}" /></td>
+      <td class="cellcd"><input class="wh-mult" type="number" min="0" max="100" step="0.5" value="${it.multiplier}" /></td>
+      <td><button class="act ghost wh-del">🗑</button></td>
+    </tr>`).join('') || '<tr><td colspan="4" class="hint">вариантов нет — добавь ниже</td></tr>';
+
+  // мем-магазин
+  const m = st.memShop ?? {};
+  $('#ms-enabled').checked = Boolean(m.enabled);
+  const soundOpts = (files) => ['<option value="">— без звука —</option>',
+    ...(files ?? []).map((f) => `<option value="${esc(f)}">${esc(f)}</option>`)].join('');
+  $('#ms-body').innerHTML = (m.items ?? []).map((it) => `
+    <tr class="ms-row">
+      <td class="cellname"><input class="ms-name" value="${esc(it.name)}" maxlength="32" /></td>
+      <td class="cellresp"><input class="ms-text" value="${esc(it.text || '')}" maxlength="200" /></td>
+      <td class="cellcd"><input class="ms-price" type="number" min="0" value="${it.price ?? 100}" /></td>
+      <td class="cellcd"><select class="ms-sound">${soundOpts(__mediaList)}</select></td>
+      <td class="cellon"><input class="ms-enabled" type="checkbox" ${it.enabled !== false ? 'checked' : ''} /></td>
+      <td><button class="act ghost ms-del">🗑</button></td>
+    </tr>`).join('') || '<tr><td colspan="6" class="hint">мемов нет — добавь ниже</td></tr>';
+  // выбранные звуки подставим после рендера
+  document.querySelectorAll('#ms-body .ms-row').forEach((row, i) => {
+    const sel = row.querySelector('.ms-sound');
+    sel.value = (m.items ?? [])[i]?.sound || '';
+  });
+}
+
+$('#pts-refresh').addEventListener('click', () => loadPointsTab().catch(() => {}));
+
+$('#pts-save').addEventListener('click', async () => {
+  try {
+    await putSettings({
+      points: {
+        enabled: $('#pts-enabled').checked,
+        intervalMin: Number($('#pts-interval').value) || 10,
+        amount: Number($('#pts-amount').value) || 10,
+        perMessage: Number($('#pts-permsg').value) || 0,
+      },
+    });
+    toast('Баллы сохранены ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+function collectWheel() {
+  const items = [...document.querySelectorAll('#wh-body .wh-row')].map((row) => ({
+    label: row.querySelector('.wh-label').value,
+    weight: Number(row.querySelector('.wh-weight').value) || 0,
+    multiplier: Number(row.querySelector('.wh-mult').value) || 0,
+  })).filter((it) => it.label.trim());
+  return {
+    enabled: $('#wh-enabled').checked,
+    minBet: Number($('#wh-min').value) || 10,
+    maxBet: Number($('#wh-max').value) || 1000,
+    cooldown: Number($('#wh-cd').value) || 60,
+    items,
+  };
+}
+
+$('#wh-add').addEventListener('click', () => {
+  $('#wh-body').insertAdjacentHTML('beforeend', `
+    <tr class="wh-row">
+      <td class="cellresp"><input class="wh-label" placeholder="💎 x50" maxlength="60" /></td>
+      <td class="cellcd"><input class="wh-weight" type="number" min="0" max="100" step="0.5" value="1" /></td>
+      <td class="cellcd"><input class="wh-mult" type="number" min="0" max="100" step="0.5" value="2" /></td>
+      <td><button class="act ghost wh-del">🗑</button></td>
+    </tr>`);
+});
+
+$('#wh-save').addEventListener('click', async () => {
+  try {
+    await putSettings({ wheel: collectWheel() });
+    toast('Колесо сохранено ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#wh-body').addEventListener('click', (e) => {
+  if (e.target.classList.contains('wh-del')) e.target.closest('tr')?.remove();
+});
+
+function collectMemShop() {
+  const items = [...document.querySelectorAll('#ms-body .ms-row')].map((row) => ({
+    name: row.querySelector('.ms-name').value,
+    text: row.querySelector('.ms-text').value,
+    price: Number(row.querySelector('.ms-price').value) || 0,
+    sound: row.querySelector('.ms-sound').value,
+    enabled: row.querySelector('.ms-enabled').checked,
+  })).filter((it) => it.name.trim());
+  return { enabled: $('#ms-enabled').checked, items };
+}
+
+$('#ms-add').addEventListener('click', () => {
+  $('#ms-body').insertAdjacentHTML('beforeend', `
+    <tr class="ms-row">
+      <td class="cellname"><input class="ms-name" placeholder="мем" maxlength="32" /></td>
+      <td class="cellresp"><input class="ms-text" placeholder="🎬 {user} запустил мемивую штуку!" maxlength="200" /></td>
+      <td class="cellcd"><input class="ms-price" type="number" min="0" value="100" /></td>
+      <td class="cellcd"><select class="ms-sound">${'<option value="">— без звука —</option>' + __mediaList.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join('')}</select></td>
+      <td class="cellon"><input class="ms-enabled" type="checkbox" checked /></td>
+      <td><button class="act ghost ms-del">🗑</button></td>
+    </tr>`);
+});
+
+$('#ms-save').addEventListener('click', async () => {
+  try {
+    await putSettings({ memShop: collectMemShop() });
+    toast('Мем-магазин сохранён ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#ms-body').addEventListener('click', (e) => {
+  if (e.target.classList.contains('ms-del')) e.target.closest('tr')?.remove();
+});
+
 // ---------------- оверлей (алерты для OBS) ----------------
 
 const OV_KINDS = [
@@ -1121,5 +1260,6 @@ loadCommands().catch(() => {});
 loadSettings().catch(() => {});
 loadModules().catch(() => {});
 loadOverlaySettings().catch(() => {});
+loadPointsTab().catch(() => {});
 poll();
 setInterval(poll, 2000);
