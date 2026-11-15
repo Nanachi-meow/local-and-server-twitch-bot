@@ -650,6 +650,18 @@ export class CommandEngine {
   }
 }
 
+/** Нормализация настроек TTS-озвучки оверлея: enabled булево, rate 0.5–2, volume 0–1, имя голоса до 80 символов. */
+export function normalizeTts(t = {}) {
+  const rate = Number(t?.rate);
+  const volume = Number(t?.volume);
+  return {
+    enabled: Boolean(t?.enabled),
+    rate: Number.isFinite(rate) ? Math.max(0.5, Math.min(2, rate)) : 1,
+    volume: Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 1,
+    voiceName: String(t?.voiceName ?? '').trim().slice(0, 80),
+  };
+}
+
 export function loadSettings() {
   const stored = loadJson(SETTINGS_FILE, {}) ?? {};
   const events = {};
@@ -698,6 +710,7 @@ export function loadSettings() {
       raid: { enabled: true, template: '🚀 РЕЙД от {user}! {viewers} зрителей с нами!', sound: '', duration: 7 },
       meme: { enabled: true, duration: 6 },
       wheel: { enabled: true, duration: 5 },
+      tts: { enabled: false, rate: 1, volume: 1, voiceName: '' },
       ...(stored.alerts ?? {}),
     },
     points: {

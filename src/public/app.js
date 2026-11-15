@@ -1072,6 +1072,44 @@ async function loadOverlaySettings() {
       <td><button class="act o-test" title="показать в открытом оверлее">Тест</button></td>
     </tr>`;
   }).join('');
+  // TTS-блок «🔊 Озвучка»
+  const tts = a.tts ?? {};
+  $('#tts-enabled').checked = Boolean(tts.enabled);
+  $('#tts-rate').value = tts.rate ?? 1;
+  $('#tts-volume').value = tts.volume ?? 1;
+  fillTtsVoices(String(tts.voiceName ?? ''));
+}
+
+// список голосов берём из браузера панели (Web Speech API), русские — первыми
+function ttsVoices() {
+  try { return window.speechSynthesis?.getVoices?.() ?? []; } catch { return []; }
+}
+
+function fillTtsVoices(selected = '') {
+  const sel = $('#tts-voice');
+  if (!sel) return;
+  const voices = ttsVoices();
+  const hint = $('#tts-hint');
+  const opt = (v) => `<option value="${esc(v.name)}" ${v.name === selected ? 'selected' : ''}>${esc(v.name)}</option>`;
+  let html = '<option value="">— по умолчанию (первый русский) —</option>';
+  if (voices.length) {
+    const ru = voices.filter((v) => /^ru/i.test(String(v.lang || '')));
+    const other = voices.filter((v) => !/^ru/i.test(String(v.lang || '')));
+    html += (ru.length ? `<optgroup label="Русские">${ru.map(opt).join('')}</optgroup>` : '')
+      + (other.length ? `<optgroup label="Остальные">${other.map(opt).join('')}</optgroup>` : '');
+    // голос сохранён из другого браузера — держим значение, чтобы не потерялся при сохранении
+    if (selected && !voices.some((v) => v.name === selected)) {
+      html += `<option value="${esc(selected)}" selected>${esc(selected)} (нет в этом браузере)</option>`;
+    }
+    if (hint) hint.textContent = '';
+  } else if (hint) {
+    hint.textContent = 'speechSynthesis' in window ? 'голоса ещё грузятся — обновится само…' : 'браузер не поддерживает синтез речи';
+  }
+  sel.innerHTML = html;
+}
+
+if ('speechSynthesis' in window) {
+  speechSynthesis.addEventListener?.('voiceschanged', () => fillTtsVoices($('#tts-voice')?.value ?? ''));
 }
 
 $('#ov-copy').addEventListener('click', async () => {
@@ -1080,7 +1118,8 @@ $('#ov-copy').addEventListener('click', async () => {
   catch { $('#ov-url').select(); toast('Выделила поле — Ctrl+C', true); }
 });
 
-$('#ov-save').addEventListener('click', async () => {
+// сбор alerts ЦЕЛИКОМ (события + TTS) — один PUT сохраняет и то, и другое
+function collectAlerts() {
   const alerts = { enabled: $('#ov-enabled').checked };
   document.querySelectorAll('#ov-body tr[data-kind]').forEach((row) => {
     alerts[row.dataset.kind] = {
@@ -1090,10 +1129,46 @@ $('#ov-save').addEventListener('click', async () => {
       duration: Number(row.querySelector('.o-duration').value) || 5,
     };
   });
+  const rate = Number($('#tts-rate').value);
+  const volume = Number($('#tts-volume').value);
+  alerts.tts = {
+    enabled: $('#tts-enabled').checked,
+    rate: Number.isFinite(rate) ? rate : 1,
+    volume: Number.isFinite(volume) ? volume : 1, // 0 (тихо) валиден — не подменяем единицей
+    voiceName: $('#tts-voice').value,
+  };
+  return alerts;
+}
+
+$('#ov-save').addEventListener('click', async () => {
   try {
-    await putSettings({ alerts });
+    await putSettings({ alerts: collectAlerts() });
     toast('Алерты сохранены ✅');
   } catch (e) { toast(e.message, true); }
+});
+
+$('#tts-save').addEventListener('click', async () => {
+  try {
+    await putSettings({ alerts: collectAlerts() });
+    toast('Озвучка сохранена ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+// произнести тестовую фразу локально, без запроса к серверу
+$('#tts-test').addEventListener('click', () => {
+  if (!('speechSynthesis' in window)) { toast('Этот браузер не умеет синтез речи', true); return; }
+  try {
+    const u = new SpeechSynthesisUtterance('Тест озвучки: Няшка оформила подписку на канал!');
+    const name = $('#tts-voice').value;
+    const v = (name ? ttsVoices().find((x) => x.name === name) : ttsVoices().find((x) => /^ru/i.test(String(x.lang || '')))) || null;
+    if (v) { u.voice = v; u.lang = v.lang || 'ru-RU'; }
+    const rate = Number($('#tts-rate').value);
+    const volume = Number($('#tts-volume').value);
+    u.rate = Number.isFinite(rate) ? Math.max(0.5, Math.min(2, rate)) : 1;
+    u.volume = Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 1;
+    speechSynthesis.cancel(); // повторное нажатие не копит проверки
+    speechSynthesis.speak(u);
+  } catch { toast('Не удалось произнести — синтез речи недоступен', true); }
 });
 
 $('#ov-body').addEventListener('click', async (e) => {

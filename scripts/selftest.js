@@ -575,6 +575,26 @@ let quoteReservedThrew = false;
 try { engine.upsert({ name: 'цитата', response: 'хак' }); } catch { quoteReservedThrew = true; }
 ok('цитата: имя зарезервировано за встроенной', quoteReservedThrew && RESERVED.has('цитата'));
 
+// ---------- TTS-озвучка оверлея: дефолты и нормализация ----------
+const { loadSettings, normalizeTts } = await import('../src/bot/commands.js');
+const ttsDef = loadSettings().alerts.tts;
+ok('tts: дефолты в loadSettings (alerts.tts)', ttsDef.enabled === false && ttsDef.rate === 1 && ttsDef.volume === 1 && ttsDef.voiceName === '');
+
+const ntts = normalizeTts({ enabled: 1, rate: 10, volume: -1, voiceName: `  ${'Г'.repeat(100)}` });
+ok('tts: normalizeTts клампит rate/volume и режет имя голоса', ntts.enabled === true && ntts.rate === 2 && ntts.volume === 0 && ntts.voiceName.length === 80 && ntts.voiceName.startsWith('Г'));
+
+ok('tts: мусор и пустой объект → дефолты, volume 0 не превращается в 1',
+  normalizeTts().enabled === false && normalizeTts(undefined).rate === 1
+  && normalizeTts({ rate: 'abc', volume: 'x' }).volume === 1
+  && normalizeTts({ volume: 0 }).volume === 0);
+
+fs.mkdirSync(process.env.BOT_DATA_DIR, { recursive: true });
+const ttsSettingsFile = path.join(process.env.BOT_DATA_DIR, 'settings.json');
+fs.writeFileSync(ttsSettingsFile, JSON.stringify({ alerts: { tts: { enabled: true, rate: 1.5, volume: 0.3, voiceName: 'Milena' } } }), 'utf8');
+const ttsStored = loadSettings().alerts.tts;
+ok('tts: сохранённые значения переопределяют дефолты (merge)', ttsStored.enabled === true && ttsStored.rate === 1.5 && ttsStored.volume === 0.3 && ttsStored.voiceName === 'Milena');
+fs.rmSync(ttsSettingsFile, { force: true });
+
 console.log(`\nВсе ${passed} тестов прошли ✅`);
 fs.rmSync(process.env.BOT_DATA_DIR, { recursive: true, force: true });
 process.exit(0);

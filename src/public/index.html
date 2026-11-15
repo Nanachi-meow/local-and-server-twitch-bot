@@ -351,6 +351,26 @@
           <tbody id="ov-body"></tbody>
         </table>
       </div>
+      <div class="card">
+        <h2>🔊 Озвучка (TTS)</h2>
+        <p class="hint">Оверлей произносит текст каждого показанного алерта (фоллоу/саб/…/мем/колесо) встроенным голосом браузера — Web Speech API, ничего не скачивается. Список голосов берётся из браузера, где открыта эта панель; в оверлее голос подбирается по имени, а если его там нет — первый русский. Несколько алертов озвучиваются по очереди, не перебивая друг друга. Выключить озвучку на конкретной странице: добавь к адресу оверлея <code>?tts=0</code>.</p>
+        <div class="evcard">
+          <label><input type="checkbox" id="tts-enabled" /> озвучивать алерты</label>
+          <div class="row">
+            <span class="hint">скорость (0.5–2)</span>
+            <input id="tts-rate" type="number" min="0.5" max="2" step="0.1" value="1" style="width:90px" />
+            <span class="hint">громкость (0–1)</span>
+            <input id="tts-volume" type="number" min="0" max="1" step="0.1" value="1" style="width:90px" />
+          </div>
+          <label>голос</label>
+          <select id="tts-voice"></select>
+          <div class="row">
+            <button class="act" id="tts-save">Сохранить</button>
+            <button class="act ghost" id="tts-test">Проверить голос</button>
+            <span class="hint" id="tts-hint"></span>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- ============ МОДУЛИ ============ -->
