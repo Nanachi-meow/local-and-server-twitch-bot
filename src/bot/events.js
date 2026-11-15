@@ -50,7 +50,18 @@ export class EventProcessor {
     return String(bId) === String(this.ctx.broadcasterId);
   }
 
+  /** Критик: подметаем старые записи, если карта распухлась. */
+  _pruneRecent(map, ttlMs) {
+    if (map.size < 200) return;
+    const cut = Date.now() - ttlMs;
+    for (const [k, ts] of map) if (ts < cut) map.delete(k);
+  }
+
   async dispatch(type, event) {
+    // критик: дедап-карты не должны расти бесконечно — подметаем изредка
+    this._pruneRecent(this._recentRaids, 3_600_000);
+    this._pruneRecent(this._recentFollows, 3_600_000);
+    this._pruneRecent(this._autoSo, 86_400_000);
     switch (type) {
       case 'channel.chat.message':
         await this.onChatMessage(event);

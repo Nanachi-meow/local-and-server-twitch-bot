@@ -174,8 +174,12 @@ export class CommandEngine {
   }
 
   flushCounters() {
+    // критик: ошибка файловой системы не должна ронять бота
     if (!this.custom.some((c) => c.count > 0)) return;
-    saveJson(COMMANDS_FILE, this.custom);
+    try { saveJson(COMMANDS_FILE, this.custom); } catch {}
+    // критик: кулдаун-карта растёт вечно — подметаем протухшие (макс. кулдаун 3600с)
+    const cut = Date.now() - 3_600_000;
+    for (const [k, ts] of this._cool) if (ts < cut) this._cool.delete(k);
   }
 
   // ---------------- обработка сообщений чата ----------------
@@ -497,7 +501,7 @@ export class CommandEngine {
           const to = (args[0] || '').replace(/^@/, '');
           const n = Number(args[1]) || 0;
           if (!to || n <= 0) { await engine.say(session, 'Использование: !перевести @ник сколько'); return; }
-          const r = engine.points.transfer(session.login, to, n);
+          const r = await engine.points.transfer(session.login, to, n);
           if (!r.ok) { await engine.say(session, `@${session.login}, не вышло: ${r.error}`); return; }
           await engine.say(session, `@${session.login} перевёл(а) ${n} ${plural(n, ['балл', 'балла', 'баллов'])} → @${r.to} 💎 (осталось ${r.balance})`);
         },

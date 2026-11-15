@@ -39,7 +39,7 @@ export class Helix {
         Authorization: `Bearer ${token}`,
       };
       if (body !== undefined) headers['Content-Type'] = 'application/json';
-      return fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+      return fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
     };
     let res = await doFetch();
     if (res.status === 401) {
@@ -61,7 +61,11 @@ export class Helix {
     if (cached && Date.now() - cached.at < 10 * 60_000) return cached.user;
     const json = await this.call('GET', '/users', { query: { login: key } });
     const user = json?.data?.[0] ?? null;
-    if (user) this._userCache.set(key, { at: Date.now(), user });
+    if (user) {
+      this._userCache.set(key, { at: Date.now(), user });
+      // критик: кэш растёт бесконечно — держим разумный размер
+      if (this._userCache.size > 300) this._userCache.delete(this._userCache.keys().next().value);
+    }
     return user;
   }
 
@@ -211,8 +215,13 @@ export class Helix {
 
   /** Не спамим: минимум 1.5с между исходящими сообщениями (лимит обычного бота 20/30с). */
   _enqueue(job) {
+    // критик: очередь без капа копится при лежащем Twitch — режем хвост
+    while (this._sendQueue.length >= 20) {
+      const dropped = this._sendQueue.shift();
+      dropped.reject(new HelixError('Очередь отправки переполнена — сообщение отброшено', 429));
+    }
     return new Promise((resolve, reject) => {
-      this._sendQueue.push({ job, resolve, reject });
+      this._sendQueue.push({ job, resolve, reject, at: Date.now() });
       this._drain();
     });
   }
@@ -222,7 +231,12 @@ export class Helix {
     this._draining = true;
     try {
       while (this._sendQueue.length) {
-        const { job, resolve, reject } = this._sendQueue.shift();
+        const { job, resolve, reject, at } = this._sendQueue.shift();
+        // протухшие задания (провайдер лежал) не отправляем — не выплёвываем стенные реплики часами
+        if (Date.now() - at > 120_000) {
+          reject(new HelixError('Сообщение устарело в очереди отправки', 429));
+          continue;
+        }
         const wait = this._lastSendAt ? 1500 - (Date.now() - this._lastSendAt) : 0;
         if (wait > 0) await sleep(wait);
         try {

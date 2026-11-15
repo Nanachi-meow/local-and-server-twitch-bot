@@ -123,7 +123,7 @@
     const el = document.createElement('div');
     el.className = `alert k-${ev.kind}`;
     el.innerHTML = `<div class="emoji">${EMOJI[ev.kind] || '✨'}</div>
-      <div class="text">${escapeHtml(text)}<small>${SUBLINE[ev.kind] || ''}${ev.channel ? ` · #${ev.channel}` : ''}</small></div>`;
+      <div class="text">${escapeHtml(text)}<small>${SUBLINE[ev.kind] || ''}${ev.channel ? ` · #${escapeHtml(ev.channel)}` : ''}</small></div>`;
     document.getElementById('stage').appendChild(el);
     active += 1;
 

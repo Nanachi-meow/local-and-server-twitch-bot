@@ -335,7 +335,10 @@ const app = {
       const a = patch.points;
       const cur = settings.points;
       if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
-      if (a.intervalMin !== undefined) cur.intervalMin = Math.max(1, Math.min(60, Number(a.intervalMin) || 10));
+      if (a.intervalMin !== undefined) {
+        cur.intervalMin = Math.max(1, Math.min(60, Number(a.intervalMin) || 10));
+        points.rearm(); // критик: интервал применяется сразу, без перезапуска
+      }
       if (a.amount !== undefined) cur.amount = Math.max(0, Math.min(1000, Number(a.amount) || 10));
       if (a.perMessage !== undefined) cur.perMessage = Math.max(0, Math.min(10, Number(a.perMessage) || 0));
     }

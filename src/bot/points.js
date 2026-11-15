@@ -38,7 +38,9 @@ export class PointsManager {
   add(login, delta, name = '') {
     const key = this._ensure(login, name);
     if (!key) return 0;
-    this.store[key].points = Math.max(0, Math.round((this.store[key].points || 0) + delta));
+    const d = Math.round(Number(delta));
+    if (!Number.isFinite(d) || d === 0) return this.store[key].points || 0; // критик: !дать 1e400 не ломает баланс
+    this.store[key].points = Math.max(0, Math.min(1_000_000_000, (this.store[key].points || 0) + d));
     this._dirty = true;
     return this.store[key].points;
   }
@@ -50,18 +52,27 @@ export class PointsManager {
   spend(login, amount) {
     const key = this._ensure(login);
     if (!key) return false;
-    const n = Math.round(Number(amount) || 0);
-    if (n <= 0 || (this.store[key].points || 0) < n) return false;
+    const n = Math.round(Number(amount));
+    if (!Number.isFinite(n) || n <= 0 || (this.store[key].points || 0) < n) return false;
     this.store[key].points -= n;
     this._dirty = true;
     return true;
   }
 
-  transfer(from, to, amount, toName = '') {
+  async transfer(from, to, amount, toName = '') {
     const f = String(from || '').toLowerCase().replace(/^@/, '');
+    const n = Math.round(Number(amount));
+    if (!Number.isFinite(n) || n <= 0) return { ok: false, error: 'не та сумма' };
+    // критик: не создаём мёртвый кошелёк на опечатку — проверяем, что получатель существует
+    if (this.helix?.getUserByLogin) {
+      try {
+        const u = await this.helix.getUserByLogin(String(to || '').replace(/^@/, ''));
+        if (!u) return { ok: false, error: `не знаю пользователя "${to}" 🤷` };
+        toName = u.display_name || toName;
+      } catch { /* API недоступен — не блокируем перевод */ }
+    }
     const t = this._ensure(to, toName);
-    const n = Math.round(Number(amount) || 0);
-    if (!t || f === t || n <= 0) return { ok: false, error: 'не тот получатель или сумма' };
+    if (!t || f === t) return { ok: false, error: 'не тот получатель' };
     if ((this.store[f]?.points || 0) < n) return { ok: false, error: 'не хватает баллов' };
     this.store[f].points -= n;
     this.store[t].points = (this.store[t].points || 0) + n;
@@ -88,11 +99,18 @@ export class PointsManager {
   // ---------------- начисление ----------------
 
   start() {
-    if (this._timer) return;
-    const tickMs = Math.max(1, Number(this.settings?.points?.intervalMin ?? 10)) * 60_000;
-    this._timer = setInterval(() => { this.accrueTick().catch(() => {}); }, tickMs);
-    this._flush = setInterval(() => this.saveNow(), 15_000);
+    if (!this._timer) {
+      const tickMs = Math.max(1, Number(this.settings?.points?.intervalMin ?? 10)) * 60_000;
+      this._timer = setInterval(() => { this.accrueTick().catch(() => {}); }, tickMs);
+    }
+    if (!this._flush) this._flush = setInterval(() => this.saveNow(), 15_000);
     if (!fs.existsSync(path.dirname(this.dataFile))) this._dataDirOk = false;
+  }
+
+  /** Критик: смена интервала в панели применяется без перезапуска бота. */
+  rearm() {
+    if (this._timer) { clearInterval(this._timer); this._timer = null; }
+    this.start();
   }
 
   stop() {
@@ -104,7 +122,10 @@ export class PointsManager {
 
   /** Бонус за сообщение в чате (мелкий, настройка points.perMessage; 0 = выкл). */
   noteMessage(login, name = '') {
-    const per = Number(this.settings?.points?.perMessage ?? 1) || 0;
+    const cfg = this.settings?.points; // критик: выключенные баллы не капают, сам себя бот не начисляет
+    if (!cfg?.enabled) return;
+    if (!login || String(login).toLowerCase() === String(this.auth?.tokens?.login || '').toLowerCase()) return;
+    const per = Math.max(0, Math.min(10, Number(cfg.perMessage ?? 1) || 0));
     if (!per) return;
     this.add(login, per, name);
   }
@@ -152,9 +173,10 @@ export class PointsManager {
       const left = Math.ceil((cd * 1000 - (Date.now() - last)) / 1000);
       return { error: `охлади пыл — следующий спин через ${left} сек` };
     }
+    const items = (cfg.items ?? []).filter((x) => x && Number(x.weight) > 0);
+    if (!items.length) return { error: 'колесо не настроено: нет вариантов с весом — ставка не списана' }; // критик: не жжём ставку
     if (!this.spend(login, b)) return { error: 'не хватает баллов' };
 
-    const items = (cfg.items ?? []).filter((x) => x && Number(x.weight) > 0);
     const total = items.reduce((s, x) => s + Number(x.weight), 0);
     let roll = Math.random() * total;
     let picked = items[items.length - 1];
@@ -166,6 +188,10 @@ export class PointsManager {
     const delta = mult * b - b; // чистое изменение (ставка уже списана)
     if (mult > 0) this.add(login, mult * b, name);
     this._wheelLast.set(String(login).toLowerCase(), Date.now());
+    if (this._wheelLast.size > 500) {
+      const cut = Date.now() - 86_400_000;
+      for (const [k, ts] of this._wheelLast) if (ts < cut) this._wheelLast.delete(k);
+    }
     return { item: picked, delta, bet: b, multiplier: mult };
   }
 
@@ -182,6 +208,7 @@ export class PointsManager {
       return { list: items.map((x) => `${x.name} — ${x.price}${x.text ? ` (${x.text})` : ''}`) };
     }
     const price = Math.max(0, Number(item.price ?? 0));
+    if (!overlay.clients.size) return { error: 'оверлей не открыт (добавь его в OBS или открой в браузере) — баллы не списаны' }; // критик: не жжём баллы в никуда
     if (!this.spend(login, price)) return { error: `нужно ${price} баллов, а у тебя меньше` };
     const who = name || login;
     overlay.push({

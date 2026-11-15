@@ -479,7 +479,7 @@ const fakeHelixPts = {
   sendMessage: async (b) => { sent.push(b.text); return { message_id: 'm' }; },
   getStreamByLogin: async (login) => (login === 'alpha' ? { started_at: new Date().toISOString(), game_name: 'G', title: 'T' } : null),
   getChatters: async () => [{ login: 'vasya', name: 'Vasya' }, { login: 'petya', name: 'Petya' }],
-  getUserByLogin: async (login) => ({ id: '55', login, display_name: login }),
+  getUserByLogin: async (login) => (String(login).toLowerCase() === 'неведомыйник' ? null : ({ id: '55', login, display_name: login })),
 };
 const ptsSettings = {
   events: {},
@@ -494,7 +494,7 @@ engine.setPoints(pts);
 pts.add('petya', 500, 'Petya');
 ok('баллы: add/balance', pts.balance('petya') === 500);
 ok('баллы: spend не пускает больше имеющегося', !pts.spend('petya', 600) && pts.spend('petya', 100) && pts.balance('petya') === 400);
-const tr = pts.transfer('petya', 'Vova', 50, 'Vova');
+const tr = await pts.transfer('petya', 'Vova', 50, 'Vova');
 ok('баллы: перевод работает', tr.ok && pts.balance('petya') === 350 && pts.balance('vova') === 50);
 
 await pts.accrueTick();
@@ -531,6 +531,42 @@ ok('мем: алерт ушёл в оверлей с текстом', ovCaptured
 pts.add('vasya', 5, 'Vasya');
 await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!мем ричка', badges: [] });
 ok('мем: не хватает баллов — отказ', sent.at(-1).includes('меньше') && pts.balance('vasya') === 16);
+
+// ---------- фиксы по ревью критика ----------
+// колесо без весов не жжёт ставку
+const savedWheelCfg = ptsSettings.wheel;
+ptsSettings.wheel = { enabled: true, minBet: 10, maxBet: 1000, cooldown: 0, items: [{ label: 'пусто', weight: 0, multiplier: 0 }] };
+pts.add('petya', 100, 'Petya');
+const petyaBeforeZeroWheel = pts.balance('petya');
+const spinBroken = pts.spin('petya', 'Petya', 50);
+ok('критик: колесо без весов — отказ без списания', Boolean(spinBroken.error) && pts.balance('petya') === petyaBeforeZeroWheel);
+ptsSettings.wheel = savedWheelCfg;
+
+// бонусы за сообщения гейтятся, бот сам себе не капает
+ptsSettings.points.enabled = false;
+pts.noteMessage('girl', 'Girl');
+ok('критик: выключенные баллы не капают за сообщения', pts.balance('girl') === 0);
+ptsSettings.points.enabled = true;
+pts.noteMessage('testbot', 'Bot');
+ok('критик: сам бот не начисляет себе баллы', pts.balance('testbot') === 0);
+pts.noteMessage('girl', 'Girl');
+ok('критик: сообщение зрителя капает', pts.balance('girl') === 1);
+
+// Infinity не ломает кошелёк
+pts.add('petya', Infinity, 'Petya');
+pts.add('petya', NaN, 'Petya');
+ok('критик: !дать 1e400 не делает баланс бесконечным', Number.isFinite(pts.balance('petya')));
+
+// перевод несуществующему отклонён, кошелёк не создаётся
+const badTr = await pts.transfer('petya', 'неведомыйник', 10);
+ok('критик: перевод на несуществующий ник — отказ', badTr.ok === false && !pts.store['неведомыйник']);
+
+// мем при закрытом оверлее — баллы не списаны
+overlay.clients.clear();
+const balBeforeMemeNoOverlay = pts.balance('petya');
+const memeFail = pts.buyMeme('petya', 'Petya', 'ричка');
+ok('критик: мем без открытого оверлея — отказ без списания', Boolean(memeFail.error) && pts.balance('petya') === balBeforeMemeNoOverlay);
+overlay.clients.add({ write: (s) => ovCaptured.push(String(s)) });
 pts.stop();
 
 // ---------- цитаты ----------
