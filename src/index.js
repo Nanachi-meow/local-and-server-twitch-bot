@@ -368,6 +368,7 @@ const app = {
       const a = patch.memShop;
       const cur = settings.memShop;
       if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (a.cooldown !== undefined) cur.cooldown = Math.max(0, Math.min(3600, Number(a.cooldown) || 0));
       if (Array.isArray(a.items)) {
         cur.items = a.items.slice(0, 30).map((it) => ({
           name: String(it?.name || '').trim().toLowerCase().replace(/^!/, '').slice(0, 32),

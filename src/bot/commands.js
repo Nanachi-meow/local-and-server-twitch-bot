@@ -878,6 +878,7 @@ export function loadSettings() {
     },
     memShop: {
       enabled: true,
+      cooldown: 30, // сек между покупками одного зрителя (критик: без капа — спам алертами/TTS)
       items: [
         { name: 'ричка', price: 150, text: '🐭 {user} запустил РИЧКУ!', sound: '', enabled: true },
         { name: 'жаба', price: 200, text: '🐸 {user} напустил жабу в чат!', sound: '', enabled: true },

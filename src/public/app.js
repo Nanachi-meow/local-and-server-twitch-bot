@@ -934,6 +934,7 @@ async function loadPointsTab() {
   // мем-магазин
   const m = st.memShop ?? {};
   $('#ms-enabled').checked = Boolean(m.enabled);
+  $('#ms-cooldown').value = m.cooldown ?? 30;
   const soundOpts = (files) => ['<option value="">— без звука —</option>',
     ...(files ?? []).map((f) => `<option value="${esc(f)}">${esc(f)}</option>`)].join('');
   $('#ms-body').innerHTML = (m.items ?? []).map((it) => `
@@ -1012,7 +1013,7 @@ function collectMemShop() {
     sound: row.querySelector('.ms-sound').value,
     enabled: row.querySelector('.ms-enabled').checked,
   })).filter((it) => it.name.trim());
-  return { enabled: $('#ms-enabled').checked, items };
+  return { enabled: $('#ms-enabled').checked, cooldown: Number($('#ms-cooldown').value) || 0, items };
 }
 
 $('#ms-add').addEventListener('click', () => {

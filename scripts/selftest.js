@@ -567,6 +567,15 @@ const balBeforeMemeNoOverlay = pts.balance('petya');
 const memeFail = pts.buyMeme('petya', 'Petya', 'ричка');
 ok('критик: мем без открытого оверлея — отказ без списания', Boolean(memeFail.error) && pts.balance('petya') === balBeforeMemeNoOverlay);
 overlay.clients.add({ write: (s) => ovCaptured.push(String(s)) });
+
+// мем-магазин: кулдаун покупок (критик)
+pts.settings.memShop.cooldown = 60;
+const memeOk1 = pts.buyMeme('petya', 'Petya', 'ричка');
+ok('критик: мем-магазин — первая покупка проходит', !memeOk1.error);
+const memeCd = pts.buyMeme('petya', 'Petya', 'ричка');
+ok('критик: мем-магазин — кулдаун держит повтор', Boolean(memeCd.error) && memeCd.error.includes('подожди'));
+pts.settings.memShop.cooldown = 0;
+
 pts.stop();
 
 // ---------- цитаты ----------

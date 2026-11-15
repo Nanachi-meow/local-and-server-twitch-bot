@@ -201,6 +201,22 @@ export class PointsManager {
   buyMeme(login, name, itemName) {
     const cfg = this.settings?.memShop;
     if (!cfg?.enabled) return { error: 'магазин выключен' };
+    // критик: кулдаун покупок — без него TTS и алерты задолбают чат
+    const cd = Math.max(0, Math.min(3600, Number(cfg.cooldown ?? 0)));
+    if (cd) {
+      const key = String(login || '').toLowerCase();
+      const last = this._memeLast?.get(key) || 0;
+      if (Date.now() - last < cd * 1000) {
+        const left = Math.ceil((cd * 1000 - (Date.now() - last)) / 1000);
+        return { error: `мемы не чаще раза в ${cd} сек — подожди ${left} сек` };
+      }
+      this._memeLast = this._memeLast ?? new Map();
+      this._memeLast.set(key, Date.now());
+      if (this._memeLast.size > 500) {
+        const cut = Date.now() - 86_400_000;
+        for (const [k, ts] of this._memeLast) if (ts < cut) this._memeLast.delete(k);
+      }
+    }
     const wanted = String(itemName || '').trim().toLowerCase();
     const items = (cfg.items ?? []).filter((x) => x && x.enabled !== false && x.name);
     const item = wanted ? items.find((x) => String(x.name).toLowerCase() === wanted) : null;
