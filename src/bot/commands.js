@@ -9,6 +9,7 @@ export const RESERVED = new Set([
   'commands', 'help', 'so', 'pin', 'unpin', 'announce', 'uptime', 'game', 'title',
   'followage', 'addcmd', 'editcmd', 'delcmd', 'bot',
   'баллы', 'топ', 'дать', 'перевести', 'колесо', 'мем',
+  'ставка', 'ставить', 'итог', 'дуэль',
 ]);
 
 const NAME_RE = /^!?[A-Za-zА-Яа-яЁё0-9_\-]{1,32}$/;
@@ -72,6 +73,10 @@ export class CommandEngine {
 
   setPoints(points) {
     this.points = points;
+  }
+
+  setBets(bets) {
+    this.bets = bets;
   }
 
   // ---------------- хранилище ----------------
@@ -195,15 +200,15 @@ export class CommandEngine {
     const cmd = custom ?? builtin ?? modCmd;
     if (!cmd) return false;
 
+    const userLevelName = userLevel(badges, userId, bId);
     const session = {
       broadcasterId: bId,
       channel: channelLogin,
       userId,
       login,
       displayName: displayName || login,
+      level: userLevelName, // уровень доступа — для подкоманд со своей проверкой прав (напр. «!ставка открыть»)
     };
-
-    const userLevelName = userLevel(badges, userId, bId);
     const needLevel = custom ? custom.level : (builtin ? builtin.level : modCmd.level);
     if (levelValue(userLevelName) < levelValue(needLevel)) {
       return false; // молча игнорируем тех, кому нельзя
@@ -533,6 +538,137 @@ export class CommandEngine {
           await engine.say(session, `@${session.login} купил(а) «${r.item.name}» за ${r.price} ${plural(r.price, ['балл', 'балла', 'баллов'])} — смотри стрим! 🎬 (осталось: ${engine.points.balance(session.login)})`);
         },
       },
+      // ---------- ставки на исходы и дуэли за баллы ----------
+      ставка: {
+        level: 'everyone', label: 'тотализатор: !ставка — текущая; !ставка открыть <вопрос> <в1|в2> (мод+)',
+        async run(session, args) {
+          if (!engine.bets) { await engine.say(session, 'Ставки не настроены'); return; }
+          const ch = session.broadcasterId;
+          if ((args[0] || '').toLowerCase() === 'открыть') {
+            if (levelValue(session.level ?? 'everyone') < LEVELS.mod) {
+              await engine.say(session, 'ставки открывать могут только моды 🛡');
+              return;
+            }
+            // вопрос — всё до последнего токена с «|» (токен с «|» — список вариантов)
+            const tokens = args.slice(1).join(' ').trim().split(/\s+/).filter(Boolean);
+            let qTokens = tokens;
+            let optToken = '';
+            for (let i = tokens.length - 1; i >= 0; i--) {
+              if (tokens[i].includes('|')) { optToken = tokens[i]; qTokens = tokens.slice(0, i); break; }
+            }
+            const labels = optToken.split('|').map((s) => s.trim()).filter(Boolean);
+            const r = engine.bets.open({ channelId: ch, question: qTokens.join(' ').trim(), options: labels });
+            if (r.error) {
+              await engine.say(session, `@${session.login}, ${r.error}. Пример: !ставка открыть кто победит Али|Боби|Ничья`.slice(0, 480));
+              return;
+            }
+            const cfg = engine.bets.cfg();
+            const list = r.options.map((label, i) => `${i + 1}) ${label}`).join(' ');
+            await engine.say(session, (`📈 Ставка открыта: «${r.question}» — ${list}. Ставить: !ставить сумма номер (${cfg.minBet}–${cfg.maxBet}), на всё ${r.durationSec} сек`).slice(0, 480));
+            return;
+          }
+          const st = engine.bets.status(ch);
+          if (!st) {
+            await engine.say(session, 'Сейчас нет открытой ставки. Моды открывают: !ставка открыть <вопрос> <вариант1|вариант2>');
+            return;
+          }
+          const list = st.options.map((o) => `${o.index}) ${o.label} (${o.total})`).join(' · ');
+          await engine.say(session, (`📊 Ставка: «${st.question}» — ${list} — банк ${st.pot}, осталось ${st.secondsLeft} сек. Ставить: !ставить сумма номер`).slice(0, 480));
+        },
+      },
+      ставить: {
+        level: 'everyone', label: 'поставить баллы: !ставить <сумма> <номер варианта>',
+        async run(session, args) {
+          if (!engine.bets || !engine.points) { await engine.say(session, 'Ставки не настроены'); return; }
+          const n = Math.round(Number(args[0]) || 0);
+          const idx = Number(args[1]) || 0;
+          if (n <= 0 || idx <= 0) { await engine.say(session, 'Использование: !ставить <сколько> <номер варианта> — например: !ставить 100 1'); return; }
+          const r = engine.bets.place({ channelId: session.broadcasterId, login: session.login, name: session.displayName, optionIndex: idx, amount: n });
+          if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
+          if (!engine.points.spend(session.login, r.amount)) {
+            engine.bets.unplace({ channelId: session.broadcasterId, login: session.login, optionIndex: r.optionIndex }); // запись откатываем, баллы не тронуты
+            await engine.say(session, `@${session.login}, не хватает баллов`);
+            return;
+          }
+          await engine.say(session, `✅ ${session.displayName || session.login} поставил(а) ${r.amount} ${plural(r.amount, ['балл', 'балла', 'баллов'])} на «${r.option}» (вариант ${r.optionIndex}) — банк: ${r.optionTotal}, всего: ${r.pot}, осталось ${r.secondsLeft} сек`);
+        },
+      },
+      итог: {
+        level: 'mod', label: 'подвести итог ставки: !итог <номер> (мод+)',
+        async run(session, args) {
+          if (!engine.bets || !engine.points) { await engine.say(session, 'Ставки не настроены'); return; }
+          const idx = Number(args[0]) || 0;
+          if (!idx) {
+            const st = engine.bets.status(session.broadcasterId);
+            await engine.say(session, st
+              ? `Активная ставка: «${st.question}» — варианты: ${st.options.map((o) => o.index).join(', ')}. Закрыть: !итог <номер>`
+              : 'Сейчас нет открытой ставки');
+            return;
+          }
+          const r = engine.bets.resolve({ channelId: session.broadcasterId, winnerIndex: idx });
+          if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
+          for (const p of r.payouts) engine.points.add(p.login, p.amount);
+          if (!r.payouts.length) {
+            await engine.say(session, r.pot > 0
+              ? `🏁 Исход: «${r.winner}» — на него никто не поставил, банк ${r.pot} сгорел 🔥`
+              : `🏁 Исход: «${r.winner}» — ставок не было, банк пуст`);
+            return;
+          }
+          const top = (r.top ?? []).slice(0, 3).map((w, i) => `${i + 1}. ${w.name || w.login} +${w.amount}`).join(' · ');
+          await engine.say(session, (`🏁 Исход: «${r.winner}» — банк ${r.pot}${r.fee ? ` (комиссия ${r.fee}%)` : ''}. Победители: ${top} 🎉`).slice(0, 480));
+        },
+      },
+      дуэль: {
+        level: 'everyone', label: 'дуэль на баллы: !дуэль @ник N (принять — той же командой)',
+        async run(session, args) {
+          if (!engine.bets || !engine.points) { await engine.say(session, 'Ставки не настроены'); return; }
+          const ch = session.broadcasterId;
+          const targetRaw = (args[0] || '').trim();
+          const n = Math.round(Number(args[1]) || 0);
+          if (!targetRaw || n <= 0) {
+            const du = engine.bets.pendingDuel(ch);
+            await engine.say(session, du
+              ? `${du.from.name || du.from.login} вызывает @${du.to} на ${du.amount}! @${du.to}, прими: !дуэль @${du.from.login} ${du.amount} ⚔️`
+              : 'Использование: !дуэль @ник сумма — вызов на дуэль (баллы списываются сразу)');
+            return;
+          }
+          const target = targetRaw.replace(/^@/, '').toLowerCase();
+          const pending = engine.bets.pendingDuel(ch);
+          // если вызванный зовут нас — это принятие вызова, а не новый вызов
+          if (pending && pending.to === String(session.login).toLowerCase()) {
+            if (target !== pending.from.login || n !== pending.amount) {
+              await engine.say(session, `@${session.login}, тебя вызвал(а) ${pending.from.name || pending.from.login} на ${pending.amount} — прими ровно так: !дуэль @${pending.from.login} ${pending.amount} ⚔️`);
+              return;
+            }
+            if (engine.points.balance(session.login) < pending.amount) {
+              engine.bets.cancelChallenge({ channelId: ch });
+              engine.points.add(pending.from.login, pending.amount); // отказ — возврат вызвавшему
+              await engine.say(session, `у @${session.login} не хватает баллов — дуэль отменена, ставка ${pending.amount} вернулась к ${pending.from.name || pending.from.login} 🙂`);
+              return;
+            }
+            const r = engine.bets.accept({ channelId: ch, login: session.login, name: session.displayName });
+            if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
+            if (!engine.points.spend(session.login, r.amount)) {
+              engine.points.add(r.from.login, r.amount); // страховка: дуэль уже снята, возвращаем ставку
+              await engine.say(session, `у @${session.login} не хватает баллов — дуэль отменена, ставка вернулась к ${r.from.name || r.from.login} 🙂`);
+              return;
+            }
+            engine.points.add(r.winnerLogin, r.prize);
+            const winName = r.winner === 'a' ? (r.from.name || r.from.login) : (r.to.name || r.to.login);
+            await engine.say(session, `⚔️ Дуэль: ${r.from.name || r.from.login} против ${r.to.name || r.to.login} на ${r.amount} — победил ${winName}! +${r.prize} ${plural(r.prize, ['балл', 'балла', 'баллов'])}`);
+            return;
+          }
+          // новый вызов
+          const r = engine.bets.challenge({ channelId: ch, fromLogin: session.login, fromName: session.displayName, toLogin: target, amount: n });
+          if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
+          if (!engine.points.spend(session.login, r.amount)) {
+            engine.bets.cancelChallenge({ channelId: ch }); // вызов не состоялся
+            await engine.say(session, `@${session.login}, не хватает баллов на вызов`);
+            return;
+          }
+          await engine.say(session, `⚔️ ${session.displayName || session.login} вызывает @${r.to} на дуэль на ${r.amount} ${plural(r.amount, ['балл', 'балла', 'баллов'])}! @${r.to}, принимай: !дуэль @${session.login} ${r.amount}`);
+        },
+      },
       addcmd: {
         level: 'mod', label: 'добавить: !addcmd !имя <ответ> (мод+)',
         async run(session, args) {
@@ -676,6 +812,15 @@ export function loadSettings() {
         { name: 'пирамида', price: 300, text: '🔺 {user} построил пирамиду за баллы', sound: '', enabled: true },
       ],
       ...(stored.memShop ?? {}),
+    },
+    bets: {
+      enabled: true,    // тотализатор и дуэли
+      fee: 0,           // комиссия с банка при выплатах, % (0–10)
+      durationSec: 300, // сколько живёт ставка (и сколько ждёт ответа дуэль)
+      minBet: 10,
+      maxBet: 1000,
+      duelCooldown: 60, // сек между дуэлями одного юзера
+      ...(stored.bets ?? {}),
     },
   };
 }

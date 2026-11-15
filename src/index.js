@@ -6,6 +6,7 @@ import { EventProcessor } from './bot/events.js';
 import { TimerRunner } from './bot/timers.js';
 import { ModuleManager } from './bot/modules.js';
 import { PointsManager } from './bot/points.js';
+import { BetsManager } from './bot/bets.js';
 import { overlay } from './bot/alerts.js';
 import { createHttpServer } from './server.js';
 import { logs } from './logs.js';
@@ -65,6 +66,11 @@ modules.start(); // тик 'tick' каждые 20с + автоподхват п�
 const points = new PointsManager({ helix, auth, logs, settings, channels });
 commands.setPoints(points);
 points.start(); // начисление за просмотр + автосохранение
+
+const bets = new BetsManager({ logs, settings });
+commands.setBets(bets);
+bets.setPoints(points); // для авто-возвратов по таймауту
+bets.start(); // раз в 5 сек закрывает просроченные ставки/дуэли с возвратом баллов
 
 const socket = new EventSocket({
   helix,
@@ -198,6 +204,7 @@ const app = {
   processor,
   modules,
   points,
+  bets,
   socket,
   logs,
   settings,
@@ -356,6 +363,17 @@ const app = {
           enabled: it?.enabled !== false,
         })).filter((it) => it.name);
       }
+    }
+    // ставки и дуэли
+    if (patch.bets && typeof patch.bets === 'object') {
+      const a = patch.bets;
+      const cur = settings.bets;
+      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (a.fee !== undefined) cur.fee = Math.max(0, Math.min(10, Number(a.fee) || 0));
+      if (a.durationSec !== undefined) cur.durationSec = Math.max(10, Math.min(3600, Number(a.durationSec) || 300));
+      if (a.minBet !== undefined) cur.minBet = Math.max(1, Math.min(100_000, Number(a.minBet) || 10));
+      if (a.maxBet !== undefined) cur.maxBet = Math.max(cur.minBet, Math.min(1_000_000, Number(a.maxBet) || 1000));
+      if (a.duelCooldown !== undefined) cur.duelCooldown = Math.max(0, Math.min(3600, Number(a.duelCooldown) || 60));
     }
     saveJson(SETTINGS_FILE, settings);
   },
@@ -570,6 +588,7 @@ const shutdown = async () => {
   commands.flushCounters();
   timers.stop();
   modules.stop();
+  bets.stop();
   points.stop();
   await socket.stop();
   server.close();

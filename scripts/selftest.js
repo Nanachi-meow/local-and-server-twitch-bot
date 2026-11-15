@@ -533,6 +533,160 @@ await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasy
 ok('мем: не хватает баллов — отказ', sent.at(-1).includes('меньше') && pts.balance('vasya') === 16);
 pts.stop();
 
+// ---------- ставки и дуэли ----------
+const { BetsManager } = await import('../src/bot/bets.js');
+const betsCfg = {
+  events: {},
+  points: { enabled: true, intervalMin: 10, amount: 10, perMessage: 0 },
+  bets: { enabled: true, fee: 0, durationSec: 300, minBet: 10, maxBet: 1000, duelCooldown: 0 },
+};
+const pts2 = new PointsManager({ helix: fakeHelixPts, auth: fakeAuth, logs, settings: betsCfg, channels: registry, dataFile: path.join(process.env.BOT_DATA_DIR, 'points-bets.json') });
+const bets = new BetsManager({ logs, settings: betsCfg });
+bets.setPoints(pts2);
+engine.setPoints(pts2);
+engine.setBets(bets);
+pts2.add('vasya', 1000, 'Vasya');
+pts2.add('petya', 1000, 'Petya');
+pts2.add('vova', 500, 'Vova');
+pts2.add('masha', 40, 'Masha');
+
+let betsNameThrew = false;
+try { engine.upsert({ name: 'дуэль', response: 'хак' }); } catch { betsNameThrew = true; }
+ok('ставки: !дуэль зарезервирована', betsNameThrew);
+
+// открытие пула
+const op = bets.open({ channelId: '777', question: 'Кто чемпион?', options: ['Али', 'Боби'] });
+ok('ставки: открытие пула', !op.error && bets.active('777')?.question === 'Кто чемпион?' && op.options.length === 2 && op.durationSec === 300);
+ok('ставки: одна активная ставка на канал', Boolean(bets.open({ channelId: '777', question: 'x', options: ['а', 'б'] }).error));
+ok('ставки: один вариант — отказ', Boolean(bets.open({ channelId: '778', question: 'x', options: ['а'] }).error));
+ok('ставки: семь вариантов — отказ', Boolean(bets.open({ channelId: '778', question: 'x', options: ['1', '2', '3', '4', '5', '6', '7'] }).error));
+
+// лимиты и валидация place
+ok('ставки: ниже минимума — отказ', Boolean(bets.place({ channelId: '777', login: 'vasya', amount: 5, optionIndex: 1 }).error));
+ok('ставки: выше максимума — отказ', Boolean(bets.place({ channelId: '777', login: 'vasya', amount: 1001, optionIndex: 1 }).error));
+ok('ставки: несуществующий вариант — отказ', Boolean(bets.place({ channelId: '777', login: 'vasya', amount: 100, optionIndex: 3 }).error));
+ok('ставки: без открытой ставки — отказ', Boolean(bets.place({ channelId: '999', login: 'vasya', amount: 100, optionIndex: 1 }).error));
+
+// протокол пишется, менеджер баллы не трогает
+bets.place({ channelId: '777', login: 'vasya', amount: 300, optionIndex: 1 });
+bets.place({ channelId: '777', login: 'petya', amount: 700, optionIndex: 1 });
+bets.place({ channelId: '777', login: 'vova', amount: 100, optionIndex: 2 });
+ok('ставки: протокол записан, баллы не списаны', pts2.balance('vasya') === 1000 && bets.active('777').options[0].bets.length === 2 && bets.active('777').options[1].bets.length === 1);
+
+// итог: пропорциональная выплата и комиссия
+betsCfg.bets.fee = 10;
+const res = bets.resolve({ channelId: '777', winnerIndex: 1 });
+ok('итог: пропорциональная выплата при fee=10', !res.error && res.pot === 1100 && res.prizePool === 990
+  && res.payouts.find((p) => p.login === 'vasya').amount === 297
+  && res.payouts.find((p) => p.login === 'petya').amount === 693);
+ok('итог: пул закрыт', bets.active('777') === null);
+ok('итог: повторный итог — отказа нет ставки', Boolean(bets.resolve({ channelId: '777', winnerIndex: 1 }).error));
+
+// ставка мимо: банк сгорает
+bets.open({ channelId: '886', question: 'Доживём?', options: ['да', 'нет'] });
+bets.place({ channelId: '886', login: 'vova', amount: 100, optionIndex: 2 });
+const res2 = bets.resolve({ channelId: '886', winnerIndex: 1 });
+ok('итог: никто не поставил на победителя — банк сгорает', !res2.error && res2.payouts.length === 0 && res2.pot === 100);
+
+// таймаут: ручной closeExpired с возвратом ставок
+bets.open({ channelId: '777', question: 'Дождь?', options: ['да', 'нет'] });
+bets.place({ channelId: '777', login: 'vova', amount: 200, optionIndex: 1 });
+pts2.spend('vova', 200); // списание сделала команда
+const refunds = bets.closeExpired(Date.now() + 10 * 60_000);
+ok('таймаут: closeExpired вернул список возвратов', refunds.length === 1 && refunds[0].login === 'vova' && refunds[0].amount === 200);
+ok('таймаут: пул закрыт', bets.active('777') === null);
+for (const ref of refunds) pts2.add(ref.login, ref.amount);
+ok('таймаут: вызывающий вернул баллы', pts2.balance('vova') === 500);
+
+// тик по таймауту сам возвращает баллы через PointsManager
+bets.open({ channelId: '777', question: 'Тик?', options: ['да', 'нет'] });
+bets.place({ channelId: '777', login: 'masha', amount: 20, optionIndex: 1 });
+pts2.spend('masha', 20);
+bets.active('777').expiresAt = Date.now() - 1;
+bets._tick();
+ok('таймаут: тик сам возвращает баллы и закрывает пул', pts2.balance('masha') === 40 && bets.active('777') === null);
+
+// ставочные команды в чате
+await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!ставка открыть Проверка А|Б', badges: [] });
+ok('ставки (чат): открывать могут только моды', sent.at(-1).includes('моды') && bets.active('100') === null);
+await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!ставка открыть Кто первый умрёт Али|Боби', badges: [{ set_id: 'moderator' }] });
+ok('ставки (чат): открытие перечисляет варианты', sent.at(-1).includes('Кто первый умрёт') && sent.at(-1).includes('1) Али'));
+await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!ставка', badges: [] });
+ok('ставки (чат): !ставка показывает вопрос и остаток секунд', sent.at(-1).includes('Кто первый умрёт') && sent.at(-1).includes('осталось'));
+await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!ставить 300 1', badges: [] });
+ok('ставки (чат): !ставить списывает баллы', pts2.balance('vasya') === 700 && sent.at(-1).includes('Али'));
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!ставить 700 1', badges: [] });
+await engine.handleChatMessage({ userId: '10', login: 'vova', displayName: 'Vova', text: '!ставить 100 2', badges: [] });
+ok('ставки (чат): несколько ставок приняты', pts2.balance('petya') === 300 && pts2.balance('vova') === 400);
+const st100 = bets.status('100');
+ok('ставки (чат): банк по вариантам', st100.options[0].total === 1000 && st100.options[1].total === 100 && st100.pot === 1100);
+await engine.handleChatMessage({ userId: '11', login: 'masha', displayName: 'Masha', text: '!ставить 50 1', badges: [] });
+ok('ставки (чат): мало баллов — отказ', sent.at(-1).includes('не хватает') && pts2.balance('masha') === 40);
+const pool100 = bets.active('100');
+ok('ставки (чат): отказ не попал в протокол', pool100.options[0].bets.length === 2 && !pool100.options[0].bets.some((b) => b.login === 'masha'));
+await engine.handleChatMessage({ userId: '11', login: 'masha', displayName: 'Masha', text: '!ставить 5 1', badges: [] });
+ok('ставки (чат): минимальная ставка из настроек', sent.at(-1).includes('минимальная'));
+const sentItogGuard = sent.length;
+await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!итог 1', badges: [] });
+ok('ставки (чат): !итог доступен только модам', sent.length === sentItogGuard && bets.active('100') !== null);
+await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!итог 1', badges: [{ set_id: 'moderator' }] });
+ok('ставки (чат): !итог платит победителям (fee=10%)', pts2.balance('vasya') === 997 && pts2.balance('petya') === 993);
+ok('ставки (чат): !итог пишет топ победителей', sent.at(-1).includes('Petya') && sent.at(-1).includes('693') && sent.at(-1).includes('297'));
+ok('ставки (чат): после итога пул закрыт', bets.active('100') === null);
+betsCfg.bets.fee = 0;
+
+// дуэли (канал 200 — отдельный от ставок)
+const duelMsg = (uid, login, name, text) => engine.handleChatMessage({ broadcasterId: '200', userId: uid, login, displayName: name, text, badges: [] });
+bets._rollWinner = () => ({ winner: 'a' }); // исход фиксирован
+await duelMsg('7', 'vasya', 'Vasya', '!дуэль @petya 100');
+ok('дуэль: вызов списывает у вызвавшего сразу', pts2.balance('vasya') === 897 && sent.at(-1).includes('вызыва'));
+ok('дуэль: вызов записан', bets.pendingDuel('200')?.from?.login === 'vasya' && bets.pendingDuel('200')?.to === 'petya' && bets.pendingDuel('200').amount === 100);
+await duelMsg('8', 'petya', 'Petya', '!дуэль @vasya 50');
+ok('дуэль: чужая сумма — подсказка, ничего не списано', sent.at(-1).includes('100') && pts2.balance('petya') === 993 && Boolean(bets.pendingDuel('200')));
+await duelMsg('8', 'petya', 'Petya', '!дуэль @vasya 100');
+ok('дуэль: победа вызвавшего (winner a)', pts2.balance('petya') === 893 && pts2.balance('vasya') === 1097 && sent.at(-1).includes('победил'));
+ok('дуэль: после дуэли вызов снят', bets.pendingDuel('200') === null);
+
+bets._rollWinner = () => ({ winner: 'b' });
+await duelMsg('10', 'vova', 'Vova', '!дуэль @vasya 50');
+await duelMsg('7', 'vasya', 'Vasya', '!дуэль @vova 50');
+ok('дуэль: победа принимающего (winner b)', pts2.balance('vova') === 350 && pts2.balance('vasya') === 1147);
+
+await duelMsg('10', 'vova', 'Vova', '!дуэль @masha 100');
+await duelMsg('11', 'masha', 'Masha', '!дуэль @vova 100');
+ok('дуэль: у соперника нет баллов — отказ с возвратом вызвавшему', sent.at(-1).includes('не хватает') && pts2.balance('vova') === 350 && bets.pendingDuel('200') === null);
+
+await duelMsg('11', 'masha', 'Masha', '!дуэль @petya 100');
+ok('дуэль: без баллов вызвать нельзя', sent.at(-1).includes('не хватает') && pts2.balance('masha') === 40 && bets.pendingDuel('200') === null);
+
+await duelMsg('7', 'vasya', 'Vasya', '!дуэль @vasya 100');
+ok('дуэль: сам с собой — нельзя', sent.at(-1).includes('самого себя') && bets.pendingDuel('200') === null && pts2.balance('vasya') === 1147);
+
+// кулдаун дуэлей на юзера (свежий игрок без истории дуэлей)
+betsCfg.bets.duelCooldown = 60;
+pts2.add('kolya', 1000, 'Kolya');
+await duelMsg('12', 'kolya', 'Kolya', '!дуэль @vova 100');
+ok('дуэль: вызов с кулдауном проходит', Boolean(bets.pendingDuel('200')) && pts2.balance('kolya') === 900);
+const cancelled = bets.cancelChallenge({ channelId: '200' });
+pts2.add(cancelled.from.login, cancelled.amount); // сняли вызов и вернули ставку
+await duelMsg('12', 'kolya', 'Kolya', '!дуэль @masha 30');
+ok('дуэль: кулдаун держит повторный вызов', sent.at(-1).includes('через') && bets.pendingDuel('200') === null && pts2.balance('kolya') === 1000);
+betsCfg.bets.duelCooldown = 0;
+
+// вызов без ответа истекает — возврат
+await duelMsg('10', 'vova', 'Vova', '!дуэль @petya 100');
+ok('дуэль: вызов записан', Boolean(bets.pendingDuel('200')));
+const duelRefunds = bets.closeExpired(Date.now() + 10 * 60_000);
+ok('дуэль: истёкший вызов возвращает ставку', duelRefunds.length === 1 && duelRefunds[0].login === 'vova' && duelRefunds[0].amount === 100);
+pts2.add('vova', 100);
+ok('дуэль: баланс восстановлен после истечения', pts2.balance('vova') === 350 && bets.pendingDuel('200') === null);
+
+// start/stop: таймер включается и выключается
+bets.start();
+const timerWas = bets._timer !== null;
+bets.stop();
+ok('ставки: start/stop чисто закрывают хвосты', timerWas && bets._timer === null);
+
 console.log(`\nВсе ${passed} тестов прошли ✅`);
 fs.rmSync(process.env.BOT_DATA_DIR, { recursive: true, force: true });
 process.exit(0);
