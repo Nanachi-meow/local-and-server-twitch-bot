@@ -61,6 +61,9 @@
   const queue = [];
   let active = 0;
   const MAX_ACTIVE = 2;
+  const params = new URLSearchParams(location.search);
+  // ?tts=0 — полностью выключить озвучку на этой странице (для отладки/сцен)
+  const TTS_OFF = params.get('tts') === '0';
 
   async function loadCfg() {
     try {
@@ -69,6 +72,38 @@
     } catch {}
   }
   setInterval(loadCfg, 60_000);
+
+  // ---------- TTS-озвучка (Web Speech API, конфиг alerts.tts) ----------
+  let voices = [];
+  function refreshVoices() {
+    try { voices = window.speechSynthesis?.getVoices?.() ?? []; } catch {}
+  }
+  if ('speechSynthesis' in window) {
+    refreshVoices();
+    speechSynthesis.addEventListener?.('voiceschanged', refreshVoices);
+  }
+  function pickVoice() {
+    if (cfg?.tts?.voiceName) {
+      const exact = voices.find((v) => v.name === cfg.tts.voiceName);
+      if (exact) return exact;
+    }
+    return voices.find((v) => /^ru/i.test(String(v.lang || ''))) ?? null; // дефолт — первый русский
+  }
+  // Несколько подряд фраз НЕ перебивают друг друга: браузер сам выстраивает
+  // очередь из SpeechSynthesisUtterance при повторных вызовах speak().
+  function speak(text) {
+    if (TTS_OFF || !cfg?.tts?.enabled || !('speechSynthesis' in window) || !text) return;
+    try {
+      const u = new SpeechSynthesisUtterance(String(text));
+      const v = pickVoice();
+      if (v) { u.voice = v; u.lang = v.lang || 'ru-RU'; }
+      const rate = Number(cfg.tts.rate);
+      const volume = Number(cfg.tts.volume);
+      u.rate = Number.isFinite(rate) ? Math.max(0.5, Math.min(2, rate)) : 1;
+      u.volume = Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 1;
+      speechSynthesis.speak(u);
+    } catch {}
+  }
 
   function render(text, vars) {
     return String(text ?? '')
@@ -100,6 +135,8 @@
         a.play().catch(() => {});
       } catch {}
     }
+    // озвучка текстом алерта (без мелкой подписи); очередь — средствами браузера
+    speak(text);
     const ms = Math.max(2, Math.min(20, Number(kindCfg?.duration) || 5)) * 1000;
     setTimeout(() => {
       el.classList.add('leaving');
@@ -128,8 +165,7 @@
     } catch {}
   };
 
-  // режим позиционирования: /overlay?test=follow|sub|resub|subgift|raid
-  const params = new URLSearchParams(location.search);
+  // режим позиционирования: /overlay?test=follow|sub|resub|subgift|raid (озвучивается тоже)
   if (params.get('test')) {
     loadCfg().then(() => setTimeout(() => {
       show({ kind: params.get('test'), channel: 'твой канал', user: 'ТестовыйЗритель', viewers: 42, months: 12, recipient: 'ТестовыйДруг' });

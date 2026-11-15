@@ -1,7 +1,7 @@
 import { AuthManager, SCOPES } from './twitch/auth.js';
 import { Helix, HelixError } from './twitch/helix.js';
 import { EventSocket } from './twitch/eventsub.js';
-import { CommandEngine, loadSettings } from './bot/commands.js';
+import { CommandEngine, loadSettings, normalizeTts } from './bot/commands.js';
 import { EventProcessor } from './bot/events.js';
 import { TimerRunner } from './bot/timers.js';
 import { ModuleManager } from './bot/modules.js';
@@ -317,6 +317,12 @@ const app = {
         if (k.template !== undefined) cur[kind].template = String(k.template).slice(0, 200);
         if (k.sound !== undefined) cur[kind].sound = String(k.sound).replace(/[\\/]/g, '').slice(0, 120);
         if (k.duration !== undefined) cur[kind].duration = Math.max(2, Math.min(20, Number(k.duration) || 5));
+      }
+      // TTS-озвучка оверлея: нормализация с клампами (enabled/rate/volume/voiceName)
+      if (a.tts !== undefined) {
+        cur.tts = normalizeTts(
+          a.tts && typeof a.tts === 'object' ? { ...(cur.tts ?? {}), ...a.tts } : (cur.tts ?? {}),
+        );
       }
     }
     // баллы/колесо/мем-магазин
