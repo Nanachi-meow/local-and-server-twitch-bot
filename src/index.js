@@ -6,6 +6,7 @@ import { EventProcessor } from './bot/events.js';
 import { TimerRunner } from './bot/timers.js';
 import { ModuleManager } from './bot/modules.js';
 import { PointsManager } from './bot/points.js';
+import { QuotesManager } from './bot/quotes.js';
 import { overlay } from './bot/alerts.js';
 import { createHttpServer } from './server.js';
 import { logs } from './logs.js';
@@ -65,6 +66,9 @@ modules.start(); // тик 'tick' каждые 20с + автоподхват п�
 const points = new PointsManager({ helix, auth, logs, settings, channels });
 commands.setPoints(points);
 points.start(); // начисление за просмотр + автосохранение
+
+const quotes = new QuotesManager(); // цитаты канала: data/quotes.json, без таймеров
+commands.setQuotes(quotes);
 
 const socket = new EventSocket({
   helix,
@@ -198,6 +202,7 @@ const app = {
   processor,
   modules,
   points,
+  quotes,
   socket,
   logs,
   settings,
@@ -571,6 +576,7 @@ const shutdown = async () => {
   timers.stop();
   modules.stop();
   points.stop();
+  quotes.stop();
   await socket.stop();
   server.close();
   process.exit(0);

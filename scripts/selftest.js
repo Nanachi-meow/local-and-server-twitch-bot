@@ -533,6 +533,48 @@ await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasy
 ok('мем: не хватает баллов — отказ', sent.at(-1).includes('меньше') && pts.balance('vasya') === 16);
 pts.stop();
 
+// ---------- цитаты ----------
+const { QuotesManager } = await import('../src/bot/quotes.js');
+const quotesFile = path.join(process.env.BOT_DATA_DIR, 'quotes.json');
+const qm = new QuotesManager({ dataFile: quotesFile });
+engine.setQuotes(qm);
+
+const q1 = qm.add('ModGuy', 'Никогда не сдавайся');
+const q2 = qm.add('modguy', 'Сначала учись, потом учи');
+ok('цитаты: add возвращает запись', q1.id === 1 && q1.text === 'Никогда не сдавайся' && q1.by === 'modguy' && q1.at > 0);
+ok('цитаты: нумерация авто', q2.id === 2);
+ok('цитаты: byId находит', qm.byId(1).text === 'Никогда не сдавайся');
+ok('цитаты: byId отсутствующего — null', qm.byId(42) === null);
+ok('цитаты: поиск без учёта регистра', qm.search('СДАВАЙСЯ').length === 1 && qm.search('СДАВАЙСЯ')[0].id === 1);
+ok('цитаты: поиск без совпадений — пусто', qm.search('пельмени').length === 0);
+const removed = qm.remove(2);
+ok('цитаты: удаление возвращает запись и гасит номер', removed?.id === 2 && qm.byId(2) === null && qm.remove(2) === null);
+ok('цитаты: random с единственной цитатой детерминирован', qm.random()?.id === 1 && qm.random()?.text === 'Никогда не сдавайся');
+ok('цитаты: random пустого хранилища — null', new QuotesManager({ dataFile: path.join(process.env.BOT_DATA_DIR, 'quotes-empty.json') }).random() === null);
+ok('цитаты: list для панели (по id, курсор afterId)', qm.list().length === 1 && qm.list({ afterId: 1 }).length === 0);
+qm.saveNow();
+ok('цитаты: автосейв в data/quotes.json', JSON.parse(fs.readFileSync(quotesFile, 'utf8'))[0].text === 'Никогда не сдавайся');
+
+// команды !цитата через движок
+await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!цитата', badges: [] });
+ok('цитата: !цитата — случайная (с единственной детерминирована)', sent.at(-1) === 'Цитата #1: Никогда не сдавайся');
+await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!цитата 1', badges: [] });
+ok('цитата: !цитата N по номеру', sent.at(-1) === 'Цитата #1: Никогда не сдавайся');
+await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!цитата 99', badges: [] });
+ok('цитата: несуществующий номер — сообщение об ошибке', sent.at(-1) === 'Цитаты #99 нет 🤷');
+await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!цитата добавить Жизнь прекрасна', badges: [{ set_id: 'moderator' }] });
+ok('цитата: добавить модом — отвечает номером', sent.at(-1) === 'Цитата #3 добавлена ✅' && qm.byId(3).text === 'Жизнь прекрасна');
+await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!цитата добавить хак', badges: [] });
+ok('цитата: обычному зрителю добавить нельзя', sent.at(-1).includes('только модераторы') && qm.search('хак').length === 0);
+await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!цитата поиск ЖИЗНЬ', badges: [] });
+ok('цитата: !цитата поиск находит без регистра', sent.at(-1) === 'Цитата #3: Жизнь прекрасна');
+await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!цитата удалить 3', badges: [{ set_id: 'moderator' }] });
+ok('цитата: удалить модом', sent.at(-1) === 'Цитата #3 удалена 🗑' && qm.byId(3) === null);
+
+let quoteReservedThrew = false;
+try { engine.upsert({ name: 'цитата', response: 'хак' }); } catch { quoteReservedThrew = true; }
+ok('цитата: имя зарезервировано за встроенной', quoteReservedThrew && RESERVED.has('цитата'));
+
 console.log(`\nВсе ${passed} тестов прошли ✅`);
 fs.rmSync(process.env.BOT_DATA_DIR, { recursive: true, force: true });
 process.exit(0);

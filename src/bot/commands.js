@@ -8,7 +8,7 @@ export const LEVELS = { everyone: 0, sub: 1, vip: 2, mod: 3, broadcaster: 4 };
 export const RESERVED = new Set([
   'commands', 'help', 'so', 'pin', 'unpin', 'announce', 'uptime', 'game', 'title',
   'followage', 'addcmd', 'editcmd', 'delcmd', 'bot',
-  'баллы', 'топ', 'дать', 'перевести', 'колесо', 'мем',
+  'баллы', 'топ', 'дать', 'перевести', 'колесо', 'мем', 'цитата',
 ]);
 
 const NAME_RE = /^!?[A-Za-zА-Яа-яЁё0-9_\-]{1,32}$/;
@@ -72,6 +72,10 @@ export class CommandEngine {
 
   setPoints(points) {
     this.points = points;
+  }
+
+  setQuotes(quotes) {
+    this.quotes = quotes;
   }
 
   // ---------------- хранилище ----------------
@@ -195,15 +199,15 @@ export class CommandEngine {
     const cmd = custom ?? builtin ?? modCmd;
     if (!cmd) return false;
 
+    const userLevelName = userLevel(badges, userId, bId);
     const session = {
       broadcasterId: bId,
       channel: channelLogin,
       userId,
       login,
       displayName: displayName || login,
+      level: userLevelName, // уровень вызвавшего — для субкоманд со своими правами (!цитата добавить)
     };
-
-    const userLevelName = userLevel(badges, userId, bId);
     const needLevel = custom ? custom.level : (builtin ? builtin.level : modCmd.level);
     if (levelValue(userLevelName) < levelValue(needLevel)) {
       return false; // молча игнорируем тех, кому нельзя
@@ -531,6 +535,57 @@ export class CommandEngine {
             return;
           }
           await engine.say(session, `@${session.login} купил(а) «${r.item.name}» за ${r.price} ${plural(r.price, ['балл', 'балла', 'баллов'])} — смотри стрим! 🎬 (осталось: ${engine.points.balance(session.login)})`);
+        },
+      },
+
+      // ---------- цитаты канала ----------
+      цитата: {
+        level: 'everyone', label: 'цитата: !цитата [N] · поиск · добавить (мод+) · удалить (мод+)',
+        async run(session, args) {
+          if (!engine.quotes) { await engine.say(session, 'Цитаты не настроены'); return; }
+          const q = engine.quotes;
+          const fmt = (item) => `Цитата #${item.id}: ${item.text}`;
+          const isMod = levelValue(session.level || 'everyone') >= levelValue('mod');
+          const sub = String(args[0] || '').toLowerCase();
+
+          if (!args[0]) { // случайная
+            const item = q.random();
+            await engine.say(session, item
+              ? fmt(item)
+              : 'Пока ни одной цитаты 🤷 Моды добавляют: !цитата добавить <текст>');
+            return;
+          }
+          if (/^\d+$/.test(String(args[0]))) { // по номеру
+            const item = q.byId(Number(args[0]));
+            await engine.say(session, item ? fmt(item) : `Цитаты #${args[0]} нет 🤷`);
+            return;
+          }
+          if (sub === 'поиск') {
+            const query = args.slice(1).join(' ').trim();
+            if (!query) { await engine.say(session, 'Использование: !цитата поиск <текст>'); return; }
+            const found = q.search(query).slice(0, 3);
+            await engine.say(session, found.length
+              ? found.map(fmt).join(' · ').slice(0, 480)
+              : `По запросу «${query}» ничего не нашла 🤷`);
+            return;
+          }
+          if (sub === 'добавить') {
+            if (!isMod) { await engine.say(session, 'Добавлять цитаты могут только модераторы 🤷'); return; }
+            const text = args.slice(1).join(' ').trim();
+            if (!text) { await engine.say(session, 'Использование: !цитата добавить <текст>'); return; }
+            const item = q.add(session.login, text);
+            await engine.say(session, `Цитата #${item.id} добавлена ✅`);
+            return;
+          }
+          if (sub === 'удалить') {
+            if (!isMod) { await engine.say(session, 'Удалять цитаты могут только модераторы 🤷'); return; }
+            const target = String(args[1] || '');
+            if (!/^\d+$/.test(target)) { await engine.say(session, 'Использование: !цитата удалить N'); return; }
+            const item = q.remove(Number(target));
+            await engine.say(session, item ? `Цитата #${item.id} удалена 🗑` : `Цитаты #${target} нет 🤷`);
+            return;
+          }
+          await engine.say(session, 'Использование: !цитата [N] · !цитата поиск <текст> · !цитата добавить <текст> (мод+) · !цитата удалить N (мод+)');
         },
       },
       addcmd: {
