@@ -68,7 +68,7 @@ const points = new PointsManager({ helix, auth, logs, settings, channels });
 commands.setPoints(points);
 points.start(); // начисление за просмотр + автосохранение
 
-const quotes = new QuotesManager(); // цитаты канала: data/quotes.json, без таймеров
+const quotes = new QuotesManager({ logs }); // цитаты канала: data/quotes.json, без таймеров
 commands.setQuotes(quotes);
 
 const bets = new BetsManager({ logs, settings });

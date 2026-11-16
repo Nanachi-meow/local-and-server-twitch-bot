@@ -8,7 +8,8 @@ import { QUOTES_FILE } from '../store.js';
  * (флаг _dirty + saveNow по образцу points.js, но write-through).
  */
 export class QuotesManager {
-  constructor({ dataFile = QUOTES_FILE } = {}) {
+  constructor({ logs = null, dataFile = QUOTES_FILE } = {}) {
+    this.logs = logs;
     this.dataFile = dataFile;
     const stored = loadJson(this.dataFile, []);
     this.store = (Array.isArray(stored) ? stored : [])
@@ -82,7 +83,11 @@ export class QuotesManager {
     try {
       saveJson(this.dataFile, this.store);
       this._dirty = false;
-    } catch {}
+    } catch (e) {
+      // критик: молчаливый срыв записи (EBUSY/EPERM) терял цитаты — теперь видно в панели.
+      // _dirty не гасим: следующий saveNow попробует снова.
+      this.logs?.system?.push?.({ level: 'error', message: `не записались цитаты на диск: ${e?.message ?? e}` });
+    }
   }
 
   stop() {

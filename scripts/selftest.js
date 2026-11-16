@@ -581,7 +581,7 @@ pts.stop();
 // ---------- цитаты ----------
 const { QuotesManager } = await import('../src/bot/quotes.js');
 const quotesFile = path.join(process.env.BOT_DATA_DIR, 'quotes.json');
-const qm = new QuotesManager({ dataFile: quotesFile });
+const qm = new QuotesManager({ dataFile: quotesFile, logs });
 engine.setQuotes(qm);
 
 const q1 = qm.add('ModGuy', 'Никогда не сдавайся');
@@ -615,6 +615,23 @@ await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl
 ok('цитата: !цитата поиск находит без регистра', sent.at(-1) === 'Цитата #3: Жизнь прекрасна');
 await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!цитата удалить 3', badges: [{ set_id: 'moderator' }] });
 ok('цитата: удалить модом', sent.at(-1) === 'Цитата #3 удалена 🗑' && qm.byId(3) === null);
+
+// критик: сбой записи на диск (EBUSY/EPERM) — saveNow не бросает, пишет ошибку в системную ленту, _dirty не гаснет
+const goodQuotesFile = qm.dataFile;
+const quotesBlocker = path.join(process.env.BOT_DATA_DIR, 'blocker-not-a-dir');
+fs.writeFileSync(quotesBlocker, 'x', 'utf8'); // файл на месте каталога — mkdirSync в saveJson упадёт
+qm.dataFile = path.join(quotesBlocker, 'nested', 'quotes.json'); // «недоступный путь»
+const diskFailQuote = qm.add('modguy', 'Проверка диска'); // add живёт даже при сбойной записи
+let saveFailThrew = false;
+try { qm.saveNow(); } catch { saveFailThrew = true; }
+const dirtyStillTrue = qm._dirty === true; // флаг не погасился — следующий saveNow попытается снова
+const saveFailLogged = logs.system.items.some((l) => l?.level === 'error' && String(l?.message || '').includes('не записались цитаты'));
+qm.dataFile = goodQuotesFile; // путь починен
+qm.remove(diskFailQuote.id); // хвост дописывается
+ok('цитаты: сбой записи диска — ошибка в системную ленту, _dirty живёт; после починки — дописывает',
+  diskFailQuote.id === 4 && !saveFailThrew && dirtyStillTrue && saveFailLogged
+  && qm._dirty === false && JSON.parse(fs.readFileSync(goodQuotesFile, 'utf8')).length === 1);
+fs.rmSync(quotesBlocker, { force: true });
 
 let quoteReservedThrew = false;
 try { engine.upsert({ name: 'цитата', response: 'хак' }); } catch { quoteReservedThrew = true; }
