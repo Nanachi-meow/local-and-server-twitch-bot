@@ -212,8 +212,10 @@ function renderState(st) {
   $('#st-raid').textContent = st.counters.raid ?? 0;
   $('#st-sub').textContent = st.counters.sub ?? 0;
 
-  $('#redirect-uri').textContent = `http://localhost:${st.port}/auth/callback`;
-  $('#redirect-uri-broadcaster').textContent = `http://localhost:${st.port}/auth/broadcaster/callback`;
+  const uriBot = $('#redirect-uri');
+  if (uriBot) uriBot.textContent = `http://localhost:${st.port}/auth/callback`;
+  const uriBc = $('#redirect-uri-broadcaster');
+  if (uriBc) uriBc.textContent = `http://localhost:${st.port}/auth/broadcaster/callback`;
 
   // настройки: обновляем поля только если их не редактируют прямо сейчас
   if (!settingsFormTouched) {
@@ -1080,7 +1082,7 @@ $('#broadcaster-logout').addEventListener('click', async () => {
   } catch (e) { toast(e.message, true); }
 });
 
-$('#redirect-uri-broadcaster').addEventListener('click', (e) => {
+$('#redirect-uri-broadcaster')?.addEventListener('click', (e) => {
   navigator.clipboard?.writeText(e.target.textContent).then(() => toast('Redirect URL скопирован'));
 });
 
