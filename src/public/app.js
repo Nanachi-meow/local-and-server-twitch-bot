@@ -866,8 +866,9 @@ async function loadSettings() {
   __mediaFiles = media.files ?? [];
   const soundFiles = __mediaFiles.filter((f) => AUDIO_EXT.includes(fileExt(f)));
   const visualFiles = __mediaFiles.filter((f) => VISUAL_EXT.includes(fileExt(f)));
-  const opt = (list, cur) => ['<option value="">— не задано —</option>',
-    ...list.map((f) => `<option value="${esc(f)}" ${cur === f ? 'selected' : ''}>${esc(f)}</option>`)].join('');
+  const opt = (list, cur, empty) => [`<option value="">${empty}</option>`,
+    ...list.map((f) => `<option value="${esc(f)}" ${cur === f ? 'selected' : ''}>${esc(f)}</option>`),
+    '<option value="__upload__">＋ загрузить файл…</option>'].join('');
   const holder = $('#events-list');
   holder.innerHTML = '<div class="evcards"></div>';
   const cards = holder.firstChild;
@@ -892,25 +893,27 @@ async function loadSettings() {
       </label>
       <label><input type="checkbox" class="f-pin" ${cfg.pin ? 'checked' : ''} /> закрепить на 20 минут (для режима «текст»)</label>
       <label><input type="checkbox" class="f-enabled" ${cfg.enabled ? 'checked' : ''} /> реакция включена</label>
-      <div class="ev-alert">
-        <h4>📺 алерт в OBS (плашка на оверлее)</h4>
-        <label><input type="checkbox" class="a-enabled" ${a.enabled !== false ? 'checked' : ''} /> показывать алерт</label>
-        <input type="text" class="a-template" value="${esc(a.template || '')}" maxlength="200" placeholder="текст плашки — {user}, {viewers}, {months}, {recipient}" />
-        <label>медиа (gif/видео/картинка вместо эмодзи)
-          <select class="a-media">${opt(visualFiles, a.media || '')}</select>
-        </label>
-        <label>звук
-          <select class="a-sound">${opt(soundFiles, a.sound || '')}</select>
-        </label>
-        <div class="row">
-          <label>громк %
-            <input class="a-volume" type="number" min="0" max="100" value="${a.soundVolume ?? 85}" style="width:64px" title="громкость звука и видео-медиа" />
+      <details class="ev-alert">
+        <summary class="a-summary">${alertSummaryHTML(a, kind)}</summary>
+        <div class="ev-alert-body">
+          <label><input type="checkbox" class="a-enabled" ${a.enabled !== false ? 'checked' : ''} /> показывать алерт</label>
+          <input type="text" class="a-template" value="${esc(a.template || '')}" maxlength="200" placeholder="текст плашки — {user}, {viewers}, {months}, {recipient}" />
+          <label>медиа (gif/видео/картинка вместо эмодзи)
+            <select class="a-media">${opt(visualFiles, a.media || '', '— без медиа (эмодзи) —')}</select>
           </label>
-          <label>сек
-            <input class="a-duration" type="number" min="2" max="20" value="${a.duration ?? 6}" style="width:64px" />
+          <label>звук
+            <select class="a-sound">${opt(soundFiles, a.sound || '', '— без звука —')}</select>
           </label>
+          <div class="row">
+            <label>громк %
+              <input class="a-volume" type="number" min="0" max="100" value="${a.soundVolume ?? 85}" style="width:64px" title="громкость звука и видео-медиа" />
+            </label>
+            <label>сек
+              <input class="a-duration" type="number" min="2" max="20" value="${a.duration ?? 6}" style="width:64px" />
+            </label>
+          </div>
         </div>
-      </div>
+      </details>
       <div class="row">
         <button class="act ev-save">Сохранить</button>
         <button class="act ghost ev-test" data-kind="${kind}">Тест чата</button>
@@ -927,6 +930,72 @@ async function loadSettings() {
   renderObs();
   renderRedemptions();
 }
+
+// однострочный «статус» алерта в свёрнутом виде: клик = раскрыть настройки
+function alertSummaryHTML(a = {}, kind = '') {
+  const on = a.enabled !== false;
+  const media = a.media ? `🎬 ${a.media}` : 'эмодзи';
+  const sound = a.sound ? `🔊 ${a.sound}` : 'без звука';
+  const dur = `${a.duration ?? 6}с`;
+  return `${on ? '📺' : '📺❌'} Алерт${kind ? ` (${KIND_RU[kind] ?? kind})` : ''} — ${on ? `${media} · ${sound} · ${dur}` : 'выключен'} · <span class="hint">⚙ ткни чтобы настроить</span>`;
+}
+
+// перечитать поля карточки и переписать её строку-статус (после save/загрузки файла)
+function refreshAlertSummary(card) {
+  const sel = card.querySelector('.a-summary');
+  if (!sel) return;
+  sel.innerHTML = alertSummaryHTML({
+    enabled: card.querySelector('.a-enabled').checked,
+    media: card.querySelector('.a-media').value,
+    sound: card.querySelector('.a-sound').value,
+    duration: Number(card.querySelector('.a-duration').value) || 6,
+  }, card.dataset.kind);
+}
+
+// «＋ загрузить файл…» прямо в селектах медиа/звука алерта
+const ALERT_UPLOAD_ACCEPT = {
+  media: 'video/mp4,video/webm,video/quicktime,video/ogg,image/gif,image/apng,image/png,image/webp,image/jpeg,image/svg+xml',
+  sound: 'audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/flac',
+};
+async function alertPickAndUpload(kind) {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = ALERT_UPLOAD_ACCEPT[kind] || '*/*';
+  const file = await new Promise((resolve) => {
+    inp.onchange = () => resolve(inp.files?.[0] ?? null);
+    inp.click();
+  });
+  if (!file) return null;
+  const r = await fetch(`/api/media/upload?name=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: file,
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  if (!__mediaFiles.includes(file.name)) __mediaFiles.push(file.name);
+  __mediaFiles.sort();
+  renderMediaFiles();
+  toast(`«${file.name}» загружен ✅`);
+  return file.name;
+}
+
+$('#events-list').addEventListener('change', async (e) => {
+  const sel = e.target instanceof HTMLSelectElement ? e.target : null;
+  if (!sel || !sel.classList.contains('a-media') && !sel.classList.contains('a-sound')) return;
+  if (sel.value !== '__upload__') return;
+  sel.value = ''; // пока выбираем файл — селект в дефолт,.cancel не оставит «загрузить…» выбранным
+  const kind = sel.classList.contains('a-media') ? 'media' : 'sound';
+  try {
+    const name = await alertPickAndUpload(kind);
+    if (!name) return;
+    if (![...sel.options].some((o) => o.value === name)) {
+      sel.querySelector('option[value="__upload__"]').insertAdjacentHTML('beforebegin', `<option value="${esc(name)}">${esc(name)}</option>`);
+    }
+    sel.value = name;
+    refreshAlertSummary(sel.closest('.evcard'));
+  } catch (err) { toast(err.message, true); }
+});
 
 $('#events-list').addEventListener('click', async (e) => {
   const card = e.target.closest('.evcard');
@@ -959,6 +1028,7 @@ $('#events-list').addEventListener('click', async (e) => {
         }),
       });
       toast('Событие и алерт сохранены ✅');
+      refreshAlertSummary(card);
     } catch (err) { toast(err.message, true); }
   }
   if (e.target.classList.contains('a-test')) {

@@ -89,14 +89,31 @@ nav {
 
 .evcard .ev-alert {
   margin-top: 10px;
-  padding: 10px 12px;
   border: 1px dashed var(--line);
   border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.evcard .ev-alert summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--muted);
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.evcard .ev-alert summary::-webkit-details-marker { display: none; }
+.evcard .ev-alert summary::after { content: '▸'; margin-left: auto; }
+.evcard .ev-alert[open] summary::after { content: '▾'; }
+.ev-alert-body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 4px 12px 12px;
+  border-top: 1px dashed var(--line);
 }
-.evcard .ev-alert h4 { margin: 0; font-size: 13px; color: var(--muted); }
 .evcard .ev-alert .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
 /* выключенная встроенная команда — приглушена */
