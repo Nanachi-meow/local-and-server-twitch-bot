@@ -934,11 +934,11 @@ export function loadSettings() {
     },
     alerts: {
       enabled: true,
-      follow: { enabled: true, template: '💜 {user} зафолловил(а) канал!', sound: '', duration: 5 },
-      sub: { enabled: true, template: '🎉 {user} оформил(а) подписку!', sound: '', duration: 6 },
-      resub: { enabled: true, template: '💖 {user} продлил(а) подписку — уже {months} мес.!', sound: '', duration: 6 },
-      subgift: { enabled: true, template: '🎁 {user} дарит подписку → {recipient}!', sound: '', duration: 6 },
-      raid: { enabled: true, template: '🚀 РЕЙД от {user}! {viewers} зрителей с нами!', sound: '', duration: 7 },
+      follow: { enabled: true, template: '💜 {user} зафолловил(а) канал!', sound: '', soundVolume: 85, media: '', duration: 5 },
+      sub: { enabled: true, template: '🎉 {user} оформил(а) подписку!', sound: '', soundVolume: 85, media: '', duration: 6 },
+      resub: { enabled: true, template: '💖 {user} продлил(а) подписку — уже {months} мес.!', sound: '', soundVolume: 85, media: '', duration: 6 },
+      subgift: { enabled: true, template: '🎁 {user} дарит подписку → {recipient}!', sound: '', soundVolume: 85, media: '', duration: 6 },
+      raid: { enabled: true, template: '🚀 РЕЙД от {user}! {viewers} зрителей с нами!', sound: '', soundVolume: 85, media: '', duration: 7 },
       meme: { enabled: true, duration: 6 },
       wheel: { enabled: true, duration: 5 },
       eventList: { enabled: false, size: 5 }, // список последних событий в углу оверлея

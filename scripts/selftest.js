@@ -651,6 +651,21 @@ const mm2 = new ModuleManager({
   broadcasterHelix: fakeBcHelix,
 });
 
+// примеры теперь по умолчанию выключены (enabled: false в их def) —
+// как это будет у свежего юзера; включаем явно, как делает панель
+const mmDef = new ModuleManager({
+  dir: realModulesDir,
+  configFile: path.join(process.env.BOT_DATA_DIR, 'modules-defaults.json'),
+  storeDir: path.join(process.env.BOT_DATA_DIR, 'store-def'),
+  helix: fakeHelixApi, auth: fakeAuth, logs, channels: registry,
+});
+await mmDef.load();
+ok('модули: встроенные примеры по умолчанию выключены',
+  mmDef.list().find((m) => m.name === 'example')?.enabled === false
+  && mmDef.list().find((m) => m.name === 'vip-activity')?.enabled === false);
+
+mm2._config.enabled.example = true;
+mm2._config.enabled['vip-activity'] = true;
 await mm2.load();
 const exInfo = mm2.list().find((m) => m.name === 'example');
 const vipInfo = mm2.list().find((m) => m.name === 'vip-activity');

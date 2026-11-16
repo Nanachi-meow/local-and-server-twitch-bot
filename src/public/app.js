@@ -1291,6 +1291,17 @@ const OV_KINDS = [
 ];
 
 let __mediaFiles = [];
+// разделение файлов по типу: для колонок «Звук» и «Медиа»
+const AUDIO_EXT = ['mp3', 'wav', 'ogg', 'm4a', 'flac'];
+const VISUAL_EXT = ['mp4', 'webm', 'mov', 'm4v', 'ogv', 'gif', 'apng', 'png', 'webp', 'jpg', 'jpeg', 'svg'];
+const fileExt = (n) => String(n || '').split('.').pop().toLowerCase();
+const fileKind = (n) => {
+  const e = fileExt(n);
+  if (AUDIO_EXT.includes(e)) return 'звук';
+  if (VISUAL_EXT.includes(e)) return 'медиа';
+  return 'файл';
+};
+
 // семафор: вкладка Оверлей отрисовала актуальные настройки сервера.
 // До этого «Сохранить» держим заблокированным — иначе соберём алерты из
 // пустого DOM и молча выключим все алерты и TTS (панель свежая, бот перезапускался).
@@ -1305,21 +1316,26 @@ async function loadOverlaySettings() {
   $('#ov-open').href = `${location.origin}/overlay?test=follow`;
   $('#ov-enabled').checked = Boolean(a.enabled);
   $('#ov-eventlist').checked = Boolean(a.eventList?.enabled);
+  const soundFiles = __mediaFiles.filter((f) => AUDIO_EXT.includes(fileExt(f)));
+  const visualFiles = __mediaFiles.filter((f) => VISUAL_EXT.includes(fileExt(f)));
   const body = $('#ov-body');
   body.innerHTML = OV_KINDS.map(([kind, label]) => {
     const c = a[kind] ?? {};
-    const soundOptions = ['<option value="">— без звука —</option>',
-      ...__mediaFiles.map((f) => `<option value="${esc(f)}" ${c.sound === f ? 'selected' : ''}>${esc(f)}</option>`)].join('');
+    const opt = (list, cur) => ['<option value="">— не задано —</option>',
+      ...list.map((f) => `<option value="${esc(f)}" ${cur === f ? 'selected' : ''}>${esc(f)}</option>`)].join('');
     return `
     <tr data-kind="${kind}">
       <td class="cellname">${label}</td>
       <td class="cellresp"><input class="o-template" value="${esc(c.template || '')}" maxlength="200" /></td>
-      <td class="cellcd"><select class="o-sound">${soundOptions}</select></td>
+      <td class="cellcd"><select class="o-media" title="gif/картинка/видео вместо эмодзи">${opt(visualFiles, c.media || '')}</select></td>
+      <td class="cellcd"><select class="o-sound">${opt(soundFiles, c.sound || '')}</select></td>
+      <td class="cellcd"><input class="o-volume" type="number" min="0" max="100" value="${c.soundVolume ?? 85}" style="width:64px" title="громкость звука и видео-медиа" /></td>
       <td class="cellcd"><input class="o-duration" type="number" min="2" max="20" value="${c.duration ?? 5}" /></td>
       <td class="cellon"><input class="o-enabled" type="checkbox" ${c.enabled ? 'checked' : ''} /></td>
       <td><button class="act o-test" title="показать в открытом оверлее">Тест</button></td>
     </tr>`;
   }).join('');
+  renderMediaFiles();
   // TTS-блок «🔊 Озвучка»
   const tts = a.tts ?? {};
   $('#tts-enabled').checked = Boolean(tts.enabled);
@@ -1328,6 +1344,50 @@ async function loadOverlaySettings() {
   fillTtsVoices(String(tts.voiceName ?? ''));
   __overlayLoaded = true; // настройки отрисованы — теперь можно собирать и слать
 }
+
+// списочек файлов алертов: чипы с типом и кнопкой удаления
+function renderMediaFiles() {
+  const box = $('#media-files');
+  if (!box) return;
+  box.innerHTML = __mediaFiles.map((f) =>
+    `<span class="chip">${esc(f)} · ${fileKind(f)} <button class="act ghost m-del" data-name="${esc(f)}" title="удалить файл">✕</button></span>`
+  ).join('') || '<span class="hint">Пока пусто — загрузи первый файл выше или кинь в папку overlay-media/</span>';
+}
+
+$('#media-files').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.m-del');
+  if (!btn) return;
+  const name = btn.dataset.name;
+  if (!confirm(`Удалить файл «${name}»?`)) return;
+  try {
+    await api(`/api/media?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+    toast(`Файл «${name}» удалён`);
+    loadOverlaySettings();
+  } catch (err) { toast(err.message, true); }
+});
+
+$('#media-upload').addEventListener('click', async () => {
+  const input = $('#media-file');
+  const file = input?.files?.[0];
+  if (!file) { toast('Сначала выбери файл', true); return; }
+  $('#media-up-hint').textContent = 'загружаю…';
+  try {
+    const r = await fetch(`/api/media/upload?name=${encodeURIComponent(file.name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: file,
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    input.value = '';
+    $('#media-up-hint').textContent = '';
+    toast(`«${file.name}» загружен ✅`);
+    loadOverlaySettings();
+  } catch (err) {
+    $('#media-up-hint').textContent = '';
+    toast(err.message, true);
+  }
+});
 
 // список голосов берём из браузера панели (Web Speech API), русские — первыми
 function ttsVoices() {
@@ -1389,6 +1449,8 @@ function collectAlerts() {
       enabled: row.querySelector('.o-enabled').checked,
       template: row.querySelector('.o-template').value,
       sound: row.querySelector('.o-sound').value,
+      media: row.querySelector('.o-media').value,
+      soundVolume: Math.max(0, Math.min(100, Number(row.querySelector('.o-volume').value) || 0)),
       duration: Number(row.querySelector('.o-duration').value) || 5,
     };
   });

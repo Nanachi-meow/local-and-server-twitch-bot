@@ -442,6 +442,8 @@ const app = {
         if (k.enabled !== undefined) cur[kind].enabled = Boolean(k.enabled);
         if (k.template !== undefined) cur[kind].template = String(k.template).slice(0, 200);
         if (k.sound !== undefined) cur[kind].sound = String(k.sound).replace(/[\\/]/g, '').slice(0, 120);
+        if (k.media !== undefined) cur[kind].media = String(k.media).replace(/[\\/]/g, '').slice(0, 120);
+        if (k.soundVolume !== undefined) cur[kind].soundVolume = Math.max(0, Math.min(100, Math.round(Number(k.soundVolume) || 0)));
         if (k.duration !== undefined) cur[kind].duration = Math.max(2, Math.min(20, Number(k.duration) || 5));
       }
       // TTS-озвучка оверлея: merge с текущим + нормализация с клампами

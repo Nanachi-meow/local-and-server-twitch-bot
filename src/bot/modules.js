@@ -113,6 +113,11 @@ export class ModuleManager {
           const name = String(def.name || path.basename(file, '.js')).toLowerCase();
           if (!name) throw new Error('не смогли понять имя модуля');
           this._mods.push({ name, file, def, error: null });
+          // модуль может попросить «по умолчанию выключен» (примеры-гайды):
+          // работает только пока юзер сам не ткнул галочку в панели
+          if (def.enabled === false && this._config.enabled[name] === undefined) {
+            this._config.enabled[name] = false;
+          }
           // дефолтные настройки модуля — под хранёнными
           this._config.settings[name] = { ...(def.settings ?? {}), ...(this._config.settings[name] ?? {}) };
           // хранилище модуля читаем сразу, если файл уже есть

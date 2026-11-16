@@ -363,10 +363,21 @@
       </div>
       <div class="card">
         <h2>🔔 Всплывающие уведомления</h2>
+        <p class="hint">«Медиа» — gif/картинка/видео вместо эмодзи в алерте (mp4/webm/mov/gif/png/webp…). «Громк%» — одна громкость на звук алерта и звук видео (0–100). Сообщения в чат настраиваются отдельно на вкладке «События» — алерты их не заменяют, а дополняют.</p>
         <table class="cmds">
-          <thead><tr><th>Событие</th><th>Текст</th><th>Звук</th><th>Сек</th><th>Вкл</th><th></th></tr></thead>
+          <thead><tr><th>Событие</th><th>Текст</th><th>Медиа</th><th>Звук</th><th>Громк%</th><th>Сек</th><th>Вкл</th><th></th></tr></thead>
           <tbody id="ov-body"></tbody>
         </table>
+      </div>
+      <div class="card">
+        <h2>📁 Файлы алертов</h2>
+        <p class="hint">Звуки и медиа лежат в папке <code>overlay-media/</code> проекта — можно кидать руками или загрузить отсюда (до 64 МБ: mp3/wav/ogg/flac/m4a, mp4/webm/mov/m4v/ogv, gif/apng/png/webp/jpg/jpeg/svg). Удаление файла не сбрасывает его выбор в алертах — просто останется «нет такого файла», пока не выберешь другой.</p>
+        <div class="addrow">
+          <input type="file" id="media-file" style="max-width:340px" />
+          <button class="act" id="media-upload">⬆ Загрузить</button>
+          <span class="hint" id="media-up-hint"></span>
+        </div>
+        <div id="media-files" class="chips"></div>
       </div>
       <div class="card">
         <h2>🔊 Озвучка (TTS)</h2>

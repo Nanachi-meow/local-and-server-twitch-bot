@@ -17,8 +17,9 @@ const STATIC = {
 /** Папка с медиа-файлами для алертов (звуки/картинки). Файлы отдаются на /media/<имя>. */
 const MEDIA_DIR = path.join(ROOT, 'overlay-media');
 const MEDIA_EXT = {
-  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4',
-  '.mp4': 'video/mp4', '.webm': 'video/webm', '.gif': 'image/gif',
+  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.flac': 'audio/flac',
+  '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.m4v': 'video/mp4', '.ogv': 'video/ogg',
+  '.gif': 'image/gif', '.apng': 'image/apng', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
 };
 
@@ -100,6 +101,52 @@ export function createHttpServer({ app }) {
           .sort();
       } catch {}
       sendJson(res, 200, { files });
+      return;
+    }
+
+    // ---------- файлы алертов: загрузка прямо из панели (overlay-media/) ----------
+    if (route === '/api/media/upload' && req.method === 'POST') {
+      const u2 = u.searchParams.get('name') || '';
+      const name = path.basename(u2).slice(0, 120);
+      const type = MEDIA_EXT[path.extname(name).toLowerCase()];
+      if (!name || !type) {
+        sendJson(res, 400, { error: 'Не знаю такой тип файла. Поддержка: mp3/wav/ogg/flac/m4a, mp4/webm/mov/m4v/ogv, gif/apng/png/webp/jpg/svg' });
+        return;
+      }
+      // сырые байты; видео бывают тяжёлыми — лимит 64 МБ
+      const chunks = [];
+      let size = 0;
+      for await (const chunk of req) {
+        size += chunk.length;
+        if (size > 64 * 1024 * 1024) { sendJson(res, 413, { error: 'Файл больше 64 МБ' }); return; }
+        chunks.push(chunk);
+      }
+      if (!chunks.length) { sendJson(res, 400, { error: 'Пустой файл' }); return; }
+      try { fs.mkdirSync(MEDIA_DIR, { recursive: true }); } catch {}
+      try {
+        fs.writeFileSync(path.join(MEDIA_DIR, name), Buffer.concat(chunks));
+        app.logs.system.push({ level: 'info', message: `Файл алертов загружен: ${name}` });
+        sendJson(res, 200, { ok: true, name });
+      } catch (e) {
+        sendJson(res, 500, { error: `Не смогла записать файл: ${e.message}` });
+      }
+      return;
+    }
+
+    if (route === '/api/media' && req.method === 'DELETE') {
+      const name = path.basename(u.searchParams.get('name') || '').slice(0, 120);
+      const full = path.join(MEDIA_DIR, name);
+      if (!name || !MEDIA_EXT[path.extname(name).toLowerCase()] || !fs.existsSync(full)) {
+        sendJson(res, 404, { error: 'Нет такого файла' });
+        return;
+      }
+      try {
+        fs.unlinkSync(full);
+        app.logs.system.push({ level: 'info', message: `Файл алертов удалён: ${name}` });
+        sendJson(res, 200, { ok: true });
+      } catch {
+        sendJson(res, 500, { error: 'Не смогла удалить файл' });
+      }
       return;
     }
 
