@@ -143,6 +143,7 @@ nav {
 
 /* превью: маленькая копия плашки из оверлея */
 .am-preview {
+  position: relative;
   display: flex; justify-content: center; align-items: center;
   padding: 18px 12px;
   background: rgba(255, 255, 255, .03);
@@ -150,6 +151,7 @@ nav {
   border-radius: 12px;
   min-height: 90px;
 }
+.am-hear-btn { position: absolute; right: 10px; bottom: 10px; font-size: 13px; }
 .am-alert {
   display: flex; align-items: center; gap: 16px;
   padding: 14px 24px; border-radius: 16px;

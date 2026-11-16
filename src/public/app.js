@@ -955,6 +955,7 @@ const AM_EMOJI = { follow: '💜', sub: '🎉', resub: '💖', subgift: '🎁', 
 const AM_SUB = { follow: 'новый фолловер', sub: 'новая подписка', resub: 'продление подписки', subgift: 'подаренная подписка', raid: 'рейд на канал' };
 const amModal = $('#alert-modal');
 let amKind = null;
+let amPreviewSound = false; // звук видео в превью: переживает перерисовки, сбрасывается при открытии модалки
 
 function amSelOptions(kind, cur, empty) {
   const list = __mediaFiles.filter((f) => (kind === 'media' ? VISUAL_EXT : AUDIO_EXT).includes(fileExt(f)));
@@ -965,6 +966,7 @@ function amSelOptions(kind, cur, empty) {
 
 function openAlertModal(kind) {
   amKind = kind;
+  amPreviewSound = false; // звук превью по умолчанию выключен
   const a = window.__settings?.alerts?.[kind] ?? {};
   $('#am-title').textContent = `📺 Алерт — ${KIND_RU[kind] ?? kind}`;
   $('#am-enabled').checked = a.enabled !== false;
@@ -1004,21 +1006,41 @@ function amUpdatePreview() {
     }
   }
   const text = $('#am-template').value || 'текст плашки…';
+  const isVideo = media && ['mp4', 'webm', 'mov', 'm4v', 'ogv'].includes(fileExt(media));
   box.innerHTML = `<div class="am-alert am-k-${kind}">${mediaHTML}
-    <div class="am-text">${esc(text)}<small>${AM_SUB[kind] || ''}</small></div></div>`;
-  // клик по видео в превью — послушать его с выбранной громкостью (mute/unmute)
-  const vid = box.querySelector('video');
+    <div class="am-text">${esc(text)}<small>${AM_SUB[kind] || ''}</small></div></div>
+    ${isVideo ? `<button class="act ghost am-hear-btn">${amPreviewSound ? '🔇 выключить звук' : '🔊 включить звук превью'}</button>` : ''}`;
+  amApplyPreviewSound();
+}
+
+// применить состояние звука превью к текущему видео + кнопке
+function amApplyPreviewSound() {
+  const vid = $('#am-preview video');
   if (vid) {
-    vid.muted = true;
-    vid.title = 'клик — послушать/заглушить видео';
+    vid.muted = !amPreviewSound;
+    if (amPreviewSound) vid.volume = Math.max(0.001, Math.min(1, Number($('#am-volume').value) / 100));
+    vid.title = 'клик — включить/выключить звук';
     vid.style.cursor = 'pointer';
-    vid.addEventListener('click', () => {
-      vid.muted = !vid.muted;
-      if (!vid.muted) vid.volume = Math.max(0.001, Math.min(1, Number($('#am-volume').value) / 100));
-      toast(vid.muted ? 'видео заглушено в превью' : `звук видео: ${$('#am-volume').value}%`);
-    });
   }
 }
+
+function amTogglePreviewSound() {
+  amPreviewSound = !amPreviewSound;
+  amApplyPreviewSound();
+  const btn = $('#am-preview .am-hear-btn');
+  if (btn) btn.textContent = amPreviewSound ? '🔇 выключить звук' : '🔊 включить звук превью';
+}
+
+// клик по кнопке «🔊 включить звук превью» или по самому видео — звук с выбранной громкостью
+$('#am-preview').addEventListener('click', (e) => {
+  if (e.target.closest('.am-hear-btn') || e.target.tagName === 'VIDEO') amTogglePreviewSound();
+});
+
+// громкость меняется — если звук превью уже включён, подтягиваем сразу
+$('#am-volume').addEventListener('input', () => {
+  $('#am-volume-val').textContent = $('#am-volume').value;
+  if (amPreviewSound) amApplyPreviewSound();
+});
 
 function amRefreshCard() {
   const card = document.querySelector(`#events-list .evcard[data-kind="${amKind}"]`);
@@ -1053,9 +1075,6 @@ $('#events-list').addEventListener('click', (e) => {
   });
 });
 $('#am-template').addEventListener('input', amUpdatePreview);
-$('#am-volume').addEventListener('input', () => { $('#am-volume-val').textContent = $('#am-volume').value; });
-
-// прослушать выбранный звук с выбранной громкостью
 $('#am-play').addEventListener('click', () => {
   const name = $('#am-sound').value;
   if (!name) { toast('Сначала выбери звук (или загрузи — «＋ загрузить файл…»)', true); return; }
