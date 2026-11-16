@@ -93,7 +93,10 @@ export class PointsManager {
     try {
       saveJson(this.dataFile, this.store);
       this._dirty = false;
-    } catch {}
+    } catch (e) {
+      // критик: срыв записи не глотаем — панель должна видеть, _dirty остаётся на повтор
+      this.logs?.system?.push?.({ level: 'error', message: `не записались баллы на диск: ${e.message}` });
+    }
   }
 
   // ---------------- начисление ----------------

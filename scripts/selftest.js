@@ -576,6 +576,15 @@ const memeCd = pts.buyMeme('petya', 'Petya', 'ричка');
 ok('критик: мем-магазин — кулдаун держит повтор', Boolean(memeCd.error) && memeCd.error.includes('подожди'));
 pts.settings.memShop.cooldown = 0;
 
+// критик: saveNow баллов тоже репортит срыв записи (файл на месте каталога)
+const blockerDir = path.join(process.env.BOT_DATA_DIR, 'pts-blocked');
+fs.writeFileSync(blockerDir, 'x', 'utf8');
+const ptsBad = new PointsManager({ helix: fakeHelixPts, auth: fakeAuth, logs, settings: ptsSettings, channels: registry, dataFile: path.join(blockerDir, 'points.json') });
+ptsBad.add('x9', 5, 'X9');
+ptsBad.saveNow();
+ok('критик: срыв записи баллов виден в системной ленте', logs.system.items.some((l) => String(l?.message || '').includes('не записались баллы')) && ptsBad._dirty);
+fs.rmSync(blockerDir, { force: true });
+
 pts.stop();
 
 // ---------- цитаты ----------
