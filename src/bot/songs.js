@@ -139,7 +139,10 @@ export class SongsManager {
 
   /** Видео закончилось (сообщает плеер с /music). */
   ended() {
-    if (!this.current) return { stopped: true };
+    if (!this.current) {
+      this._emit('stop'); // пустая очередь: всё равно сообщаем — плеер сбрасывает UI
+      return { stopped: true };
+    }
     this.history.push(this.current);
     this._dirty = true;
     const next = this.queue.shift();
