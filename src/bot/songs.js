@@ -29,14 +29,18 @@ async function fetchVideoInfo(videoId, proxy, fetcher = httpGet) {
     author = j.author_name || '';
   } catch { throw new Error('YouTube прислал неожиданный ответ'); }
 
-  // длина — со страницы просмотра (лучшее усилие; без API-ключей)
+  // длина и просмотры — со страницы просмотра (без API-ключей)
   let duration = 0;
+  let viewCount = 0;
   try {
     const page = await fetcher(`https://www.youtube.com/watch?v=${videoId}&hl=ru`, proxy);
-    const m = String(page.body || '').match(/"lengthSeconds"\s*:\s*"?(\d{1,6})/);
+    const html = String(page.body || '');
+    const m = html.match(/"lengthSeconds"\s*:\s*"?(\d{1,6})/);
     if (m) duration = Number(m[1]);
+    const vc = html.match(/"viewCount"\s*:\s*"?(\d+)/);
+    if (vc) viewCount = Number(vc[1]);
   } catch {}
-  return { title, author, duration };
+  return { title, author, duration, viewCount };
 }
 
 /**
