@@ -87,6 +87,18 @@ nav {
 .subtab.active { background: var(--card); color: var(--text); border-color: var(--text); font-weight: 600; }
 .subtab:hover { color: var(--text); }
 
+.evcard .ev-alert {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.evcard .ev-alert h4 { margin: 0; font-size: 13px; color: var(--muted); }
+.evcard .ev-alert .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
 /* выключенная встроенная команда — приглушена */
 tr.off td { opacity: .45; }
 

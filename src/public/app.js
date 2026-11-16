@@ -861,12 +861,18 @@ $('#fan-presets').addEventListener('click', async (e) => {
 const KIND_RU = { follow: 'Новый фоллоу', raid: 'Рейд', sub: 'Новая подписка', resub: 'Продление подписки', subgift: 'Подаренная подписка' };
 
 async function loadSettings() {
-  const st = await api('/api/settings');
+  const [st, media] = await Promise.all([api('/api/settings'), api('/api/media')]);
   window.__settings = st;
+  __mediaFiles = media.files ?? [];
+  const soundFiles = __mediaFiles.filter((f) => AUDIO_EXT.includes(fileExt(f)));
+  const visualFiles = __mediaFiles.filter((f) => VISUAL_EXT.includes(fileExt(f)));
+  const opt = (list, cur) => ['<option value="">— не задано —</option>',
+    ...list.map((f) => `<option value="${esc(f)}" ${cur === f ? 'selected' : ''}>${esc(f)}</option>`)].join('');
   const holder = $('#events-list');
   holder.innerHTML = '<div class="evcards"></div>';
   const cards = holder.firstChild;
   for (const [kind, cfg] of Object.entries(st.events)) {
+    const a = st.alerts?.[kind] ?? {};
     const div = document.createElement('div');
     div.className = 'evcard';
     div.dataset.kind = kind;
@@ -886,13 +892,34 @@ async function loadSettings() {
       </label>
       <label><input type="checkbox" class="f-pin" ${cfg.pin ? 'checked' : ''} /> закрепить на 20 минут (для режима «текст»)</label>
       <label><input type="checkbox" class="f-enabled" ${cfg.enabled ? 'checked' : ''} /> реакция включена</label>
+      <div class="ev-alert">
+        <h4>📺 алерт в OBS (плашка на оверлее)</h4>
+        <label><input type="checkbox" class="a-enabled" ${a.enabled !== false ? 'checked' : ''} /> показывать алерт</label>
+        <input type="text" class="a-template" value="${esc(a.template || '')}" maxlength="200" placeholder="текст плашки — {user}, {viewers}, {months}, {recipient}" />
+        <label>медиа (gif/видео/картинка вместо эмодзи)
+          <select class="a-media">${opt(visualFiles, a.media || '')}</select>
+        </label>
+        <label>звук
+          <select class="a-sound">${opt(soundFiles, a.sound || '')}</select>
+        </label>
+        <div class="row">
+          <label>громк %
+            <input class="a-volume" type="number" min="0" max="100" value="${a.soundVolume ?? 85}" style="width:64px" title="громкость звука и видео-медиа" />
+          </label>
+          <label>сек
+            <input class="a-duration" type="number" min="2" max="20" value="${a.duration ?? 6}" style="width:64px" />
+          </label>
+        </div>
+      </div>
       <div class="row">
         <button class="act ev-save">Сохранить</button>
-        <button class="act ghost ev-test" data-kind="${kind}">Тест</button>
+        <button class="act ghost ev-test" data-kind="${kind}">Тест чата</button>
+        <button class="act ghost a-test" title="показать алерт в открытом оверлее">Тест алерта</button>
       </div>
     `;
     cards.appendChild(div);
   }
+  renderMediaFiles();
   $('#so-template').value = st.so?.template ?? '';
   renderAso();
   renderAutoPin();
@@ -919,9 +946,25 @@ $('#events-list').addEventListener('click', async (e) => {
               enabled: card.querySelector('.f-enabled').checked,
             },
           },
+          alerts: {
+            [kind]: {
+              enabled: card.querySelector('.a-enabled').checked,
+              template: card.querySelector('.a-template').value,
+              media: card.querySelector('.a-media').value,
+              sound: card.querySelector('.a-sound').value,
+              soundVolume: Math.max(0, Math.min(100, Number(card.querySelector('.a-volume').value) || 0)),
+              duration: Math.max(2, Math.min(20, Number(card.querySelector('.a-duration').value) || 6)),
+            },
+          },
         }),
       });
-      toast('Шаблон сохранён ✅');
+      toast('Событие и алерт сохранены ✅');
+    } catch (err) { toast(err.message, true); }
+  }
+  if (e.target.classList.contains('a-test')) {
+    try {
+      await api('/api/actions/overlaytest', { method: 'POST', body: JSON.stringify({ kind }) });
+      toast('Алерт отправлен — смотри оверлей (страница должна быть открыта)');
     } catch (err) { toast(err.message, true); }
   }
   if (e.target.classList.contains('ev-test')) {
@@ -1280,15 +1323,8 @@ $('#redirect-uri-broadcaster')?.addEventListener('click', (e) => {
   navigator.clipboard?.writeText(e.target.textContent).then(() => toast('Redirect URL скопирован'));
 });
 
-// ---------------- оверлей (алерты для OBS) ----------------
-
-const OV_KINDS = [
-  ['follow', '💜 Фоллоу'],
-  ['sub', '🎉 Саб'],
-  ['resub', '💖 Продление'],
-  ['subgift', '🎁 Подарок'],
-  ['raid', '🚀 Рейд'],
-];
+// ---------------- оверлей (глобальные настройки) ----------------
+// алерты КОНКРЕТНЫХ событий настраиваются в их карточках: вкладка «События»
 
 let __mediaFiles = [];
 // разделение файлов по типу: для колонок «Звук» и «Медиа»
@@ -1316,25 +1352,6 @@ async function loadOverlaySettings() {
   $('#ov-open').href = `${location.origin}/overlay?test=follow`;
   $('#ov-enabled').checked = Boolean(a.enabled);
   $('#ov-eventlist').checked = Boolean(a.eventList?.enabled);
-  const soundFiles = __mediaFiles.filter((f) => AUDIO_EXT.includes(fileExt(f)));
-  const visualFiles = __mediaFiles.filter((f) => VISUAL_EXT.includes(fileExt(f)));
-  const body = $('#ov-body');
-  body.innerHTML = OV_KINDS.map(([kind, label]) => {
-    const c = a[kind] ?? {};
-    const opt = (list, cur) => ['<option value="">— не задано —</option>',
-      ...list.map((f) => `<option value="${esc(f)}" ${cur === f ? 'selected' : ''}>${esc(f)}</option>`)].join('');
-    return `
-    <tr data-kind="${kind}">
-      <td class="cellname">${label}</td>
-      <td class="cellresp"><input class="o-template" value="${esc(c.template || '')}" maxlength="200" /></td>
-      <td class="cellcd"><select class="o-media" title="gif/картинка/видео вместо эмодзи">${opt(visualFiles, c.media || '')}</select></td>
-      <td class="cellcd"><select class="o-sound">${opt(soundFiles, c.sound || '')}</select></td>
-      <td class="cellcd"><input class="o-volume" type="number" min="0" max="100" value="${c.soundVolume ?? 85}" style="width:64px" title="громкость звука и видео-медиа" /></td>
-      <td class="cellcd"><input class="o-duration" type="number" min="2" max="20" value="${c.duration ?? 5}" /></td>
-      <td class="cellon"><input class="o-enabled" type="checkbox" ${c.enabled ? 'checked' : ''} /></td>
-      <td><button class="act o-test" title="показать в открытом оверлее">Тест</button></td>
-    </tr>`;
-  }).join('');
   renderMediaFiles();
   // TTS-блок «🔊 Озвучка»
   const tts = a.tts ?? {};
@@ -1362,7 +1379,7 @@ $('#media-files').addEventListener('click', async (e) => {
   try {
     await api(`/api/media?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
     toast(`Файл «${name}» удалён`);
-    loadOverlaySettings();
+    loadSettings(); // перерисовать карточки событий (селекты медиа/звука) и чипы файлов
   } catch (err) { toast(err.message, true); }
 });
 
@@ -1382,7 +1399,7 @@ $('#media-upload').addEventListener('click', async () => {
     input.value = '';
     $('#media-up-hint').textContent = '';
     toast(`«${file.name}» загружен ✅`);
-    loadOverlaySettings();
+    loadSettings(); // перерисовать карточки событий (селекты медиа/звука) и чипы файлов
   } catch (err) {
     $('#media-up-hint').textContent = '';
     toast(err.message, true);
@@ -1438,22 +1455,13 @@ $('#ov-copy').addEventListener('click', async () => {
   catch { $('#ov-url').select(); toast('Выделила поле — Ctrl+C', true); }
 });
 
-// сбор alerts ЦЕЛИКОМ (события + TTS) — один PUT сохраняет и то, и другое.
-// Пока настройки вкладки не загружены — null: не шлём ни группу alerts,
-// ни глобальный alerts.enabled (иначе молча выключились бы ВСЕ алерты).
+// сбор ГЛОБАЛЬНОЙ части alerts (общий выключатель + TTS): один PUT на кнопках
+// вкладки «Оверлей». Алерты конкретных событий сохраняются их карточками
+// на вкладке «События». Пока настройки вкладки не загружены — null: не шлём
+// ничего (иначе молча выключились бы ВСЕ алерты).
 function collectAlerts() {
   if (!__overlayLoaded) return null;
   const alerts = { enabled: $('#ov-enabled').checked };
-  document.querySelectorAll('#ov-body tr[data-kind]').forEach((row) => {
-    alerts[row.dataset.kind] = {
-      enabled: row.querySelector('.o-enabled').checked,
-      template: row.querySelector('.o-template').value,
-      sound: row.querySelector('.o-sound').value,
-      media: row.querySelector('.o-media').value,
-      soundVolume: Math.max(0, Math.min(100, Number(row.querySelector('.o-volume').value) || 0)),
-      duration: Number(row.querySelector('.o-duration').value) || 5,
-    };
-  });
   const rate = Number($('#tts-rate').value);
   const volume = Number($('#tts-volume').value);
   alerts.tts = {
@@ -1500,15 +1508,6 @@ $('#tts-test').addEventListener('click', () => {
     speechSynthesis.cancel(); // повторное нажатие не копит проверки
     speechSynthesis.speak(u);
   } catch { toast('Не удалось произнести — синтез речи недоступен', true); }
-});
-
-$('#ov-body').addEventListener('click', async (e) => {
-  const row = e.target.closest('tr[data-kind]');
-  if (!row || !e.target.classList.contains('o-test')) return;
-  try {
-    await api('/api/actions/overlaytest', { method: 'POST', body: JSON.stringify({ kind: row.dataset.kind }) });
-    toast('Алерт отправлен — смотри оверлей (страница должна быть открыта)');
-  } catch (err) { toast(err.message, true); }
 });
 
 // ---------------- музыка (заказы YouTube) ----------------
