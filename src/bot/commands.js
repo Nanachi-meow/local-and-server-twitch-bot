@@ -838,6 +838,26 @@ export function mergeTts(cur = {}, patch = {}) {
   return normalizeTts(merged);
 }
 
+/** Нормализация настроек списка событий оверлея (alerts.eventList): вкл + размер 1–20. */
+export function normalizeEventList(e = {}) {
+  const size = Number(e?.size);
+  return {
+    enabled: Boolean(e?.enabled),
+    size: Number.isFinite(size) ? Math.max(1, Math.min(20, Math.floor(size))) : 5,
+  };
+}
+
+/**
+ * Слияние eventList-патча из панели с текущим значением (по образцу mergeTts):
+ * частичный патч (только enabled) не затирает size, мусорный патч не меняет ничего.
+ */
+export function mergeEventList(cur = {}, patch = {}) {
+  const merged = patch && typeof patch === 'object'
+    ? { ...(cur ?? {}), ...patch }
+    : { ...(cur ?? {}) };
+  return normalizeEventList(merged);
+}
+
 export function loadSettings() {
   const stored = loadJson(SETTINGS_FILE, {}) ?? {};
   const events = {};
@@ -886,6 +906,7 @@ export function loadSettings() {
       raid: { enabled: true, template: '🚀 РЕЙД от {user}! {viewers} зрителей с нами!', sound: '', duration: 7 },
       meme: { enabled: true, duration: 6 },
       wheel: { enabled: true, duration: 5 },
+      eventList: { enabled: false, size: 5 }, // список последних событий в углу оверлея
       tts: { enabled: false, rate: 1, volume: 1, voiceName: '' },
       ...(stored.alerts ?? {}),
     },

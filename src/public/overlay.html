@@ -43,6 +43,24 @@
   .k-raid    { --glow: rgba(59, 130, 246, .6); }
   .k-meme    { --glow: rgba(249, 115, 22, .6); }
   .k-wheel   { --glow: rgba(139, 92, 246, .65); }
+  /* список последних событий (Event List): правый верхний угол, полупрозрачный */
+  #events {
+    position: fixed; top: 16px; right: 16px;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+    max-width: 420px; pointer-events: none;
+  }
+  #events .ev {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 12px; border-radius: 10px;
+    background: rgba(10, 8, 20, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #fff; font-size: 15px; font-weight: 600; letter-spacing: .2px;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
+    max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    animation: ev-in .3s ease-out;
+  }
+  #events .ev .e-emoji { font-size: 17px; line-height: 1; }
+  @keyframes ev-in { from { opacity: 0; transform: translateX(16px); } }
   #conn {
     position: fixed; left: 10px; bottom: 8px;
     font-size: 13px; color: rgba(255, 255, 255, .45);
@@ -52,6 +70,7 @@
 </head>
 <body>
   <div id="stage"></div>
+  <div id="events" hidden></div>
   <div id="conn">…</div>
 <script>
   const EMOJI = { follow: '💜', sub: '🎉', resub: '💖', subgift: '🎁', raid: '🚀', meme: '🎬', wheel: '🎡' };
@@ -64,14 +83,54 @@
   const params = new URLSearchParams(location.search);
   // ?tts=0 — полностью выключить озвучку на этой странице (для отладки/сцен)
   const TTS_OFF = params.get('tts') === '0';
+  // ?events=1 — включить список событий на этой странице (иначе — настройка alerts.eventList)
+  const EVENTS_URL = params.get('events') === '1';
 
   async function loadCfg() {
     try {
       const r = await fetch('/api/settings');
       cfg = (await r.json()).alerts ?? { enabled: true };
     } catch {}
+    applyEventListCfg();
   }
   setInterval(loadCfg, 60_000);
+
+  // ---------- Event List: список последних событий в углу ----------
+  // питается ТЕМИ ЖЕ SSE-событиями, что и алерты (одно соединение /overlay/feed)
+  let eventsOn = EVENTS_URL;
+  let eventsSize = 5;
+
+  function applyEventListCfg() {
+    if (!EVENTS_URL) eventsOn = Boolean(cfg?.eventList?.enabled);
+    const sz = Number(cfg?.eventList?.size);
+    if (Number.isFinite(sz)) eventsSize = Math.max(1, Math.min(20, Math.floor(sz)));
+    const box = document.getElementById('events');
+    box.hidden = !eventsOn;
+    while (box.children.length > eventsSize) box.lastChild.remove();
+  }
+
+  // короткая строка события: мем/колесо несут готовый текст, остальные — кто пришёл
+  function eventText(ev) {
+    if (ev.kind === 'meme' || ev.kind === 'wheel') return ev.text || '';
+    let t = ev.user || ev.channel || '';
+    if (ev.viewers) t += ` · ${ev.viewers} зрителей`;
+    if (ev.months) t += ` · ${ev.months} мес.`;
+    if (ev.recipient) t += ` → ${ev.recipient}`;
+    return t;
+  }
+
+  function eventsPush(ev) {
+    if (!eventsOn) return;
+    const box = document.getElementById('events');
+    const el = document.createElement('div');
+    el.className = 'ev';
+    el.innerHTML = `<span class="e-emoji">${EMOJI[ev.kind] || '✨'}</span><span class="e-text">${escapeHtml(eventText(ev))}</span>`;
+    box.prepend(el);
+    while (box.children.length > eventsSize) box.lastChild.remove();
+    // старые строки затухают: прозрачность падает от 1 у свежей до ~0.2 у самой старой
+    [...box.children].forEach((c, i) => { c.style.opacity = String(Math.max(0.2, 1 - i * 0.18)); });
+  }
+  applyEventListCfg();
 
   // ---------- TTS-озвучка (Web Speech API, конфиг alerts.tts) ----------
   let voices = [];
@@ -165,6 +224,7 @@
       if (KINDS.includes(ev.kind)) {
         queue.push(ev);
         pump();
+        eventsPush(ev);
       }
     } catch {}
   };
@@ -172,7 +232,9 @@
   // режим позиционирования: /overlay?test=follow|sub|resub|subgift|raid (озвучивается тоже)
   if (params.get('test')) {
     loadCfg().then(() => setTimeout(() => {
-      show({ kind: params.get('test'), channel: 'твой канал', user: 'ТестовыйЗритель', viewers: 42, months: 12, recipient: 'ТестовыйДруг' });
+      const testEv = { kind: params.get('test'), channel: 'твой канал', user: 'ТестовыйЗритель', viewers: 42, months: 12, recipient: 'ТестовыйДруг' };
+      show(testEv);
+      eventsPush(testEv);
     }, 800));
   } else {
     loadCfg();

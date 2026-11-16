@@ -146,6 +146,20 @@
         <h2>🔧 Встроенные</h2>
         <div id="builtins" class="chips"></div>
       </div>
+      <div class="card">
+        <h2>📖 Цитаты</h2>
+        <p class="hint">Лучшие высказывания чата — те же, что живут в <code>data/quotes.json</code> и выпадают по <code>!цитата</code>. Добавленные отсюда помечаются автором «Панель»; номера не переиспользуются после удаления. В чате: <code>!цитата добавить текст</code> (мод+), <code>!цитата удалить N</code> (мод+).</p>
+        <table class="cmds">
+          <thead><tr><th style="width:60px">№</th><th>Цитата</th><th style="width:130px">Автор</th><th></th></tr></thead>
+          <tbody id="quotes-body"></tbody>
+        </table>
+        <h3>Добавить</h3>
+        <div class="addrow">
+          <textarea id="quote-add-text" rows="2" maxlength="300" placeholder="текст цитаты (до 300 символов)…" style="flex:1;min-width:240px;resize:vertical"></textarea>
+          <button class="act" id="quote-add-btn">Добавить</button>
+          <button class="act ghost" id="quotes-refresh">Обновить</button>
+        </div>
+      </div>
     </section>
 
     <!-- ============ ФАН-КОМАНДЫ ============ -->
@@ -299,6 +313,25 @@
         <button class="act ghost" id="pts-refresh">Обновить</button>
       </div>
       <div class="card">
+        <h2>📈 Тотализатор</h2>
+        <p class="hint">Ставка <b>первого канала</b> бота: вопрос, банки по вариантам и топ ставок — карточка обновляется сама каждые 5 секунд, пока ставка жива. Кнопки ниже — быстрые действия мода (панель локальная и доверенная): бот продублирует результат в чат, панель покажет тост. «Отмена» закрывает открытую ставку (а заодно и другие живые ставки бота) и возвращает всем поставленные баллы.</p>
+        <div id="bets-live"></div>
+        <h3>Управление</h3>
+        <div class="addrow">
+          <input id="bets-question" class="wide" placeholder="вопрос ставки…" maxlength="200" />
+          <input id="bets-options" placeholder="варианты через |" maxlength="400" style="flex:1;min-width:220px" />
+          <input id="bets-duration" type="number" min="10" max="3600" style="width:90px" title="секунд на ставки" />
+          <button class="act" id="bets-open-btn">Открыть</button>
+        </div>
+        <div class="addrow">
+          <span class="hint">победный вариант №</span>
+          <input id="bets-winner" type="number" min="1" max="6" style="width:70px" />
+          <button class="act" id="bets-resolve-btn">Итог</button>
+          <button class="act ghost" id="bets-cancel-btn">Отмена (с возвратом)</button>
+          <button class="act ghost" id="bets-refresh">Обновить</button>
+        </div>
+      </div>
+      <div class="card">
         <h2>🎡 Колесо (рулетка за баллы)</h2>
         <p class="hint">Взвешенная рулетка: вес = как часто выпадает, множитель ×N — во сколько раз вернётся ставка. Мем-алерт результата крутится в оверлее.</p>
         <div class="evcard">
@@ -334,7 +367,7 @@
     <section id="tab-overlay" class="tabpane">
       <div class="card">
         <h2>📺 Оверлей алертов для OBS</h2>
-        <p class="hint">В OBS: «Источники» → <b>+</b> → <b>Браузер</b> → в URL вставь адрес ниже (ш: 1920, в: 1080, галка «обновлять при активации» — по вкусу). Фон прозрачный. Звуки: кидай mp3/wav/ogg в папку <code>overlay-media/</code> проекта — появятся в списке. «Тест» показывает алерт прямо в оверлее (боту работать необязательно).</p>
+        <p class="hint">В OBS: «Источники» → <b>+</b> → <b>Браузер</b> → в URL вставь адрес ниже (ш: 1920, в: 1080, галка «обновлять при активации» — по вкусу). Фон прозрачный. Звуки: кидай mp3/wav/ogg в папку <code>overlay-media/</code> проекта — появятся в списке. «Тест» показывает алерт прямо в оверлее (боту работать необязательно). Список событий (Event List) включается галочкой ниже; на конкретной странице его можно принудительно включить/выключить адресом <code>?events=1</code>.</p>
         <div class="addrow">
           <input id="ov-url" class="wide" readonly />
           <button class="act" id="ov-copy">Скопировать</button>
@@ -342,6 +375,7 @@
         </div>
         <div class="evcard">
           <label><input type="checkbox" id="ov-enabled" /> алерты включены</label>
+          <label><input type="checkbox" id="ov-eventlist" /> список событий в углу оверлея (последние события мелким шрифтом)</label>
           <div class="row"><button class="act" id="ov-save">Сохранить</button></div>
         </div>
       </div>

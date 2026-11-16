@@ -1,7 +1,7 @@
 import { AuthManager, SCOPES } from './twitch/auth.js';
 import { Helix, HelixError } from './twitch/helix.js';
 import { EventSocket } from './twitch/eventsub.js';
-import { CommandEngine, loadSettings, mergeTts } from './bot/commands.js';
+import { CommandEngine, loadSettings, mergeTts, mergeEventList } from './bot/commands.js';
 import { EventProcessor } from './bot/events.js';
 import { TimerRunner } from './bot/timers.js';
 import { ModuleManager } from './bot/modules.js';
@@ -334,6 +334,10 @@ const app = {
       if (a.tts !== undefined) {
         cur.tts = mergeTts(cur.tts, a.tts);
       }
+      // список последних событий в углу оверлея (Event List)
+      if (a.eventList !== undefined) {
+        cur.eventList = mergeEventList(cur.eventList, a.eventList);
+      }
     }
     // баллы/колесо/мем-магазин
     if (patch.points && typeof patch.points === 'object') {
@@ -519,6 +523,72 @@ const app = {
         requireRuntime();
         await timers.test(String(body.id || ''), body.channel);
         return { tested: body.id };
+      }
+      case 'betsopen': {
+        // открытие тотализатора из панели: менеджер + объявление в чат (как у !ставка открыть)
+        requireRuntime();
+        const ch = resolveChannel();
+        const question = String(body.question || '').trim();
+        const options = (Array.isArray(body.options) ? body.options : [])
+          .map((o) => String(o ?? '').trim()).filter(Boolean);
+        if (!question) throw new Error('Нужен вопрос');
+        if (options.length < 2) throw new Error('Нужно минимум 2 варианта (раздели их «|»)');
+        if (options.length > 6) throw new Error('Максимум 6 вариантов');
+        // длительность конкретной ставки: менеджер берёт её из настроек — подменяем
+        // на время open() и возвращаем назад (файл настроек не трогаем)
+        const wanted = Math.max(10, Math.min(3600, Number(body.durationSec) || 0));
+        const prevDur = settings.bets.durationSec;
+        if (wanted) settings.bets.durationSec = wanted;
+        const opened = bets.open({ channelId: ch.id, question, options });
+        settings.bets.durationSec = prevDur;
+        if (opened.error) throw new Error(opened.error);
+        const cfg = bets.cfg();
+        const list = opened.options.map((label, i) => `${i + 1}) ${label}`).join(' ');
+        await helix.sendMessage({
+          broadcasterId: ch.id,
+          senderId: auth.tokens.userId,
+          text: `📈 Ставка открыта: «${opened.question}» — ${list}. Ставить: !ставить сумма номер (${cfg.minBet}–${cfg.maxBet}), на всё ${opened.durationSec} сек`.slice(0, 480),
+        });
+        return { opened: true, question: opened.question, options: opened.options, durationSec: opened.durationSec, channel: ch.login };
+      }
+      case 'betsresolve': {
+        // подведение итога из панели: выплаты/возвраты как у !итог + объявление в чат
+        requireRuntime();
+        const ch = resolveChannel();
+        const idx = Number(body.winnerIndex);
+        if (!Number.isInteger(idx) || idx <= 0) throw new Error('Номер победного варианта — целое число от 1');
+        const r = bets.resolve({ channelId: ch.id, winnerIndex: idx });
+        if (r.error) throw new Error(r.error);
+        for (const p of r.payouts) points.add(p.login, p.amount);
+        for (const ref of r.refunds ?? []) points.add(ref.login, ref.amount);
+        const text = !r.payouts.length
+          ? ((r.refunds ?? []).length
+            ? `🏁 Исход: «${r.winner}» — ставка закрыта без победителя, баллы возвращены 🙂`
+            : `🏁 Исход: «${r.winner}» — ставок не было, банк пуст`)
+          : `🏁 Исход: «${r.winner}» — банк ${r.pot}${r.fee ? ` (комиссия ${r.fee}%)` : ''}. Победители: ${(r.top ?? []).slice(0, 3).map((w, i) => `${i + 1}. ${w.name || w.login} +${w.amount}`).join(' · ')} 🎉`;
+        await helix.sendMessage({ broadcasterId: ch.id, senderId: auth.tokens.userId, text: text.slice(0, 480) });
+        return { resolved: true, winner: r.winner, pot: r.pot, payouts: r.payouts.length, refunds: (r.refunds ?? []).length, channel: ch.login };
+      }
+      case 'betscancel': {
+        // отмена из панели: живая ставка/вызов закрываются как «истёкшие» — все баллы возвращаются
+        requireRuntime();
+        const ch = resolveChannel();
+        const pool = bets.active(ch.id);
+        const duel = bets.pendingDuel(ch.id);
+        if (!pool && !duel) throw new Error('Сейчас нет открытой ставки (или вызова на дуэль)');
+        const refunds = bets.closeExpired(Date.now() + 604_800_000); // все живое считается просроченным и закрывается
+        for (const r of refunds) {
+          points.add(r.login, r.amount);
+          logSystem(`Возврат баллов (отмена из панели): @${r.login} +${r.amount}`);
+        }
+        await helix.sendMessage({
+          broadcasterId: ch.id,
+          senderId: auth.tokens.userId,
+          text: pool
+            ? `❌ Ставка «${pool.question}» отменена — все баллы возвращены 🙂`.slice(0, 480)
+            : `⚔️ Дуэль ${duel.from.name || duel.from.login} → @${duel.to} отменена — ставка ${duel.amount} вернулась 🙂`.slice(0, 480),
+        });
+        return { cancelled: true, refunds: refunds.length, channel: ch.login };
       }
       default:
         throw new Error(`Неизвестное действие: ${action}`);

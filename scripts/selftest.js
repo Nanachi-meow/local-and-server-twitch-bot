@@ -647,7 +647,7 @@ try { engine.upsert({ name: 'цитата', response: 'хак' }); } catch { quo
 ok('цитата: имя зарезервировано за встроенной', quoteReservedThrew && RESERVED.has('цитата'));
 
 // ---------- TTS-озвучка оверлея: дефолты и нормализация ----------
-const { loadSettings, normalizeTts, mergeTts } = await import('../src/bot/commands.js');
+const { loadSettings, normalizeTts, mergeTts, normalizeEventList, mergeEventList } = await import('../src/bot/commands.js');
 const ttsDef = loadSettings().alerts.tts;
 ok('tts: дефолты в loadSettings (alerts.tts)', ttsDef.enabled === false && ttsDef.rate === 1 && ttsDef.volume === 1 && ttsDef.voiceName === '');
 
@@ -672,6 +672,21 @@ const partialPatch = mergeTts(phantomCur, { volume: 0.2 });
 ok('tts: mergeTts частичный патч держит voiceName и остальное', partialPatch.voiceName === 'Milena' && partialPatch.rate === 1.5 && partialPatch.enabled === true && partialPatch.volume === 0.2);
 const garbagePatch = mergeTts(phantomCur, 'мусор');
 ok('tts: mergeTts мусорный патч не меняет текущие значения', garbagePatch.enabled === true && garbagePatch.voiceName === 'Milena' && garbagePatch.rate === 1.5 && garbagePatch.volume === 0.3);
+
+// ---------- список событий оверлея: alerts.eventList (дефолты и нормализация) ----------
+const elDef = loadSettings().alerts.eventList;
+ok('event list: дефолты в loadSettings (alerts.eventList)', elDef.enabled === false && elDef.size === 5);
+
+ok('event list: normalizeEventList клампит размер и чинит мусор',
+  normalizeEventList({ enabled: 1, size: 99 }).enabled === true && normalizeEventList({ size: 99 }).size === 20
+  && normalizeEventList({ size: 'x' }).size === 5 && normalizeEventList().enabled === false);
+
+const elCur = { enabled: true, size: 8 };
+const elPartial = mergeEventList(elCur, { enabled: false });
+const elGarbage = mergeEventList(elCur, 'мусор');
+ok('event list: mergeEventList частичный патч держит size, мусор не меняет ничего',
+  elPartial.enabled === false && elPartial.size === 8
+  && elGarbage.enabled === true && elGarbage.size === 8);
 
 // ---------- ставки и дуэли ----------
 const { BetsManager } = await import('../src/bot/bets.js');

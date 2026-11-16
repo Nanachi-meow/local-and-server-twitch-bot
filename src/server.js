@@ -208,6 +208,52 @@ export function createHttpServer({ app }) {
       return;
     }
 
+    // ---------- цитаты (карточка на вкладке «Команды») ----------
+    if (route === '/api/quotes' && req.method === 'GET') {
+      const limit = Math.max(1, Math.min(500, Number(u.searchParams.get('limit')) || 100));
+      sendJson(res, 200, { quotes: app.quotes.list({ limit }) });
+      return;
+    }
+
+    if (route === '/api/quotes' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      const text = String(body?.text || '').trim();
+      if (!text) {
+        sendJson(res, 400, { error: 'Пустой текст цитаты' });
+        return;
+      }
+      sendJson(res, 200, { ok: true, quote: app.quotes.add('Панель', text) });
+      return;
+    }
+
+    if (route === '/api/quotes' && req.method === 'DELETE') {
+      const removed = app.quotes.remove(Number(u.searchParams.get('id')));
+      if (!removed) {
+        sendJson(res, 404, { error: 'Цитаты с таким номером нет' });
+        return;
+      }
+      sendJson(res, 200, { ok: true, removed });
+      return;
+    }
+
+    // ---------- тотализатор (карточка на вкладке «Баллы»): первый канал бота ----------
+    if (route === '/api/bets' && req.method === 'GET') {
+      const channelId = app.state.broadcasterId;
+      const status = app.bets.status(channelId);
+      const pool = app.bets.active(channelId);
+      const top = [];
+      if (pool) {
+        pool.options.forEach((o, i) => {
+          for (const b of o.bets) {
+            top.push({ login: b.login, name: b.name || b.login, amount: b.amount, option: o.label, optionIndex: i + 1 });
+          }
+        });
+        top.sort((a, b) => b.amount - a.amount);
+      }
+      sendJson(res, 200, { status, top: top.slice(0, 5), cfg: app.bets.cfg() });
+      return;
+    }
+
     if (route === '/api/modules' && req.method === 'GET') {
       sendJson(res, 200, { modules: app.modules.list() });
       return;

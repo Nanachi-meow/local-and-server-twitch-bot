@@ -310,6 +310,48 @@ async function loadCommands() {
   renderFanCommands(custom);
 }
 
+// ---------------- цитаты (карточка на вкладке «Команды») ----------------
+
+async function loadQuotes() {
+  const { quotes } = await api('/api/quotes?limit=100');
+  $('#quotes-body').innerHTML = quotes.map((q) => `
+    <tr data-id="${q.id}">
+      <td class="cellcd">#${q.id}</td>
+      <td class="cellresp">${esc(q.text)}<div class="hint">${fmtTime(q.at)}</div></td>
+      <td class="cellname">${esc(q.by || '—')}</td>
+      <td><button class="act ghost q-del" title="удалить цитату">🗑</button></td>
+    </tr>`).join('')
+    || '<tr><td colspan="4" class="hint">Цитат пока нет — добавь первую или сохрани из чата: !цитата добавить текст (мод+)</td></tr>';
+}
+
+$('#quote-add-btn').addEventListener('click', async () => {
+  const text = $('#quote-add-text').value.trim();
+  if (!text) { toast('Напиши текст цитаты', true); return; }
+  try {
+    const { quote } = await api('/api/quotes', { method: 'POST', body: JSON.stringify({ text }) });
+    $('#quote-add-text').value = '';
+    toast(`Цитата #${quote.id} добавлена ✅`);
+    loadQuotes().catch(() => {});
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#quotes-refresh').addEventListener('click', async () => {
+  try { await loadQuotes(); toast('Список цитат обновлён'); }
+  catch (e) { toast(e.message, true); }
+});
+
+$('#quotes-body').addEventListener('click', async (e) => {
+  const row = e.target.closest('tr[data-id]');
+  if (!row || !e.target.classList.contains('q-del')) return;
+  const id = Number(row.dataset.id);
+  if (!confirm(`Удалить цитату #${id}?`)) return;
+  try {
+    await api(`/api/quotes?id=${id}`, { method: 'DELETE' });
+    toast(`Цитата #${id} удалена 🗑`);
+    loadQuotes().catch(() => {});
+  } catch (err) { toast(err.message, true); }
+});
+
 // ---------------- фан-команды (вкладка «🎭 Фан») ----------------
 
 const RP_PRESETS = [
@@ -1039,6 +1081,99 @@ $('#ms-body').addEventListener('click', (e) => {
   if (e.target.classList.contains('ms-del')) e.target.closest('tr')?.remove();
 });
 
+// ---------------- тотализатор (карточка на вкладке «💎 Баллы») ----------------
+
+let __betsTimer = null;
+let __betsBusy = false;
+
+// опрос активной ставки: каждые 5 сек ПОКА ставка жива (interval с очисткой, как poll())
+async function pollBets() {
+  if (__betsBusy) return;
+  __betsBusy = true;
+  try {
+    renderBets(await api('/api/bets'));
+  } catch {
+    // бот недоступен — молча, следующий опрос повторит
+  } finally {
+    __betsBusy = false;
+  }
+}
+
+function renderBets({ status, top, cfg }) {
+  const box = $('#bets-live');
+  if (!status) {
+    box.innerHTML = '<p class="hint">Сейчас нет открытой ставки — моды открывают в чате (<code>!ставка открыть вопрос в1|в2</code>) или кнопкой ниже.</p>';
+    if (__betsTimer) { clearInterval(__betsTimer); __betsTimer = null; }
+  } else {
+    box.innerHTML = `
+      <div class="evcard">
+        <h3>«${esc(status.question)}» — банк ${status.pot} 💎, осталось ${status.secondsLeft} сек</h3>
+        <div class="grid2">
+          <table class="cmds">
+            <thead><tr><th>№</th><th>Вариант</th><th>Банк</th><th>Ставок</th></tr></thead>
+            <tbody>${status.options.map((o) => `
+              <tr><td class="cellcd">${o.index})</td><td class="cellresp">${esc(o.label)}</td>
+              <td>${o.total} 💎</td><td class="hint">${o.bets}</td></tr>`).join('')}
+            </tbody>
+          </table>
+          <table class="cmds">
+            <thead><tr><th colspan="3">Топ ставок</th></tr></thead>
+            <tbody>${(top ?? []).map((t, i) => `
+              <tr><td class="cellcd">${i + 1}.</td><td class="cellname">${esc(t.name || t.login)}</td>
+              <td class="hint">${t.amount} 💎 → №${t.optionIndex} ${esc(t.option)}</td></tr>`).join('')
+              || '<tr><td colspan="3" class="hint">ставок пока нет</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    if (!__betsTimer) __betsTimer = setInterval(pollBets, 5000);
+  }
+  // префилл длительности — только пока поле не редактируют руками
+  const dur = $('#bets-duration');
+  if (dur && document.activeElement !== dur) dur.value = cfg?.durationSec ?? 300;
+}
+
+$('#bets-open-btn').addEventListener('click', async () => {
+  const question = $('#bets-question').value.trim();
+  const options = $('#bets-options').value.split('|').map((s) => s.trim()).filter(Boolean);
+  const durationSec = Number($('#bets-duration').value) || 0;
+  if (!question) { toast('Напиши вопрос ставки', true); return; }
+  if (options.length < 2) { toast('Нужно минимум 2 варианта — раздели их «|»', true); return; }
+  if (options.length > 6) { toast('Максимум 6 вариантов', true); return; }
+  try {
+    await api('/api/actions/betsopen', { method: 'POST', body: JSON.stringify({ question, options, durationSec, channel: qaChannel() }) });
+    $('#bets-question').value = '';
+    $('#bets-options').value = '';
+    toast('Ставка открыта 📈 — бот объявил в чат');
+    pollBets();
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#bets-resolve-btn').addEventListener('click', async () => {
+  const winnerIndex = Number($('#bets-winner').value);
+  if (!Number.isInteger(winnerIndex) || winnerIndex < 1) { toast('Укажи номер победного варианта (1–6)', true); return; }
+  try {
+    const r = await api('/api/actions/betsresolve', { method: 'POST', body: JSON.stringify({ winnerIndex, channel: qaChannel() }) });
+    toast(r.payouts
+      ? `Итог подведён: «${r.winner}» — банк ${r.pot}, выплачено ${r.payouts} 🏁`
+      : r.refunds
+        ? `Итог: победителей нет — возвращено ${r.refunds} игрокам 🙂`
+        : `Итог: «${r.winner}» — ставок не было`);
+    pollBets();
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#bets-cancel-btn').addEventListener('click', async () => {
+  if (!confirm('Закрыть открытую ставку и вернуть всем поставленные баллы?')) return;
+  try {
+    const r = await api('/api/actions/betscancel', { method: 'POST', body: JSON.stringify({ channel: qaChannel() }) });
+    toast(`Ставка отменена — возвратов: ${r.refunds} 🗑`);
+    pollBets();
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#bets-refresh').addEventListener('click', () => pollBets());
+
 // ---------------- оверлей (алерты для OBS) ----------------
 
 const OV_KINDS = [
@@ -1063,6 +1198,7 @@ async function loadOverlaySettings() {
   $('#ov-url').value = `${location.origin}/overlay`;
   $('#ov-open').href = `${location.origin}/overlay?test=follow`;
   $('#ov-enabled').checked = Boolean(a.enabled);
+  $('#ov-eventlist').checked = Boolean(a.eventList?.enabled);
   const body = $('#ov-body');
   body.innerHTML = OV_KINDS.map(([kind, label]) => {
     const c = a[kind] ?? {};
@@ -1158,6 +1294,8 @@ function collectAlerts() {
     volume: Number.isFinite(volume) ? volume : 1, // 0 (тихо) валиден — не подменяем единицей
     voiceName: $('#tts-voice').value,
   };
+  // список событий (Event List): size живёт своей жизнью, панель шлёт только enabled
+  alerts.eventList = { enabled: $('#ov-eventlist').checked };
   return alerts;
 }
 
@@ -1361,5 +1499,7 @@ loadSettings().catch(() => {});
 loadModules().catch(() => {});
 loadOverlaySettings().catch(() => {});
 loadPointsTab().catch(() => {});
+loadQuotes().catch(() => {});
+pollBets();
 poll();
 setInterval(poll, 2000);
