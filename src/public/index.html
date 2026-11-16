@@ -557,6 +557,47 @@
   <div id="toast" class="toast hidden"></div>
   <div id="apicker-menu" class="apicker-menu hidden"></div>
 
+  <!-- модалка настройки алерта события -->
+  <div id="alert-modal" class="modal-wrap hidden">
+    <div class="modal am">
+      <div class="modal-head">
+        <h3 id="am-title">Алерт</h3>
+        <label class="am-switch"><input type="checkbox" id="am-enabled" /> показывать алерт</label>
+        <button class="act ghost" id="am-close" title="закрыть">✕</button>
+      </div>
+
+      <div class="am-preview" id="am-preview"></div>
+
+      <div class="am-fields">
+        <label>текст плашки <input id="am-template" maxlength="200" placeholder="{user}, {viewers}, {months}, {recipient}" /></label>
+        <label>медиа — gif/видео/картинка вместо эмодзи
+          <select id="am-media"></select>
+        </label>
+        <label>звук
+          <div class="am-sound-row">
+            <select id="am-sound"></select>
+            <button class="act ghost" id="am-play" title="прослушать выбранный звук">▶</button>
+          </div>
+        </label>
+        <div class="am-row2">
+          <label>громкость %
+            <div class="am-sound-row">
+              <input id="am-volume" type="range" min="0" max="100" value="85" style="width:130px" />
+              <span class="hint" id="am-volume-val">85</span>
+            </div>
+          </label>
+          <label>сек <input id="am-duration" type="number" min="2" max="20" value="6" style="width:64px" /></label>
+        </div>
+      </div>
+
+      <div class="modal-foot">
+        <button class="act" id="am-save">Сохранить</button>
+        <button class="act ghost" id="am-test">Тест в оверлее</button>
+        <span class="hint">видео в превью без звука — в оверлее заиграет с выбранной громкостью</span>
+      </div>
+    </div>
+  </div>
+
   <script src="/app.js"></script>
 </body>
 </html>

@@ -116,6 +116,67 @@ nav {
 }
 .evcard .ev-alert .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
+/* модальное окно настройки алерта */
+.modal-wrap {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(5, 4, 12, .66);
+  backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  width: min(560px, 94vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  padding: 18px 22px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .55);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.modal-head { display: flex; gap: 12px; align-items: center; }
+.modal-head h3 { margin: 0; flex: 1; }
+.modal-foot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.modal-foot .hint { flex-basis: 100%; }
+.am-switch { color: var(--muted); font-size: 14px; }
+
+/* превью: маленькая копия плашки из оверлея */
+.am-preview {
+  display: flex; justify-content: center; align-items: center;
+  padding: 18px 12px;
+  background: rgba(255, 255, 255, .03);
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  min-height: 90px;
+}
+.am-alert {
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 24px; border-radius: 16px;
+  background: rgba(10, 8, 20, .86);
+  border: 2px solid rgba(255, 255, 255, .14);
+  box-shadow: 0 0 38px var(--am-glow, rgba(168, 85, 247, .5));
+  color: #fff; font-weight: 700; font-size: 19px;
+  max-width: 100%; text-shadow: 0 2px 8px rgba(0, 0, 0, .6);
+}
+.am-alert .am-emoji { font-size: 42px; line-height: 1; }
+.am-alert .am-media img, .am-alert .am-media video { max-height: 110px; max-width: 220px; border-radius: 10px; display: block; }
+.am-alert small { display: block; font-size: 12px; opacity: .7; font-weight: 500; }
+.am-k-follow  { --am-glow: rgba(168, 85, 247, .55); }
+.am-k-sub     { --am-glow: rgba(34, 197, 94, .55); }
+.am-k-resub   { --am-glow: rgba(236, 72, 153, .55); }
+.am-k-subgift { --am-glow: rgba(250, 204, 21, .5); }
+.am-k-raid    { --am-glow: rgba(59, 130, 246, .6); }
+
+/* поля модалки */
+.am-fields { display: flex; flex-direction: column; gap: 10px; }
+.am-fields label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 13px; }
+.am-fields input[type='text'], .am-fields select { width: 100%; box-sizing: border-box; }
+.am-row2 { display: flex; gap: 16px; flex-wrap: wrap; }
+.am-row2 label { flex: 1; min-width: 180px; }
+.am-sound-row { display: flex; gap: 8px; align-items: center; }
+.am-sound-row select { flex: 1; min-width: 0; }
+
 /* выключенная встроенная команда — приглушена */
 tr.off td { opacity: .45; }
 

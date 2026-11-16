@@ -864,11 +864,6 @@ async function loadSettings() {
   const [st, media] = await Promise.all([api('/api/settings'), api('/api/media')]);
   window.__settings = st;
   __mediaFiles = media.files ?? [];
-  const soundFiles = __mediaFiles.filter((f) => AUDIO_EXT.includes(fileExt(f)));
-  const visualFiles = __mediaFiles.filter((f) => VISUAL_EXT.includes(fileExt(f)));
-  const opt = (list, cur, empty) => [`<option value="">${empty}</option>`,
-    ...list.map((f) => `<option value="${esc(f)}" ${cur === f ? 'selected' : ''}>${esc(f)}</option>`),
-    '<option value="__upload__">＋ загрузить файл…</option>'].join('');
   const holder = $('#events-list');
   holder.innerHTML = '<div class="evcards"></div>';
   const cards = holder.firstChild;
@@ -893,31 +888,10 @@ async function loadSettings() {
       </label>
       <label><input type="checkbox" class="f-pin" ${cfg.pin ? 'checked' : ''} /> закрепить на 20 минут (для режима «текст»)</label>
       <label><input type="checkbox" class="f-enabled" ${cfg.enabled ? 'checked' : ''} /> реакция включена</label>
-      <details class="ev-alert">
-        <summary class="a-summary">${alertSummaryHTML(a, kind)}</summary>
-        <div class="ev-alert-body">
-          <label><input type="checkbox" class="a-enabled" ${a.enabled !== false ? 'checked' : ''} /> показывать алерт</label>
-          <input type="text" class="a-template" value="${esc(a.template || '')}" maxlength="200" placeholder="текст плашки — {user}, {viewers}, {months}, {recipient}" />
-          <label>медиа (gif/видео/картинка вместо эмодзи)
-            <select class="a-media">${opt(visualFiles, a.media || '', '— без медиа (эмодзи) —')}</select>
-          </label>
-          <label>звук
-            <select class="a-sound">${opt(soundFiles, a.sound || '', '— без звука —')}</select>
-          </label>
-          <div class="row">
-            <label>громк %
-              <input class="a-volume" type="number" min="0" max="100" value="${a.soundVolume ?? 85}" style="width:64px" title="громкость звука и видео-медиа" />
-            </label>
-            <label>сек
-              <input class="a-duration" type="number" min="2" max="20" value="${a.duration ?? 6}" style="width:64px" />
-            </label>
-          </div>
-        </div>
-      </details>
+      <button class="act ghost a-open" title="медиа, звук, громкость алерта на оверлее">${alertSummaryHTML(a, kind)}</button>
       <div class="row">
         <button class="act ev-save">Сохранить</button>
         <button class="act ghost ev-test" data-kind="${kind}">Тест чата</button>
-        <button class="act ghost a-test" title="показать алерт в открытом оверлее">Тест алерта</button>
       </div>
     `;
     cards.appendChild(div);
@@ -931,28 +905,23 @@ async function loadSettings() {
   renderRedemptions();
 }
 
-// однострочный «статус» алерта в свёрнутом виде: клик = раскрыть настройки
+// однострочный статус алерта на кнопке карточки: клик = открыть модалку
 function alertSummaryHTML(a = {}, kind = '') {
   const on = a.enabled !== false;
   const media = a.media ? `🎬 ${a.media}` : 'эмодзи';
   const sound = a.sound ? `🔊 ${a.sound}` : 'без звука';
   const dur = `${a.duration ?? 6}с`;
-  return `${on ? '📺' : '📺❌'} Алерт${kind ? ` (${KIND_RU[kind] ?? kind})` : ''} — ${on ? `${media} · ${sound} · ${dur}` : 'выключен'} · <span class="hint">⚙ ткни чтобы настроить</span>`;
+  return `⚙ Алерт — ${on ? `${media} · ${sound} · ${dur}` : 'выключен'}`;
 }
 
-// перечитать поля карточки и переписать её строку-статус (после save/загрузки файла)
+// перечитать поля карточки и переписать текст кнопки «⚙ Алерт»
 function refreshAlertSummary(card) {
-  const sel = card.querySelector('.a-summary');
-  if (!sel) return;
-  sel.innerHTML = alertSummaryHTML({
-    enabled: card.querySelector('.a-enabled').checked,
-    media: card.querySelector('.a-media').value,
-    sound: card.querySelector('.a-sound').value,
-    duration: Number(card.querySelector('.a-duration').value) || 6,
-  }, card.dataset.kind);
+  const btn = card.querySelector('.a-open');
+  if (!btn) return;
+  btn.innerHTML = alertSummaryHTML(window.__settings?.alerts?.[card.dataset.kind] ?? {}, card.dataset.kind);
 }
 
-// «＋ загрузить файл…» прямо в селектах медиа/звука алерта
+// «＋ загрузить файл…» прямо в селектах медиа/звука (внутри модалки)
 const ALERT_UPLOAD_ACCEPT = {
   media: 'video/mp4,video/webm,video/quicktime,video/ogg,image/gif,image/apng,image/png,image/webp,image/jpeg,image/svg+xml',
   sound: 'audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/flac',
@@ -980,22 +949,141 @@ async function alertPickAndUpload(kind) {
   return file.name;
 }
 
-$('#events-list').addEventListener('change', async (e) => {
-  const sel = e.target instanceof HTMLSelectElement ? e.target : null;
-  if (!sel || !sel.classList.contains('a-media') && !sel.classList.contains('a-sound')) return;
-  if (sel.value !== '__upload__') return;
-  sel.value = ''; // пока выбираем файл — селект в дефолт,.cancel не оставит «загрузить…» выбранным
-  const kind = sel.classList.contains('a-media') ? 'media' : 'sound';
-  try {
-    const name = await alertPickAndUpload(kind);
-    if (!name) return;
-    if (![...sel.options].some((o) => o.value === name)) {
-      sel.querySelector('option[value="__upload__"]').insertAdjacentHTML('beforebegin', `<option value="${esc(name)}">${esc(name)}</option>`);
+// ---------------- модалка «настройка алерта» ----------------
+
+const AM_EMOJI = { follow: '💜', sub: '🎉', resub: '💖', subgift: '🎁', raid: '🚀' };
+const AM_SUB = { follow: 'новый фолловер', sub: 'новая подписка', resub: 'продление подписки', subgift: 'подаренная подписка', raid: 'рейд на канал' };
+const amModal = $('#alert-modal');
+let amKind = null;
+
+function amSelOptions(kind, cur, empty) {
+  const list = __mediaFiles.filter((f) => (kind === 'media' ? VISUAL_EXT : AUDIO_EXT).includes(fileExt(f)));
+  return [`<option value="">${empty}</option>`,
+    ...list.map((f) => `<option value="${esc(f)}" ${cur === f ? 'selected' : ''}>${esc(f)}</option>`),
+    '<option value="__upload__">＋ загрузить файл…</option>'].join('');
+}
+
+function openAlertModal(kind) {
+  amKind = kind;
+  const a = window.__settings?.alerts?.[kind] ?? {};
+  $('#am-title').textContent = `📺 Алерт — ${KIND_RU[kind] ?? kind}`;
+  $('#am-enabled').checked = a.enabled !== false;
+  $('#am-template').value = a.template || '';
+  $('#am-media').innerHTML = amSelOptions('media', a.media || '', '— без медиа (эмодзи) —');
+  $('#am-sound').innerHTML = amSelOptions('sound', a.sound || '', '— без звука —');
+  $('#am-volume').value = a.soundVolume ?? 85;
+  $('#am-volume-val').textContent = String(a.soundVolume ?? 85);
+  $('#am-duration').value = a.duration ?? 6;
+  amUpdatePreview();
+  amModal.classList.remove('hidden');
+}
+
+function closeAlertModal() {
+  amModal.classList.add('hidden');
+  amKind = null;
+  amModal.querySelector('video')?.pause?.();
+}
+
+// живое превью плашки — как она выглядит в оверлее
+function amUpdatePreview() {
+  const box = $('#am-preview');
+  const kind = amKind || 'follow';
+  const enabled = $('#am-enabled').checked;
+  if (!enabled) {
+    box.innerHTML = '<span class="hint">алерт выключен — на оверлее ничего не покажется</span>';
+    return;
+  }
+  const media = $('#am-media').value;
+  let mediaHTML = `<div class="am-emoji">${AM_EMOJI[kind] || '✨'}</div>`;
+  if (media) {
+    const src = `/media/${encodeURIComponent(media)}`;
+    if (fileExt(media) && ['mp4', 'webm', 'mov', 'm4v', 'ogv'].includes(fileExt(media))) {
+      mediaHTML = `<div class="am-media"><video src="${src}" autoplay loop muted playsinline></video></div>`;
+    } else if (!AUDIO_EXT.includes(fileExt(media))) {
+      mediaHTML = `<div class="am-media"><img src="${src}" alt=""></div>`;
     }
-    sel.value = name;
-    refreshAlertSummary(sel.closest('.evcard'));
+  }
+  const text = $('#am-template').value || 'текст плашки…';
+  box.innerHTML = `<div class="am-alert am-k-${kind}">${mediaHTML}
+    <div class="am-text">${esc(text)}<small>${AM_SUB[kind] || ''}</small></div></div>`;
+}
+
+function amRefreshCard() {
+  const card = document.querySelector(`#events-list .evcard[data-kind="${amKind}"]`);
+  if (card) refreshAlertSummary(card);
+}
+
+$('#events-list').addEventListener('click', (e) => {
+  if (e.target.closest('.a-open')) openAlertModal(e.target.closest('.evcard')?.dataset.kind);
+});
+
+// живое обновление превью при правке любого поля
+['am-enabled', 'am-template', 'am-media', 'am-sound', 'am-duration'].forEach((id) => {
+  $('#' + id).addEventListener('change', () => {
+    // «＋ загрузить файл…»: выбираем файл, грузим, подставляем в селект
+    if ((id === 'am-media' || id === 'am-sound') && $('#' + id).value === '__upload__') {
+      const sel = $('#' + id);
+      sel.value = '';
+      const field = id === 'am-media' ? 'media' : 'sound';
+      alertPickAndUpload(field)
+        .then((name) => {
+          if (!name) return;
+          if (![...sel.options].some((o) => o.value === name)) {
+            sel.querySelector('option[value="__upload__"]').insertAdjacentHTML('beforebegin', `<option value="${esc(name)}">${esc(name)}</option>`);
+          }
+          sel.value = name;
+          amUpdatePreview();
+        })
+        .catch((err) => toast(err.message, true));
+      return;
+    }
+    amUpdatePreview();
+  });
+});
+$('#am-template').addEventListener('input', amUpdatePreview);
+$('#am-volume').addEventListener('input', () => { $('#am-volume-val').textContent = $('#am-volume').value; });
+
+// прослушать выбранный звук с выбранной громкостью
+$('#am-play').addEventListener('click', () => {
+  const name = $('#am-sound').value;
+  if (!name) { toast('Сначала выбери звук (или загрузи — «＋ загрузить файл…»)', true); return; }
+  try {
+    const a = new Audio(`/media/${encodeURIComponent(name)}?t=${Date.now()}`);
+    a.volume = Math.max(0, Math.min(1, Number($('#am-volume').value) / 100)) || 0.001;
+    a.play().catch(() => toast('Браузер не дал проиграть — ткни ещё раз', true));
+  } catch { /* ничего страшного */ }
+});
+
+$('#am-save').addEventListener('click', async () => {
+  if (!amKind) return;
+  const alert = {
+    enabled: $('#am-enabled').checked,
+    template: $('#am-template').value,
+    media: $('#am-media').value,
+    sound: $('#am-sound').value,
+    soundVolume: Math.max(0, Math.min(100, Number($('#am-volume').value) || 0)),
+    duration: Math.max(2, Math.min(20, Number($('#am-duration').value) || 6)),
+  };
+  try {
+    const s = await putSettings({ alerts: { [amKind]: alert } });
+    window.__settings = s;
+    amRefreshCard();
+    closeAlertModal();
+    toast('Алерт сохранён ✅');
   } catch (err) { toast(err.message, true); }
 });
+
+$('#am-test').addEventListener('click', async () => {
+  if (!amKind) return;
+  try {
+    await api('/api/actions/overlaytest', { method: 'POST', body: JSON.stringify({ kind: amKind }) });
+    toast('Алерт отправлен — смотри оверлей (страница должна быть открыта)');
+  } catch (err) { toast(err.message, true); }
+});
+
+$('#am-close').addEventListener('click', closeAlertModal);
+amModal.addEventListener('click', (e) => { if (e.target === amModal) closeAlertModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !amModal.classList.contains('hidden')) closeAlertModal(); });
 
 $('#events-list').addEventListener('click', async (e) => {
   const card = e.target.closest('.evcard');
@@ -1015,26 +1103,10 @@ $('#events-list').addEventListener('click', async (e) => {
               enabled: card.querySelector('.f-enabled').checked,
             },
           },
-          alerts: {
-            [kind]: {
-              enabled: card.querySelector('.a-enabled').checked,
-              template: card.querySelector('.a-template').value,
-              media: card.querySelector('.a-media').value,
-              sound: card.querySelector('.a-sound').value,
-              soundVolume: Math.max(0, Math.min(100, Number(card.querySelector('.a-volume').value) || 0)),
-              duration: Math.max(2, Math.min(20, Number(card.querySelector('.a-duration').value) || 6)),
-            },
-          },
+          // алерты настраиваются в модалке (кнопка «⚙ Алерт») — туда их и сохраняем
         }),
       });
-      toast('Событие и алерт сохранены ✅');
-      refreshAlertSummary(card);
-    } catch (err) { toast(err.message, true); }
-  }
-  if (e.target.classList.contains('a-test')) {
-    try {
-      await api('/api/actions/overlaytest', { method: 'POST', body: JSON.stringify({ kind }) });
-      toast('Алерт отправлен — смотри оверлей (страница должна быть открыта)');
+      toast('Событие сохранено ✅');
     } catch (err) { toast(err.message, true); }
   }
   if (e.target.classList.contains('ev-test')) {
