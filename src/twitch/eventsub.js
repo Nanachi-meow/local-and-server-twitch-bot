@@ -6,18 +6,19 @@ const WS_URL = 'wss://eventsub.wss.twitch.tv/ws';
  * Клиент EventSub WebSocket (официальный транспорт Twitch).
  * Держит соединение, следит за keepalive, пересоздаёт подписки после обрыва.
  *
- * broadcasterHelix — клиент Helix с токеном СТРИМЕРА: через него создаются
- * подписки, доступные только владельцу канала (награды канала), — такие
- * desired-записи помечены полем via: 'broadcaster'. Обе группы подписок
- * живут на одном websocket-соединении, Twitch сам доставляет события.
+ * Один экземпляр = один владелец: ВСЕ подписки сокета создаются токеном
+ * из переданного helix. Twitch запрещает смешивать подписки разных
+ * пользователей на одном websocket-соединении («websocket transport cannot
+ * have subscriptions created by different users»), поэтому подписки бота
+ * и стримера живут на ДВУХ отдельных экземплярах (см. index.js:
+ * socket — токен бота, broadcasterSocket — токен стримера).
  */
 export class EventSocket {
-  constructor({ helix, broadcasterHelix = null, onEvent, onLog }) {
-    this.helix = helix;
-    this.broadcasterHelix = broadcasterHelix; // Helix с токеном стримера (для via:'broadcaster')
+  constructor({ helix, onEvent, onLog }) {
+    this.helix = helix; // Helix-клиент, токеном которого создаются все подписки сокета
     this.onEvent = onEvent; // (subscriptionType, event, meta) => void
     this.onLog = onLog; // (message, level) => void
-    this.desired = []; // [{type, version, condition, via?}]
+    this.desired = []; // [{key?, type, version, condition}]
     this.sessionId = null;
     this.activeConn = null;
     this.connected = false;
@@ -146,56 +147,44 @@ export class EventSocket {
   }
 
   /** Удаляем осиротевшие подписки прошлых сессий, создаём недостающие для текущей.
-   *  Подписки двух владельцев (токен бота / токен стримера) синхронизируются
-   *  каждый своим клиентом Helix — списки чужих подписок токены не видят. */
+   *  Все подписки сокета принадлежат одному владельцу (одному токену) —
+   *  токен видит только их список, чужие не трогаем. */
   async _syncSubscriptions() {
-    const groups = [{ helix: this.helix, wanted: new Map() }]; // подписки токена бота
-    // группа стримера — только когда есть хоть одна его подписка (иначе
-    // listSubscriptions упадёт с «не авторизован» на каждом welcome)
-    if (this.desired.some((d) => d.via === 'broadcaster') && this.broadcasterHelix) {
-      groups.push({ helix: this.broadcasterHelix, wanted: new Map() }); // подписки токена стримера
+    const wanted = new Map();
+    for (const d of this.desired) wanted.set(this._fingerprint(d), d);
+    let existing = [];
+    try {
+      existing = await this.helix.listSubscriptions();
+    } catch (e) {
+      this.onLog?.(`Не удалось получить список подписок: ${e.message}`, 'warn');
     }
-    for (const d of this.desired) {
-      const g = d.via === 'broadcaster' && this.broadcasterHelix ? groups[1] : groups[0];
-      g.wanted.set(this._fingerprint(d), d);
-    }
-    for (const g of groups) {
-      let existing = [];
-      try {
-        existing = await g.helix.listSubscriptions();
-      } catch (e) {
-        this.onLog?.(`Не удалось получить список подписок: ${e.message}`, 'warn');
-      }
-      for (const sub of existing) {
-        const key = this._fingerprint(sub);
-        if (!g.wanted.has(key)) continue; // чужие подписки не трогаем
-        if (sub.transport?.method !== 'websocket') continue;
-        if (sub.transport?.session_id === this.sessionId && sub.status === 'enabled') {
-          g.wanted.delete(key); // уже живёт на текущей сессии
-        } else {
-          try {
-            await g.helix.deleteSubscription(sub.id);
-          } catch {}
-        }
-      }
-    }
-    for (const g of groups) {
-      for (const d of g.wanted.values()) {
+    for (const sub of existing) {
+      const key = this._fingerprint(sub);
+      if (!wanted.has(key)) continue; // чужие подписки не трогаем
+      if (sub.transport?.method !== 'websocket') continue;
+      if (sub.transport?.session_id === this.sessionId && sub.status === 'enabled') {
+        wanted.delete(key); // уже живёт на текущей сессии
+      } else {
         try {
-          await g.helix.createSubscription({
-            type: d.type,
-            version: d.version,
-            condition: d.condition,
-            sessionId: this.sessionId,
-          });
-          this.subStatus[d.key ?? d.type] = 'ok';
-        } catch (e) {
-          this.subStatus[d.key ?? d.type] = `ошибка: ${e.message}`;
-          this.onLog?.(`Подписка не создана [${d.key ?? d.type}]: ${e.message}`, 'error');
-        }
+          await this.helix.deleteSubscription(sub.id);
+        } catch {}
       }
     }
-    if (this.desired.length === Object.values(this.subStatus).filter((s) => s === 'ok').length) {
+    for (const d of wanted.values()) {
+      try {
+        await this.helix.createSubscription({
+          type: d.type,
+          version: d.version,
+          condition: d.condition,
+          sessionId: this.sessionId,
+        });
+        this.subStatus[d.key ?? d.type] = 'ok';
+      } catch (e) {
+        this.subStatus[d.key ?? d.type] = `ошибка: ${e.message}`;
+        this.onLog?.(`Подписка не создана [${d.key ?? d.type}]: ${e.message}`, 'error');
+      }
+    }
+    if (this.desired.length && this.desired.length === Object.values(this.subStatus).filter((s) => s === 'ok').length) {
       this.onLog?.(`Все подписки активны (${this.desired.length})`, 'info');
     }
   }

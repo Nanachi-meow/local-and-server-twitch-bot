@@ -97,23 +97,33 @@ const redemptions = new RedemptionRouter({ logs, settings });
 const quotes = new QuotesManager({ logs }); // цитаты канала: data/quotes.json, без таймеров
 commands.setQuotes(quotes);
 
+// Единственный конвейер событий EventSub — общий для обоих сокетов
+// (модули → таймеры → награды → процессор), различается лишь источник.
+const onSubEvent = async (type, event) => {
+  // модули видят событие первыми: хук chat.message может вернуть false — и заблокировать его
+  const passed = await modules.dispatch(type, event).catch(() => true);
+  if (passed === false) return; // перехвачено модулем
+  if (type === 'channel.chat.message') {
+    timers.noteChat(event); // счётчик для таймеров
+  }
+  if (type === 'channel.channel_points_custom_reward_redemption.add') {
+    redemptions.handle(event); // награды канала: лента + оверлей
+  }
+  processor.dispatch(type, event);
+};
+
+// Подписки токена бота: чат, уведомления, фоллоу, рейды, старт/конец стрима.
 const socket = new EventSocket({
   helix,
-  broadcasterHelix: helixBc, // подписки токеном стримера (награды канала)
-  onEvent: async (type, event) => {
-    // модули видят событие первыми: хук chat.message может вернуть false — и заблокировать его
-    const passed = await modules.dispatch(type, event).catch(() => true);
-    if (passed === false) return; // перехвачено модулем
-    if (type === 'channel.chat.message') {
-      timers.noteChat(event); // счётчик для таймеров
-    }
-    if (type === 'channel.channel_points_custom_reward_redemption.add') {
-      redemptions.handle(event); // награды канала: лента + оверлей
-    }
-    processor.dispatch(type, event);
-  },
+  onEvent: onSubEvent,
   onLog: (message, level) => logs.system.push({ level, message }),
 });
+
+// Подписки токена СТРИМЕРА (награды канала) — Twitch запрещает держать
+// подписки разных пользователей на одном websocket-соединении, поэтому
+// сокет стримера отдельный. Создаётся только при входе стримера
+// (в startRuntime), когда есть что подписывать.
+let broadcasterSocket = null;
 
 function logSystem(message, level = 'info') {
   logs.system.push({ level, message });
@@ -169,20 +179,22 @@ async function startRuntime() {
       desired.push({ key: `конец стрима @${c.login}`, type: 'stream.offline', version: '1', condition: { broadcaster_user_id: c.id } });
     }
     // награды канала (Channel Points): Twitch создаёт такую подписку только
-    // токену ВЛАДЕЛЬЦА канала — токена «Входа как стример». Подписываем те каналы,
-    // которые принадлежат залогиненному стримеру.
-    if (broadcaster.tokens?.userId) {
+    // токену ВЛАДЕЛЬЦА канала и запрещает подписки разных пользователей на
+    // одном websocket-соединении — поэтому это ОТДЕЛЬНЫЙ сокет, все подписки
+    // токеном «Входа как стример». Подписываем те каналы, которые принадлежат
+    // залогиненному стримеру, только когда награды включены.
+    const desiredBroadcaster = [];
+    if (broadcaster.tokens?.userId && redemptions.cfg().enabled) {
       const bcId = String(broadcaster.tokens.userId);
       let rewardsMatched = 0;
       for (const c of channels.list()) {
         if (String(c.id) !== bcId) continue;
         rewardsMatched += 1;
-        desired.push({
+        desiredBroadcaster.push({
           key: `награды @${c.login}`,
           type: 'channel.channel_points_custom_reward_redemption.add',
           version: '1',
           condition: { broadcaster_user_id: c.id, user_id: bcId },
-          via: 'broadcaster', // создавать/удалять токеном стримера
         });
       }
       if (!rewardsMatched) {
@@ -191,8 +203,18 @@ async function startRuntime() {
     }
     socket.setDesired(desired);
     await socket.stop();
+    await broadcasterSocket?.stop();
+    broadcasterSocket = desiredBroadcaster.length
+      ? new EventSocket({
+        helix: helixBc, // ВСЕ подписки этого сокета — токеном стримера
+        onEvent: onSubEvent,
+        onLog: (message, level) => logs.system.push({ level, message: `[награды] ${message}` }),
+      })
+      : null;
+    if (broadcasterSocket) broadcasterSocket.setDesired(desiredBroadcaster);
     state.running = true;
     state.lastError = null;
+    if (broadcasterSocket) await broadcasterSocket.start();
     await socket.start();
     timers.touchAll(); // после запуска таймеры стреляют только по полному интервалу
     logSystem(`Бот ${auth.tokens.login} подключается к каналам: ${channels.list().map((c) => c.login).join(', ')}`, 'info');
@@ -220,6 +242,7 @@ async function startRuntime() {
 
 async function stopRuntime() {
   state.running = false;
+  await broadcasterSocket?.stop(); // сокет стримера гасим первым
   await socket.stop();
 }
 
@@ -263,6 +286,7 @@ const app = {
   obs,
   songs,
   socket,
+  get broadcasterSocket() { return broadcasterSocket; }, // сокет наград (создаётся при входе стримера)
   logs,
   settings,
   state,
@@ -308,7 +332,7 @@ const app = {
         broadcasterId: state.broadcasterId,
         broadcasterName: state.broadcasterName,
         channels: state.channels.map((c) => c.login),
-        eventsub: socket.status(),
+        eventsub: { ...socket.status(), broadcaster: broadcasterSocket?.status() ?? null },
       },
       counters: state.counters,
     };
@@ -726,6 +750,7 @@ const shutdown = async () => {
   quotes.stop();
   obs.stop();
   broadcaster.stopAutoRefresh();
+  await broadcasterSocket?.stop(); // сокет стримера гасим первым
   await socket.stop();
   server.close();
   process.exit(0);

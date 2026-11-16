@@ -54,8 +54,10 @@ Twitch не позволяет программно переводить бал�
 - [x] Второй OAuth-поток «Вход как стример»(`src/twitch/broadcaster-auth.js`,
       скоупы `channel:read:redemptions` + `user:read:chat`,
       токен в `data/broadcaster-tokens.json`, авто-refresh)
-- [x] EventSub `channel.channel_points_custom_reward_redemption.add` (via 'broadcaster':
-      подписки создаются токеном стримера, вторым Helix-клиентом)
+- [x] EventSub `channel.channel_points_custom_reward_redemption.add` — ОТДЕЛЬНЫЙ
+      websocket (broadcasterSocket в `src/index.js`): все подписки на одном
+      EventSub-соединении должны принадлежать одному пользователю, поэтому
+      подписки токена стримера живут отдельно от подписок токена бота
 - [x] Редемпшн-роутер `src/bot/redemptions.js`: лог в ленту + оверлей (kind 'redemption'),
       таблица мэппингов в настройках, кулдаун на юзера
 - [~] Автодиспетчеризация редемпций на действия (песня/мем/колесо/TTS/команда) — следующая фаза

@@ -12,7 +12,7 @@ export const REDEMPTION_ACTIONS = ['song', 'meme', 'wheel', 'say', 'command'];
  *   • для заматченных наград пушит алерт в оверлей (kind: 'redemption').
  *
  * Подписка на событие возможна только с токеном владельца канала —
- * см. «Вход как стример» (BroadcasterAuth) и подписку via 'broadcaster' в index.js.
+ * см. «Вход как стример» (BroadcasterAuth) и broadcasterSocket в index.js.
  *
  * Настройки (settings.redemptions):
  *   enabled   — роутер вообще работает;
