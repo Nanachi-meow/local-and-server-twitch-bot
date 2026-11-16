@@ -640,9 +640,11 @@ export class CommandEngine {
         level: 'everyone', label: 'поставить баллы: !ставить <сумма> <номер варианта>',
         async run(session, args) {
           if (!engine.bets || !engine.points) { await engine.say(session, 'Ставки не настроены'); return; }
-          const n = Math.round(Number(args[0]) || 0);
+          const n = Number(args[0]) || 0;
           const idx = Number(args[1]) || 0;
           if (n <= 0 || idx <= 0) { await engine.say(session, 'Использование: !ставить <сколько> <номер варианта> — например: !ставить 100 1'); return; }
+          if (!Number.isInteger(n)) { await engine.say(session, `@${session.login}, сумма ставки — целое число`); return; }
+          if (!Number.isInteger(idx)) { await engine.say(session, `@${session.login}, номер варианта — целое число`); return; }
           const r = engine.bets.place({ channelId: session.broadcasterId, login: session.login, name: session.displayName, optionIndex: idx, amount: n });
           if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
           if (!engine.points.spend(session.login, r.amount)) {
@@ -658,6 +660,7 @@ export class CommandEngine {
         async run(session, args) {
           if (!engine.bets || !engine.points) { await engine.say(session, 'Ставки не настроены'); return; }
           const idx = Number(args[0]) || 0;
+          if (!Number.isInteger(idx)) { await engine.say(session, `@${session.login}, номер варианта — целое число`); return; }
           if (!idx) {
             const st = engine.bets.status(session.broadcasterId);
             await engine.say(session, st
@@ -668,9 +671,10 @@ export class CommandEngine {
           const r = engine.bets.resolve({ channelId: session.broadcasterId, winnerIndex: idx });
           if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
           for (const p of r.payouts) engine.points.add(p.login, p.amount);
+          for (const ref of r.refunds ?? []) engine.points.add(ref.login, ref.amount);
           if (!r.payouts.length) {
-            await engine.say(session, r.pot > 0
-              ? `🏁 Исход: «${r.winner}» — на него никто не поставил, банк ${r.pot} сгорел 🔥`
+            await engine.say(session, (r.refunds ?? []).length
+              ? `🏁 Исход: «${r.winner}» — ставка закрыта без победителя, баллы возвращены 🙂`
               : `🏁 Исход: «${r.winner}» — ставок не было, банк пуст`);
             return;
           }
@@ -679,19 +683,35 @@ export class CommandEngine {
         },
       },
       дуэль: {
-        level: 'everyone', label: 'дуэль на баллы: !дуэль @ник N (принять — той же командой)',
+        level: 'everyone', label: 'дуэль на баллы: !дуэль @ник N (принять — той же, снять — !дуэль отмена)',
         async run(session, args) {
           if (!engine.bets || !engine.points) { await engine.say(session, 'Ставки не настроены'); return; }
           const ch = session.broadcasterId;
+          // «!дуэль отмена»: снять ждущий вызов может инициатор или моды
+          if ((args[0] || '').trim().toLowerCase() === 'отмена') {
+            const du = engine.bets.pendingDuel(ch);
+            if (!du) { await engine.say(session, 'Сейчас никто никого не вызывает — отменять нечего 🙂'); return; }
+            const isInitiator = du.from.login === String(session.login).toLowerCase();
+            const isMod = levelValue(session.level ?? 'everyone') >= LEVELS.mod;
+            if (!isInitiator && !isMod) {
+              await engine.say(session, `@${session.login}, отменить вызов может ${du.from.name || du.from.login} или моды`);
+              return;
+            }
+            engine.bets.cancelChallenge({ channelId: ch });
+            engine.points.add(du.from.login, du.amount);
+            await engine.say(session, `⚔️ Дуэль ${du.from.name || du.from.login} → @${du.to} отменена${isMod && !isInitiator ? ' модами' : ''}, ставка ${du.amount} вернулась к ${du.from.name || du.from.login} 🙂`);
+            return;
+          }
           const targetRaw = (args[0] || '').trim();
-          const n = Math.round(Number(args[1]) || 0);
+          const n = Number(args[1]) || 0;
           if (!targetRaw || n <= 0) {
             const du = engine.bets.pendingDuel(ch);
             await engine.say(session, du
               ? `${du.from.name || du.from.login} вызывает @${du.to} на ${du.amount}! @${du.to}, прими: !дуэль @${du.from.login} ${du.amount} ⚔️`
-              : 'Использование: !дуэль @ник сумма — вызов на дуэль (баллы списываются сразу)');
+              : 'Использование: !дуэль @ник сумма — вызов на дуэль (баллы списываются сразу; снять можно: !дуэль отмена)');
             return;
           }
+          if (!Number.isInteger(n)) { await engine.say(session, `@${session.login}, сумма дуэли — целое число`); return; }
           const target = targetRaw.replace(/^@/, '').toLowerCase();
           const pending = engine.bets.pendingDuel(ch);
           // если вызванный зовут нас — это принятие вызова, а не новый вызов
@@ -718,7 +738,9 @@ export class CommandEngine {
             await engine.say(session, `⚔️ Дуэль: ${r.from.name || r.from.login} против ${r.to.name || r.to.login} на ${r.amount} — победил ${winName}! +${r.prize} ${plural(r.prize, ['балл', 'балла', 'баллов'])}`);
             return;
           }
-          // новый вызов
+          // новый вызов: жертва должна существовать на Twitch — баллы не списываем в пустоту
+          const victim = await engine.helix.getUserByLogin(target).catch(() => null);
+          if (!victim) { await engine.say(session, `@${session.login}, не нашла на Twitch пользователя "${target}" 🤷`); return; }
           const r = engine.bets.challenge({ channelId: ch, fromLogin: session.login, fromName: session.displayName, toLogin: target, amount: n });
           if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
           if (!engine.points.spend(session.login, r.amount)) {

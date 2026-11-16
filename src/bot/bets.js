@@ -100,9 +100,11 @@ export class BetsManager {
     if (cfg.enabled === false) return { error: 'ставки выключены' };
     const pool = this._pools.get(this._key(channelId));
     if (!pool) return { error: 'сейчас нет открытой ставки' };
-    const idx = Math.round(Number(optionIndex) || 0);
+    const idx = Number(optionIndex);
+    if (!Number.isInteger(idx)) return { error: 'номер варианта — целое число' };
     if (idx < 1 || idx > pool.options.length) return { error: `номер варианта — от 1 до ${pool.options.length}` };
-    const n = Math.round(Number(amount) || 0);
+    const n = Number(amount);
+    if (!Number.isInteger(n)) return { error: 'сумма ставки — целое число' };
     if (n <= 0) return { error: 'укажи сумму ставки' };
     const min = Math.max(1, Number(cfg.minBet) || 10);
     const max = Math.max(min, Number(cfg.maxBet) || 1000);
@@ -126,7 +128,8 @@ export class BetsManager {
   unplace({ channelId, login, optionIndex }) {
     const pool = this._pools.get(this._key(channelId));
     if (!pool) return { error: 'нет открытой ставки' };
-    const idx = Math.round(Number(optionIndex) || 0);
+    const idx = Number(optionIndex);
+    if (!Number.isInteger(idx)) return { error: 'номер варианта — целое число' };
     const opt = pool.options[idx - 1];
     if (!opt) return { error: 'нет такого варианта' };
     const key = this._loginOf(login);
@@ -139,12 +142,14 @@ export class BetsManager {
     return { error: 'запись не найдена' };
   }
 
-  /** Закрыть ставку: победители (winnerIndex, 1..N) делят банк пропорционально ставкам. */
+  /** Закрыть ставку: победители (winnerIndex, 1..N) делят банк пропорционально ставкам.
+   *  Если на победителя не поставил никто (pot>0) — банк не сгорает: в refunds уходят возвраты всем. */
   resolve({ channelId, winnerIndex }) {
     const cfg = this.cfg();
     const pool = this._pools.get(this._key(channelId));
     if (!pool) return { error: 'ставка не открыта' };
-    const idx = Math.round(Number(winnerIndex) || 0);
+    const idx = Number(winnerIndex);
+    if (!Number.isInteger(idx)) return { error: 'номер варианта — целое число' };
     if (idx < 1 || idx > pool.options.length) return { error: `номер варианта — от 1 до ${pool.options.length}` };
     const pot = this._pot(pool);
     const winner = pool.options[idx - 1];
@@ -158,7 +163,19 @@ export class BetsManager {
     };
     this._pools.delete(this._key(channelId));
     if (!winner.bets.length) {
-      this.logs.system.push({ level: 'info', message: `Ставки: «${pool.question}» — итог «${winner.label}», банк ${pot} сгорел` });
+      if (pot > 0) {
+        // опечатка мода не должна стоить зрителям баллов: банк не сгорает — возвращаем все ставки
+        const byLogin = new Map();
+        for (const o of pool.options) {
+          for (const b of o.bets) {
+            const cur = byLogin.get(b.login) ?? { login: b.login, amount: 0 };
+            cur.amount += b.amount;
+            byLogin.set(b.login, cur);
+          }
+        }
+        result.refunds = [...byLogin.values()];
+      }
+      this.logs.system.push({ level: 'info', message: `Ставки: «${pool.question}» — итог «${winner.label}», победителей нет — возвратов: ${result.refunds?.length ?? 0}` });
       return result;
     }
     const prizePool = Math.floor((pot * (100 - result.fee)) / 100);
@@ -237,7 +254,8 @@ export class BetsManager {
     if (waiting) {
       return { error: `сначала закончится дуэль ${waiting.from.name || waiting.from.login} → @${waiting.to} (${waiting.amount})` };
     }
-    const n = Math.round(Number(amount) || 0);
+    const n = Number(amount);
+    if (!Number.isInteger(n)) return { error: 'сумма дуэли — целое число' };
     if (n <= 0) return { error: 'укажи ставку: !дуэль @ник сумма' };
     const min = Math.max(1, Number(cfg.minBet) || 10);
     const max = Math.max(min, Number(cfg.maxBet) || 1000);
@@ -319,6 +337,11 @@ export class BetsManager {
   }
 
   _tick() {
+    // кулдауны дуэлей не копятся вечно: подметаем записи старше часа
+    const now = Date.now();
+    for (const [login, ts] of [...this._duelLast]) {
+      if (now - ts > 3_600_000) this._duelLast.delete(login);
+    }
     this._give(this.closeExpired(), 'время вышло');
   }
 
