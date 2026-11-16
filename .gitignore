@@ -6,6 +6,9 @@ node_modules/
 *.log
 *.tmp
 
+# черновики и идеи — локальная папка, никогда не пушится
+TODO/
+
 # мусор ОС
 Thumbs.db
 desktop.ini
