@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { MODULES_DIR, MODULES_CONFIG_FILE, DATA_DIR, loadJson, saveJson } from '../store.js';
-import { httpGet } from './proxy.js';
+import { httpRequest } from './proxy.js';
 import { overlay } from './alerts.js';
 
 /** События Twitch → дружелюбные ключи хуков модулей. */
@@ -20,8 +20,13 @@ const HOOK_ALIASES = {
 const NOTICE_HOOKS = { sub: 'sub', resub: 'resub', sub_gift: 'subgift' };
 
 const TICK_MS = 20_000;          // период хука 'tick'
-const STORE_DEBOUNCE_MS = 2_000; // автосохранение хранилища модуля
+const STORE_DEBOUNCE_MS = 3_000; // автосохранение хранилища модуля (debounce 3 сек)
 const LEVEL_NAMES = ['everyone', 'sub', 'vip', 'mod']; // уровни доступа команд-функций
+
+/** Имя модуля → безопасное имя файла хранилища (без слешей/двоеточий и прочей дичи). */
+function safeStoreName(name) {
+  return String(name || 'mod').replace(/[^a-zA-Z0-9а-яА-ЯёЁ._-]/g, '_').slice(0, 60) || 'mod';
+}
 
 /**
  * Модули-плагины: файлы .js в папке modules/. Каждый экспортирует объект —
@@ -194,6 +199,8 @@ export class ModuleManager {
       commands: Object.keys(def?.commands ?? {}),
       hooks: Object.keys(def?.events ?? {}),
       settings: { ...(this._config.settings[name] ?? {}) },
+      // панель видит, какие ключи модуль держит в data/module-store/<имя>.json
+      storageKeys: Object.keys(this._storeFor(name).data),
     }));
   }
 
@@ -211,6 +218,8 @@ export class ModuleManager {
     try {
       await entry.def.start(this.apiFor(name, null));
     } catch (e) {
+      // ошибка start() не роняет бота, но помечает модуль: панель покажет «ошибка»
+      entry.error = `start: ${e.message}`;
       this.logs.system.push({ level: 'error', message: `Модуль «${name}» (start): ${e.message}` });
     }
   }
@@ -261,7 +270,7 @@ export class ModuleManager {
   _storeFor(modName) {
     let store = this._stores.get(modName);
     if (!store) {
-      const file = path.join(this.storeDir, `${modName}.json`);
+      const file = path.join(this.storeDir, `${safeStoreName(modName)}.json`);
       let data = {};
       const stored = loadJson(file, null);
       if (stored && typeof stored === 'object' && !Array.isArray(stored)) data = stored;
@@ -425,9 +434,15 @@ export class ModuleManager {
     };
     // Helix токеном стримера: без «Входа как стример» — понятная ошибка вместо исключения
     const broadcasterCall = (method, p, opts) => {
-      if (!self.broadcasterAuth?.tokens || !self.broadcasterHelix) {
+      if (!self.broadcasterHelix) {
         return Promise.resolve({ error: 'стример не залогинен' });
       }
+      // файл токена стримера мог ещё не прочитаться на момент start-хука — ленивое чтение
+      if (!self.broadcasterAuth?.tokens) self.broadcasterAuth?.load?.();
+      if (!self.broadcasterAuth?.tokens) {
+        return Promise.resolve({ error: 'стример не залогинен' });
+      }
+      // ensureValid (обновление токена) происходит внутри broadcasterHelix.call
       return self.broadcasterHelix.call(method, p, opts);
     };
     // OBS: без подключения politely отказываем объектом { error }
@@ -489,7 +504,17 @@ export class ModuleManager {
       },
 
       // ---------- HTTP-запросы (через прокси, если включён в настройках) ----------
-      fetch: (url, opts = {}) => httpGet(String(url ?? ''), opts?.proxy ?? self.settings?.proxy ?? null),
+      fetch: (url, opts = {}) => {
+        const proxy = opts?.proxy ?? self.settings?.proxy ?? null;
+        const method = String(opts.method || (opts.body !== undefined ? 'POST' : 'GET')).toUpperCase();
+        let body = opts.body; // строка/Buffer как есть, объект — сериализуем в JSON
+        const headers = { ...(opts.headers ?? {}) };
+        if (body !== undefined && typeof body !== 'string' && !Buffer.isBuffer(body)) {
+          body = JSON.stringify(body);
+          if (headers['Content-Type'] === undefined) headers['Content-Type'] = 'application/json';
+        }
+        return httpRequest(String(url ?? ''), { proxy, method, headers, body, timeoutMs: opts.timeoutMs });
+      },
 
       // ---------- OBS (obs-websocket 5) ----------
       obs: {
@@ -521,6 +546,7 @@ export class ModuleManager {
         return {
           counters: self.state?.counters ?? {},
           running: self.state?.running ?? false,
+          channels: (self.channels?.list() ?? []).map((c) => c.login), // логины каналов бота
         };
       },
 

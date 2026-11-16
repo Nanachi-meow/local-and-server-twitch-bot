@@ -255,23 +255,6 @@ export class CommandEngine {
         this._dirty = true;
       }
 
-      // async-команда модуля: модуль сам решает, что ответить (api.say, api.helix, api.store…)
-      if (!custom && typeof modCmd.fn === 'function') {
-        try {
-          const api = this.modules.apiFor(modCmd.source, {
-            broadcaster_user_id: session.broadcasterId,
-            chatter_user_id: session.userId,
-            chatter_user_login: session.login,
-            chatter_user_name: session.displayName,
-          });
-          await modCmd.fn(session, args, api);
-        } catch (e) {
-          this.logs?.system?.push?.({ level: 'error', message: `Команда !${name} (модуль «${modCmd.source}»): ${e.message}` });
-          await this.say(session, this.humanizeError(e));
-        }
-        return true;
-      }
-
       // условие активации: команда про второго пользователя — без @ник только подсказка
       const selfName = session.displayName || session.login;
       const rawTarget = args[0] ? args[0].replace(/^@/, '') : '';

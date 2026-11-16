@@ -650,6 +650,8 @@ ok('модули: stop сохраняет store в data/module-store/<имя>.js
   return fs.existsSync(f) && JSON.parse(fs.readFileSync(f, 'utf8')).count === 2;
 })());
 ok('модули: managed interval очищен при stop', !mm2._timers.has('example'));
+ok('модули: storageKeys в реестре — панель видит хранилище модуля',
+  mm2.list().find((m) => m.name === 'example')?.storageKeys.includes('count') === true);
 
 // vip-activity: активный юзер пишет в чат (его VIP трогать нельзя)
 await mm2.dispatch('channel.chat.message', { broadcaster_user_id: '200', chatter_user_id: '66', chatter_user_login: 'active', chatter_user_name: 'Active', message: { text: 'я активный, не снимайте VIP!' } });
@@ -676,7 +678,9 @@ ovBus.clients.clear();
 
 // данные и состояние
 const vipApi = mm2.apiFor('vip-activity');
-ok('модули: api.state — счётчики и статус бота', vipApi.state.running === true && vipApi.state.counters.messagesSeen === 5);
+ok('модули: api.state — счётчики, статус и каналы бота',
+  vipApi.state.running === true && vipApi.state.counters.messagesSeen === 5
+  && vipApi.state.channels.join(',') === 'alpha,beta');
 ok('модули: api.channels() отдаёт полные объекты каналов',
   Array.isArray(vipApi.channels()) && vipApi.channels().some((c) => c.id === '200' && c.login === 'beta'));
 
