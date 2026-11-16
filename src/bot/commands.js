@@ -1,5 +1,5 @@
 import { COMMANDS_FILE, SETTINGS_FILE, loadJson, saveJson } from '../store.js';
-import { renderTemplate, fmtDuration, humanizeSince, plural } from './render.js';
+import { renderTemplate, fmtDuration, humanizeSince } from './render.js';
 import { HelixError } from '../twitch/helix.js';
 import { overlay } from './alerts.js';
 
@@ -8,9 +8,7 @@ export const LEVELS = { everyone: 0, sub: 1, vip: 2, mod: 3, broadcaster: 4 };
 export const RESERVED = new Set([
   'commands', 'help', 'so', 'pin', 'unpin', 'announce', 'uptime', 'game', 'title',
   'followage', 'addcmd', 'editcmd', 'delcmd', 'bot',
-  'баллы', 'топ', 'дать', 'перевести', 'колесо', 'мем', 'цитата',
-  'ставка', 'ставить', 'итог', 'дуэль', 'сцена', 'сцены',
-  'сказать', 'заказ', 'заказы',
+  'колесо', 'мем', 'цитата', 'сказать', 'сцена', 'сцены',
   'ср', 'песня', 'очередь', 'скип', 'музыка',
 ]);
 
@@ -73,24 +71,12 @@ export class CommandEngine {
     this.modules = modules;
   }
 
-  setPoints(points) {
-    this.points = points;
-  }
-
   setQuotes(quotes) {
     this.quotes = quotes;
   }
 
-  setBets(bets) {
-    this.bets = bets;
-  }
-
   setObs(obs) {
     this.obs = obs;
-  }
-
-  setServices(services) {
-    this.services = services;
   }
 
   setSongs(songs) {
@@ -137,7 +123,6 @@ export class CommandEngine {
       needsTarget: Boolean(cmd?.needsTarget),
       level: LEVELS[cmd?.level] ? cmd.level : 'everyone',
       cooldown: Math.max(0, Math.min(3600, Number(cmd?.cooldown) || 0)),
-      cost: Math.max(0, Math.min(100_000, Math.round(Number(cmd?.cost) || 0))), // цена в баллах, 0 = бесплатно
       enabled: cmd?.enabled !== false,
       count: Number(cmd?.count) || 0,
     };
@@ -204,8 +189,8 @@ export class CommandEngine {
 
   // ---------------- обработка сообщений чата ----------------
 
-  /** Обработка сообщения чата. opts.skipCost — не списывать цену (тест из панели). */
-  async handleChatMessage({ broadcasterId, userId, login, displayName, text, badges }, opts = {}) {
+  /** Обработка сообщения чата. */
+  async handleChatMessage({ broadcasterId, userId, login, displayName, text, badges } = {}) {
     this.state.counters.messagesSeen = (this.state.counters.messagesSeen || 0) + 1;
     const trimmed = String(text || '').trim();
     if (!trimmed.startsWith('!')) return false;
@@ -244,13 +229,6 @@ export class CommandEngine {
       const last = this._cool.get(key) || 0;
       if (Date.now() - last < cmd.cooldown * 1000) return false;
       this._cool.set(key, Date.now());
-    }
-
-    // цена команды в баллах (кастомные и модульные): списываем ДО выполнения.
-    // Не хватило — молчаливый отказ, счётчики вызовов не двигаются.
-    // PointsManager нет — цену игнорируем (команда бесплатно).
-    if (!opts?.skipCost && (custom || modCmd) && (cmd.cost ?? 0) > 0 && this.points) {
-      if (!this.points.spend(login, cmd.cost)) return false;
     }
 
     this.state.counters.commandsRun = (this.state.counters.commandsRun || 0) + 1;
@@ -488,106 +466,88 @@ export class CommandEngine {
         },
       },
 
-      // ---------- баллы канала ----------
-      баллы: {
-        level: 'everyone', label: 'баллы: !баллы [ник]',
-        async run(session, args) {
-          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
-          const who = (args[0] || session.login).replace(/^@/, '').toLowerCase();
-          const bal = engine.points.balance(who);
-          const known = engine.points.store[who];
-          await engine.say(session, who === session.login
-            ? `@${session.login}, у тебя ${bal} ${plural(bal, ['балл', 'балла', 'баллов'])} 💎`
-            : `${known?.name || who}: ${bal} ${plural(bal, ['балл', 'балла', 'баллов'])} 💎`);
-        },
-      },
-      топ: {
-        level: 'everyone', label: 'топ богачей канала',
-        async run(session) {
-          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
-          const rows = engine.points.top(5);
-          if (!rows.length) { await engine.say(session, 'Пока никто не накопил баллов — сиди в чате, они капают за просмотр 💎'); return; }
-          const text = rows.map((r, i) => `${i + 1}. ${r.login} — ${r.points}`).join(' | ');
-          await engine.say(session, `Топ баллов: ${text} 💎`);
-        },
-      },
-      дать: {
-        level: 'mod', label: 'выдать баллы: !дать @ник N (мод+)',
-        async run(session, args) {
-          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
-          const to = (args[0] || '').replace(/^@/, '').toLowerCase();
-          const n = Number(args[1]) || 0;
-          if (!to || n <= 0) { await engine.say(session, 'Использование: !дать @ник сколько'); return; }
-          engine.points.add(to, n);
-          await engine.say(session, `@${session.login} выдал(а) ${to} ${n} ${plural(n, ['балл', 'балла', 'баллов'])} 💎`);
-        },
-      },
-      перевести: {
-        level: 'everyone', label: 'передать баллы: !перевести @ник N',
-        async run(session, args) {
-          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
-          const to = (args[0] || '').replace(/^@/, '');
-          const n = Number(args[1]) || 0;
-          if (!to || n <= 0) { await engine.say(session, 'Использование: !перевести @ник сколько'); return; }
-          const r = await engine.points.transfer(session.login, to, n);
-          if (!r.ok) { await engine.say(session, `@${session.login}, не вышло: ${r.error}`); return; }
-          await engine.say(session, `@${session.login} перевёл(а) ${n} ${plural(n, ['балл', 'балла', 'баллов'])} → @${r.to} 💎 (осталось ${r.balance})`);
-        },
-      },
-
-      // ---------- колесо-рулетка за баллы ----------
+      // ---------- баллы канала removed: награды Twitch не позволяют перекидывать очки программно ----------
+      // ---------- колесо (бесплатное: просто случайный исход в оверлей) ----------
       колесо: {
-        level: 'everyone', label: 'рулетка: !колесо N — крути на баллы',
-        async run(session, args) {
-          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
-          const cfg = engine.points.settings?.wheel ?? {};
-          const bet = Number(args[0]) || 0;
-          if (bet <= 0) { await engine.say(session, `Использование: !колесо ставка (от ${cfg.minBet ?? 10} до ${cfg.maxBet ?? 1000}) 🎡`); return; }
-          const r = engine.points.spin(session.login, session.displayName, bet);
-          if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
-          overlay.push({ kind: 'wheel', channel: null, user: session.displayName || session.login, text: `${session.displayName || session.login}: ${r.item.label}` });
-          const verdict = r.multiplier === 0
-            ? 'ставка сгорела 💥'
-            : r.multiplier === 1
-              ? 'ставка вернулась 🙂'
-              : `выигрыш x${r.multiplier}! 🎉`;
-          await engine.say(session, `🎡 ${session.displayName || session.login} поставил(а) ${r.bet} → ${r.item.label} — ${verdict} (баланс: ${engine.points.balance(session.login)})`);
-        },
-      },
-
-      // ---------- мем-магазин за баллы ----------
-      мем: {
-        level: 'everyone', label: 'купить мем-алерт: !мем [название]',
-        async run(session, args) {
-          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
-          const r = engine.points.buyMeme(session.login, session.displayName, args[0] ?? '');
-          if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
-          if (r.list) {
-            await engine.say(session, `Мем-магазин: ${r.list.slice(0, 6).join(' · ') || 'пусто'}. Покупка: !мем название 💎`);
+        level: 'everyone', label: 'колесо: !колесо — случайный исход',
+        async run(session) {
+          const cfg = engine.settings?.wheel ?? {};
+          if (cfg.enabled === false) { await engine.say(session, 'Колесо сейчас выключено 🙅'); return; }
+          const items = (Array.isArray(cfg.items) ? cfg.items : [])
+            .filter((x) => x && String(x.label || '').trim() && Number(x.weight) > 0);
+          if (!items.length) { await engine.say(session, 'Колесо не настроено: нет вариантов с весом 🤷'); return; }
+          const cd = Math.max(0, Math.min(3600, Number(cfg.cooldown) || 0));
+          const key = `${session.broadcasterId}:wheel:${session.userId}`;
+          const last = engine._cool.get(key) || 0;
+          if (cd && Date.now() - last < cd * 1000) {
+            const left = Math.ceil((cd * 1000 - (Date.now() - last)) / 1000);
+            await engine.say(session, `@${session.login}, охлади пыл — следующее вращение через ${left} сек`);
             return;
           }
-          await engine.say(session, `@${session.login} купил(а) «${r.item.name}» за ${r.price} ${plural(r.price, ['балл', 'балла', 'баллов'])} — смотри стрим! 🎬 (осталось: ${engine.points.balance(session.login)})`);
+          if (cd) engine._cool.set(key, Date.now());
+          const total = items.reduce((s, x) => s + Number(x.weight), 0);
+          let roll = Math.random() * total;
+          let picked = items[items.length - 1];
+          for (const it of items) {
+            roll -= Number(it.weight);
+            if (roll <= 0) { picked = it; break; }
+          }
+          const who = session.displayName || session.login;
+          overlay.push({ kind: 'wheel', channel: null, user: who, text: `${who}: ${picked.label}` });
+          await engine.say(session, `🎡 ${who} крутил(а) колесо → ${picked.label}`);
         },
       },
 
-      // ---------- говорилка: TTS за баллы ----------
-      сказать: {
-        level: 'everyone', label: 'TTS за баллы: !сказать <текст>',
+      // ---------- мем-алерты (бесплатные) ----------
+      мем: {
+        level: 'everyone', label: 'мем-алерт: !мем [название]',
         async run(session, args) {
-          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
+          const cfg = engine.settings?.memShop ?? {};
+          if (cfg.enabled === false) { await engine.say(session, 'Мем-алерты сейчас выключены 🙅'); return; }
+          const items = (Array.isArray(cfg.items) ? cfg.items : [])
+            .filter((x) => x && x.enabled !== false && String(x.name || '').trim());
+          const wanted = String(args[0] ?? '').trim().toLowerCase();
+          const item = wanted ? items.find((x) => String(x.name).toLowerCase() === wanted) : null;
+          if (!item) {
+            const names = items.map((x) => x.name);
+            await engine.say(session, `Мемы: ${names.slice(0, 8).join(' · ') || 'пока пусто — заполни data/settings.json'}. Показать: !мем название 🎬`.slice(0, 480));
+            return;
+          }
+          const cd = Math.max(0, Math.min(3600, Number(cfg.cooldown) || 0));
+          const key = `${session.broadcasterId}:meme:${session.userId}`;
+          const last = engine._cool.get(key) || 0;
+          if (cd && Date.now() - last < cd * 1000) {
+            const left = Math.ceil((cd * 1000 - (Date.now() - last)) / 1000);
+            await engine.say(session, `@${session.login}, мемы не чаще — подожди ${left} сек`);
+            return;
+          }
+          if (cd) engine._cool.set(key, Date.now());
+          const who = session.displayName || session.login;
+          overlay.push({
+            kind: 'meme',
+            channel: null,
+            user: who,
+            text: String(item.text || 'мем 🎉').replaceAll('{user}', who),
+            sound: String(item.sound || ''),
+          });
+          engine.logs?.events?.push?.({ text: `${who} показал(а) мем «${item.name}»` });
+          await engine.say(session, `🎬 @${session.login}, мем «${item.name}» полетел в оверлей!`);
+        },
+      },
+
+      // ---------- говорилка: TTS-фраза в оверлей (бесплатно) ----------
+      сказать: {
+        level: 'everyone', label: 'TTS-озвучка: !сказать <текст>',
+        async run(session, args) {
           const cfg = {
             enabled: true,
-            price: 50,
             cooldown: 60, // сек между фразами одного зрителя
             blocked: [], // запрещённые слова (по подстроке, без учёта регистра)
             ...(engine.settings?.say ?? {}),
           };
           const text = args.join(' ').trim();
           if (!cfg.enabled) { await engine.say(session, 'Говорилка сейчас выключена 🙅'); return; }
-          if (!text) {
-            await engine.say(session, `Использование: !сказать <текст> — озвучу на стриме за ${cfg.price} ${plural(cfg.price, ['балл', 'балла', 'баллов'])} 🔊`);
-            return;
-          }
+          if (!text) { await engine.say(session, 'Использование: !сказать <текст> — озвучу на стриме 🔊'); return; }
           if (text.length > 200) {
             await engine.say(session, `@${session.login}, текст слишком длинный — максимум 200 символов (у тебя ${text.length})`);
             return;
@@ -606,50 +566,16 @@ export class CommandEngine {
             await engine.say(session, `@${session.login}, охлади пыл — следующая фраза через ${left} сек`);
             return;
           }
-          if (!overlay.clients.size) {
-            await engine.say(session, 'Оверлей не открыт (добавь его в OBS или открой в браузере) — баллы не списаны');
-            return;
-          }
-          if (cfg.price > 0 && !engine.points.spend(session.login, cfg.price)) {
-            await engine.say(session, `@${session.login}, нужно ${cfg.price} ${plural(cfg.price, ['балл', 'балла', 'баллов'])}, а у тебя меньше`);
-            return;
-          }
-          engine._cool.set(key, Date.now());
+          if (cd) engine._cool.set(key, Date.now());
           const who = session.displayName || session.login;
           overlay.push({ kind: 'meme', channel: null, user: who, text: `🗣 ${who}: ${text}`, sound: '' });
-          await engine.say(session, `🔊 @${session.login}, озвучено за ${cfg.price} ${plural(cfg.price, ['балл', 'балла', 'баллов'])} (осталось: ${engine.points.balance(session.login)})`);
+          await engine.say(session, `🔊 @${session.login}, озвучено`);
         },
       },
 
-      // ---------- магазин услуг (redemption store) ----------
-      заказ: {
-        level: 'everyone', label: 'заказать услугу: !заказ <название>',
-        async run(session, args) {
-          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
-          if (!engine.services) { await engine.say(session, 'Магазин услуг не настроен'); return; }
-          const r = engine.services.order({ login: session.login, name: session.displayName, serviceName: args[0] ?? '' });
-          if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
-          if (r.list) {
-            await engine.say(session, `Услуги: ${r.list.slice(0, 6).join(' · ') || 'пока пусто — настроь в панели'}. Заказ: !заказ название 💎`);
-            return;
-          }
-          await engine.say(session, `🛎 @${session.login}, заказ «${r.order.service}» принят за ${r.price} ${plural(r.price, ['балл', 'балла', 'баллов'])} — ждём выполнения (баланс: ${engine.points.balance(session.login)})`);
-        },
-      },
-      заказы: {
-        level: 'mod', label: 'ждущие заказы: !заказы (мод+)',
-        async run(session) {
-          if (!engine.services) { await engine.say(session, 'Магазин услуг не настроен'); return; }
-          const list = engine.services.pending();
-          if (!list.length) { await engine.say(session, 'Ждущих заказов нет 🎉'); return; }
-          const rows = list.slice(0, 8).map((o) => `#${o.id} ${o.service} — @${o.login}`);
-          await engine.say(session, (`🛎 Ждут выполнения: ${rows.join(' · ')}`).slice(0, 480));
-        },
-      },
-
-      // ---------- музыка: заказы YouTube за баллы ----------
+      // ---------- музыка: заказы YouTube (бесплатные; за баллы канала — отдельной фазой) ----------
       ср: {
-        level: 'everyone', label: 'заказ музыки: !ср <ссылка> (баллы)',
+        level: 'everyone', label: 'заказ музыки: !ср <ссылка>',
         async run(session, args) {
           if (!engine.songs) { await engine.say(session, 'Плеер не настроен'); return; }
           const cfg = engine.songs.cfg();
@@ -667,20 +593,13 @@ export class CommandEngine {
           const { parseVideoId } = await import('./songs.js');
           const videoId = parseVideoId(args[0]);
           if (!videoId) { await engine.say(session, `@${session.login}, это не похоже на ссылку YouTube. Пример: !ср https://youtu.be/dQw4w9WgXcQ`); return; }
-          const price = Math.max(0, Number(cfg.price ?? 100));
-          if (engine.points && price > 0 && !engine.points.spend(session.login, price)) {
-            await engine.say(session, `@${session.login}, заказ стоит ${price} ${plural(price, ['балл', 'балла', 'баллов'])} — не хватает 💎`);
-            return;
-          }
           const r = await engine.songs.add({ videoId, by: session.login, byName: session.displayName });
           if (r.error) {
-            if (engine.points && price > 0) engine.points.add(session.login, price); // отказ — возврат баллов
             await engine.say(session, `@${session.login}, ${r.error}`);
             return;
           }
           const pos = r.position === 0 ? 'включаю сейчас! 🎵' : `в очереди на ${r.position}-м месте`;
-          const priceLine = price > 0 ? ` (−${price} ${plural(price, ['балл', 'балла', 'баллов'])})` : '';
-          await engine.say(session, `🎵 ${r.song.title} — ${pos}${priceLine}`.slice(0, 480));
+          await engine.say(session, `🎵 ${r.song.title} — ${pos}`.slice(0, 480));
         },
       },
       песня: {
@@ -774,159 +693,6 @@ export class CommandEngine {
         },
       },
 
-      // ---------- ставки на исходы и дуэли за баллы ----------
-      ставка: {
-        level: 'everyone', label: 'тотализатор: !ставка — текущая; !ставка открыть <вопрос> <в1|в2> (мод+)',
-        async run(session, args) {
-          if (!engine.bets) { await engine.say(session, 'Ставки не настроены'); return; }
-          const ch = session.broadcasterId;
-          if ((args[0] || '').toLowerCase() === 'открыть') {
-            if (levelValue(session.level ?? 'everyone') < LEVELS.mod) {
-              await engine.say(session, 'ставки открывать могут только моды 🛡');
-              return;
-            }
-            // вопрос — всё до последнего токена с «|» (токен с «|» — список вариантов)
-            const tokens = args.slice(1).join(' ').trim().split(/\s+/).filter(Boolean);
-            let qTokens = tokens;
-            let optToken = '';
-            for (let i = tokens.length - 1; i >= 0; i--) {
-              if (tokens[i].includes('|')) { optToken = tokens[i]; qTokens = tokens.slice(0, i); break; }
-            }
-            const labels = optToken.split('|').map((s) => s.trim()).filter(Boolean);
-            const r = engine.bets.open({ channelId: ch, question: qTokens.join(' ').trim(), options: labels });
-            if (r.error) {
-              await engine.say(session, `@${session.login}, ${r.error}. Пример: !ставка открыть кто победит Али|Боби|Ничья`.slice(0, 480));
-              return;
-            }
-            const cfg = engine.bets.cfg();
-            const list = r.options.map((label, i) => `${i + 1}) ${label}`).join(' ');
-            await engine.say(session, (`📈 Ставка открыта: «${r.question}» — ${list}. Ставить: !ставить сумма номер (${cfg.minBet}–${cfg.maxBet}), на всё ${r.durationSec} сек`).slice(0, 480));
-            return;
-          }
-          const st = engine.bets.status(ch);
-          if (!st) {
-            await engine.say(session, 'Сейчас нет открытой ставки. Моды открывают: !ставка открыть <вопрос> <вариант1|вариант2>');
-            return;
-          }
-          const list = st.options.map((o) => `${o.index}) ${o.label} (${o.total})`).join(' · ');
-          await engine.say(session, (`📊 Ставка: «${st.question}» — ${list} — банк ${st.pot}, осталось ${st.secondsLeft} сек. Ставить: !ставить сумма номер`).slice(0, 480));
-        },
-      },
-      ставить: {
-        level: 'everyone', label: 'поставить баллы: !ставить <сумма> <номер варианта>',
-        async run(session, args) {
-          if (!engine.bets || !engine.points) { await engine.say(session, 'Ставки не настроены'); return; }
-          const n = Number(args[0]) || 0;
-          const idx = Number(args[1]) || 0;
-          if (n <= 0 || idx <= 0) { await engine.say(session, 'Использование: !ставить <сколько> <номер варианта> — например: !ставить 100 1'); return; }
-          if (!Number.isInteger(n)) { await engine.say(session, `@${session.login}, сумма ставки — целое число`); return; }
-          if (!Number.isInteger(idx)) { await engine.say(session, `@${session.login}, номер варианта — целое число`); return; }
-          const r = engine.bets.place({ channelId: session.broadcasterId, login: session.login, name: session.displayName, optionIndex: idx, amount: n });
-          if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
-          if (!engine.points.spend(session.login, r.amount)) {
-            engine.bets.unplace({ channelId: session.broadcasterId, login: session.login, optionIndex: r.optionIndex }); // запись откатываем, баллы не тронуты
-            await engine.say(session, `@${session.login}, не хватает баллов`);
-            return;
-          }
-          await engine.say(session, `✅ ${session.displayName || session.login} поставил(а) ${r.amount} ${plural(r.amount, ['балл', 'балла', 'баллов'])} на «${r.option}» (вариант ${r.optionIndex}) — банк: ${r.optionTotal}, всего: ${r.pot}, осталось ${r.secondsLeft} сек`);
-        },
-      },
-      итог: {
-        level: 'mod', label: 'подвести итог ставки: !итог <номер> (мод+)',
-        async run(session, args) {
-          if (!engine.bets || !engine.points) { await engine.say(session, 'Ставки не настроены'); return; }
-          const idx = Number(args[0]) || 0;
-          if (!Number.isInteger(idx)) { await engine.say(session, `@${session.login}, номер варианта — целое число`); return; }
-          if (!idx) {
-            const st = engine.bets.status(session.broadcasterId);
-            await engine.say(session, st
-              ? `Активная ставка: «${st.question}» — варианты: ${st.options.map((o) => o.index).join(', ')}. Закрыть: !итог <номер>`
-              : 'Сейчас нет открытой ставки');
-            return;
-          }
-          const r = engine.bets.resolve({ channelId: session.broadcasterId, winnerIndex: idx });
-          if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
-          for (const p of r.payouts) engine.points.add(p.login, p.amount);
-          for (const ref of r.refunds ?? []) engine.points.add(ref.login, ref.amount);
-          if (!r.payouts.length) {
-            await engine.say(session, (r.refunds ?? []).length
-              ? `🏁 Исход: «${r.winner}» — ставка закрыта без победителя, баллы возвращены 🙂`
-              : `🏁 Исход: «${r.winner}» — ставок не было, банк пуст`);
-            return;
-          }
-          const top = (r.top ?? []).slice(0, 3).map((w, i) => `${i + 1}. ${w.name || w.login} +${w.amount}`).join(' · ');
-          await engine.say(session, (`🏁 Исход: «${r.winner}» — банк ${r.pot}${r.fee ? ` (комиссия ${r.fee}%)` : ''}. Победители: ${top} 🎉`).slice(0, 480));
-        },
-      },
-      дуэль: {
-        level: 'everyone', label: 'дуэль на баллы: !дуэль @ник N (принять — той же, снять — !дуэль отмена)',
-        async run(session, args) {
-          if (!engine.bets || !engine.points) { await engine.say(session, 'Ставки не настроены'); return; }
-          const ch = session.broadcasterId;
-          // «!дуэль отмена»: снять ждущий вызов может инициатор или моды
-          if ((args[0] || '').trim().toLowerCase() === 'отмена') {
-            const du = engine.bets.pendingDuel(ch);
-            if (!du) { await engine.say(session, 'Сейчас никто никого не вызывает — отменять нечего 🙂'); return; }
-            const isInitiator = du.from.login === String(session.login).toLowerCase();
-            const isMod = levelValue(session.level ?? 'everyone') >= LEVELS.mod;
-            if (!isInitiator && !isMod) {
-              await engine.say(session, `@${session.login}, отменить вызов может ${du.from.name || du.from.login} или моды`);
-              return;
-            }
-            engine.bets.cancelChallenge({ channelId: ch });
-            engine.points.add(du.from.login, du.amount);
-            await engine.say(session, `⚔️ Дуэль ${du.from.name || du.from.login} → @${du.to} отменена${isMod && !isInitiator ? ' модами' : ''}, ставка ${du.amount} вернулась к ${du.from.name || du.from.login} 🙂`);
-            return;
-          }
-          const targetRaw = (args[0] || '').trim();
-          const n = Number(args[1]) || 0;
-          if (!targetRaw || n <= 0) {
-            const du = engine.bets.pendingDuel(ch);
-            await engine.say(session, du
-              ? `${du.from.name || du.from.login} вызывает @${du.to} на ${du.amount}! @${du.to}, прими: !дуэль @${du.from.login} ${du.amount} ⚔️`
-              : 'Использование: !дуэль @ник сумма — вызов на дуэль (баллы списываются сразу; снять можно: !дуэль отмена)');
-            return;
-          }
-          if (!Number.isInteger(n)) { await engine.say(session, `@${session.login}, сумма дуэли — целое число`); return; }
-          const target = targetRaw.replace(/^@/, '').toLowerCase();
-          const pending = engine.bets.pendingDuel(ch);
-          // если вызванный зовут нас — это принятие вызова, а не новый вызов
-          if (pending && pending.to === String(session.login).toLowerCase()) {
-            if (target !== pending.from.login || n !== pending.amount) {
-              await engine.say(session, `@${session.login}, тебя вызвал(а) ${pending.from.name || pending.from.login} на ${pending.amount} — прими ровно так: !дуэль @${pending.from.login} ${pending.amount} ⚔️`);
-              return;
-            }
-            if (engine.points.balance(session.login) < pending.amount) {
-              engine.bets.cancelChallenge({ channelId: ch });
-              engine.points.add(pending.from.login, pending.amount); // отказ — возврат вызвавшему
-              await engine.say(session, `у @${session.login} не хватает баллов — дуэль отменена, ставка ${pending.amount} вернулась к ${pending.from.name || pending.from.login} 🙂`);
-              return;
-            }
-            const r = engine.bets.accept({ channelId: ch, login: session.login, name: session.displayName });
-            if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
-            if (!engine.points.spend(session.login, r.amount)) {
-              engine.points.add(r.from.login, r.amount); // страховка: дуэль уже снята, возвращаем ставку
-              await engine.say(session, `у @${session.login} не хватает баллов — дуэль отменена, ставка вернулась к ${r.from.name || r.from.login} 🙂`);
-              return;
-            }
-            engine.points.add(r.winnerLogin, r.prize);
-            const winName = r.winner === 'a' ? (r.from.name || r.from.login) : (r.to.name || r.to.login);
-            await engine.say(session, `⚔️ Дуэль: ${r.from.name || r.from.login} против ${r.to.name || r.to.login} на ${r.amount} — победил ${winName}! +${r.prize} ${plural(r.prize, ['балл', 'балла', 'баллов'])}`);
-            return;
-          }
-          // новый вызов: жертва должна существовать на Twitch — баллы не списываем в пустоту
-          const victim = await engine.helix.getUserByLogin(target).catch(() => null);
-          if (!victim) { await engine.say(session, `@${session.login}, не нашла на Twitch пользователя "${target}" 🤷`); return; }
-          const r = engine.bets.challenge({ channelId: ch, fromLogin: session.login, fromName: session.displayName, toLogin: target, amount: n });
-          if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
-          if (!engine.points.spend(session.login, r.amount)) {
-            engine.bets.cancelChallenge({ channelId: ch }); // вызов не состоялся
-            await engine.say(session, `@${session.login}, не хватает баллов на вызов`);
-            return;
-          }
-          await engine.say(session, `⚔️ ${session.displayName || session.login} вызывает @${r.to} на дуэль на ${r.amount} ${plural(r.amount, ['балл', 'балла', 'баллов'])}! @${r.to}, принимай: !дуэль @${session.login} ${r.amount}`);
-        },
-      },
       // ---------- OBS: сцены и источники ----------
       сцена: {
         level: 'mod', label: 'сменить сцену OBS: !сцена <имя> (мод+)',
@@ -1127,47 +893,38 @@ export function loadSettings() {
       tts: { enabled: false, rate: 1, volume: 1, voiceName: '' },
       ...(stored.alerts ?? {}),
     },
-    points: {
+    redemptions: {
       enabled: true,
-      intervalMin: 10, // раз в столько минут — опрос чаттеров
-      amount: 10,      // столько баллов за интервал просмотра
-      perMessage: 1,   // бонус за сообщение в чате (0 = выкл)
-      ...(stored.points ?? {}),
+      cooldown: 30, // сек между overlay-алертами одного зрителя (лог ведётся всегда)
+      mappings: [
+        { rewardName: 'заказать песню', action: 'song', enabled: true },
+        { rewardName: 'мем', action: 'meme', enabled: true },
+        { rewardName: 'колесо', action: 'wheel', enabled: true },
+        { rewardName: 'говорить', action: 'say', enabled: true },
+      ],
+      ...(stored.redemptions ?? {}),
     },
     wheel: {
       enabled: true,
-      minBet: 10,
-      maxBet: 1000,
-      cooldown: 60, // сек между спинами одного юзера
+      cooldown: 60, // сек между вращениями одного юзера
       items: [
-        { label: '💥 мимо', weight: 50, multiplier: 0 },
-        { label: '🙂 возврат ставки', weight: 20, multiplier: 1 },
-        { label: '✌️ x2', weight: 18, multiplier: 2 },
-        { label: '🔥 x3', weight: 8, multiplier: 3 },
-        { label: '🚀 x5', weight: 3.5, multiplier: 5 },
-        { label: '💎 ДЖЕКПОТ x10', weight: 0.5, multiplier: 10 },
+        { label: '💥 мимо', weight: 50 },
+        { label: '🎊 приз', weight: 25 },
+        { label: '✨ супер-приз', weight: 15 },
+        { label: '💎 ДЖЕКПОТ', weight: 10 },
       ],
       ...(stored.wheel ?? {}),
     },
     memShop: {
       enabled: true,
-      cooldown: 30, // сек между покупками одного зрителя (критик: без капа — спам алертами/TTS)
+      cooldown: 30, // сек между мемами одного зрителя (критик: без капа — спам алертами/TTS)
       items: [
-        { name: 'ричка', price: 150, text: '🐭 {user} запустил РИЧКУ!', sound: '', enabled: true },
-        { name: 'жаба', price: 200, text: '🐸 {user} напустил жабу в чат!', sound: '', enabled: true },
-        { name: 'кринж', price: 100, text: '😬 {user} оплатил сеанс кринжа', sound: '', enabled: true },
-        { name: 'пирамида', price: 300, text: '🔺 {user} построил пирамиду за баллы', sound: '', enabled: true },
+        { name: 'ричка', text: '🐭 {user} запустил РИЧКУ!', sound: '', enabled: true },
+        { name: 'жаба', text: '🐸 {user} напустил жабу в чат!', sound: '', enabled: true },
+        { name: 'кринж', text: '😬 {user} устраивает сеанс кринжа', sound: '', enabled: true },
+        { name: 'пирамида', text: '🔺 {user} построил пирамиду!', sound: '', enabled: true },
       ],
       ...(stored.memShop ?? {}),
-    },
-    bets: {
-      enabled: true,    // тотализатор и дуэли
-      fee: 0,           // комиссия с банка при выплатах, % (0–10)
-      durationSec: 300, // сколько живёт ставка (и сколько ждёт ответа дуэль)
-      minBet: 10,
-      maxBet: 1000,
-      duelCooldown: 60, // сек между дуэлями одного юзера
-      ...(stored.bets ?? {}),
     },
     obs: {
       enabled: false,     // OBS-интеграция (obs-websocket 5)
@@ -1178,14 +935,12 @@ export function loadSettings() {
     },
     say: {
       enabled: true,
-      price: 50,      // баллов за фразу
       cooldown: 60,   // сек между фразами одного зрителя
       blocked: ['спам', 'реклама'], // запрещённые слова (подстрока) — заполняет стример
       ...(stored.say ?? {}),
     },
     songs: {
       enabled: true,
-      price: 100,      // баллов за заказ трека (0 = бесплатно)
       maxLenSec: 600,  // длиннее — не принимаем
       perUser: 2,      // максимум треков одного зрителя в очереди
       volume: 60,      // громкость плеера (0–100) — применяется в /music

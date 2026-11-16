@@ -43,6 +43,7 @@
   .k-raid    { --glow: rgba(59, 130, 246, .6); }
   .k-meme    { --glow: rgba(249, 115, 22, .6); }
   .k-wheel   { --glow: rgba(139, 92, 246, .65); }
+  .k-redemption { --glow: rgba(234, 179, 8, .65); }
   /* список последних событий (Event List): правый верхний угол, полупрозрачный */
   #events {
     position: fixed; top: 16px; right: 16px;
@@ -84,9 +85,9 @@
   <div id="conn">…</div>
 <script src="/sr-player.js"></script>
 <script>
-  const EMOJI = { follow: '💜', sub: '🎉', resub: '💖', subgift: '🎁', raid: '🚀', meme: '🎬', wheel: '🎡' };
-  const SUBLINE = { follow: 'новый фолловер', sub: 'новая подписка', resub: 'продление подписки', subgift: 'подаренная подписка', raid: 'рейд на канал', meme: 'мем за баллы', wheel: 'колесо баллов' };
-  const KINDS = ['follow', 'sub', 'resub', 'subgift', 'raid', 'meme', 'wheel'];
+  const EMOJI = { follow: '💜', sub: '🎉', resub: '💖', subgift: '🎁', raid: '🚀', meme: '🎬', wheel: '🎡', redemption: '👑' };
+  const SUBLINE = { follow: 'новый фолловер', sub: 'новая подписка', resub: 'продление подписки', subgift: 'подаренная подписка', raid: 'рейд на канал', meme: 'мем', wheel: 'колесо', redemption: 'награда канала' };
+  const KINDS = ['follow', 'sub', 'resub', 'subgift', 'raid', 'meme', 'wheel', 'redemption'];
   let cfg = { enabled: true };
   const queue = [];
   let active = 0;
@@ -120,9 +121,9 @@
     while (box.children.length > eventsSize) box.lastChild.remove();
   }
 
-  // короткая строка события: мем/колесо несут готовый текст, остальные — кто пришёл
+  // короткая строка события: мем/колесо/награда несут готовый текст, остальные — кто пришёл
   function eventText(ev) {
-    if (ev.kind === 'meme' || ev.kind === 'wheel') return ev.text || '';
+    if (ev.kind === 'meme' || ev.kind === 'wheel' || ev.kind === 'redemption') return ev.text || '';
     let t = ev.user || ev.channel || '';
     if (ev.viewers) t += ` · ${ev.viewers} зрителей`;
     if (ev.months) t += ` · ${ev.months} мес.`;
@@ -187,8 +188,8 @@
   function show(ev) {
     const kindCfg = cfg?.[ev.kind];
     if (!cfg?.enabled || kindCfg?.enabled === false) return;
-    // мем/колесо несут готовый текст (и, у мема, свой звук) прямо в событии
-    const isInjected = ev.kind === 'meme' || ev.kind === 'wheel';
+    // мем/колесо/награда канала несут готовый текст (и, у мема, свой звук) прямо в событии
+    const isInjected = ev.kind === 'meme' || ev.kind === 'wheel' || ev.kind === 'redemption';
     if (!isInjected && (!kindCfg?.enabled || !kindCfg?.template)) return;
     const vars = { channel: ev.channel, user: ev.user, viewers: ev.viewers, months: ev.months, recipient: ev.recipient };
     const text = isInjected ? (ev.text || '') : render(kindCfg.template, vars);

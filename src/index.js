@@ -1,16 +1,15 @@
 import { AuthManager, SCOPES } from './twitch/auth.js';
+import { BroadcasterAuth, BROADCASTER_SCOPES } from './twitch/broadcaster-auth.js';
 import { Helix, HelixError } from './twitch/helix.js';
 import { EventSocket } from './twitch/eventsub.js';
 import { CommandEngine, loadSettings, mergeTts, mergeEventList } from './bot/commands.js';
 import { EventProcessor } from './bot/events.js';
 import { TimerRunner } from './bot/timers.js';
 import { ModuleManager } from './bot/modules.js';
-import { PointsManager } from './bot/points.js';
 import { QuotesManager } from './bot/quotes.js';
-import { BetsManager } from './bot/bets.js';
 import { ObsClient } from './bot/obs.js';
-import { ServicesManager } from './bot/services.js';
 import { SongsManager } from './bot/songs.js';
+import { RedemptionRouter } from './bot/redemptions.js';
 import { overlay } from './bot/alerts.js';
 import { createHttpServer } from './server.js';
 import { logs } from './logs.js';
@@ -19,7 +18,7 @@ import {
 } from './config.js';
 import { SETTINGS_FILE, saveJson } from './store.js';
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 
 const state = {
   startedAt: Date.now(),
@@ -37,6 +36,10 @@ const port = effectivePort(config);
 
 const auth = new AuthManager({ clientId: config.clientId, clientSecret: config.clientSecret });
 const helix = new Helix({ auth });
+// Второй вход — «Вход как стример»: события наград канала Twitch отдаёт
+// только токену владельца канала, токену бота-модератора они недоступны.
+const broadcaster = new BroadcasterAuth({ clientId: config.clientId, clientSecret: config.clientSecret });
+const helixBc = new Helix({ auth: broadcaster }); // EventSub-подписки токеном стримера
 
 /** Реестр каналов, где бот работает. Ключ — id канала на Twitch. */
 const channels = {
@@ -67,23 +70,15 @@ commands.setModules(modules);
 await modules.load(); // файлы из modules/ — до старта сервера
 modules.start(); // тик 'tick' каждые 20с + автоподхват правок файлов
 
-const points = new PointsManager({ helix, auth, logs, settings, channels });
-commands.setPoints(points);
-points.start(); // начисление за просмотр + автосохранение
-
 const songs = new SongsManager({ logs, settings });
 commands.setSongs(songs);
 
+// награды канала Twitch: приходят по EventSub, роутер пишет их в ленту
+// и (для замапленных наград) кидает алерт в оверлей
+const redemptions = new RedemptionRouter({ logs, settings });
+
 const quotes = new QuotesManager({ logs }); // цитаты канала: data/quotes.json, без таймеров
 commands.setQuotes(quotes);
-
-const services = new ServicesManager({ logs, points }); // магазин услуг: data/services.json
-commands.setServices(services);
-
-const bets = new BetsManager({ logs, settings });
-commands.setBets(bets);
-bets.setPoints(points); // для авто-возвратов по таймауту
-bets.start(); // раз в 5 сек закрывает просроченные ставки/дуэли с возвратом баллов
 
 const obs = new ObsClient({ logs, settings });
 commands.setObs(obs);
@@ -91,10 +86,13 @@ if (settings.obs?.enabled) obs.start(); // подключение к OBS при 
 
 const socket = new EventSocket({
   helix,
+  broadcasterHelix: helixBc, // подписки токеном стримера (награды канала)
   onEvent: (type, event) => {
     if (type === 'channel.chat.message') {
       timers.noteChat(event); // счётчик для таймеров
-      points.noteMessage(event?.chatter_user_login, event?.chatter_user_name); // бонус за сообщение
+    }
+    if (type === 'channel.channel_points_custom_reward_redemption.add') {
+      redemptions.handle(event); // награды канала: лента + оверлей
     }
     processor.dispatch(type, event);
     modules.dispatch(type, event).catch(() => {}); // хуки модулей (ошибки логируются внутри)
@@ -120,6 +118,8 @@ async function startRuntime() {
     logSystem(state.lastError, 'warn');
     return;
   }
+  broadcaster.updateClient(cfg);
+  broadcaster.load(); // вход стримера — опциональный (нужен только для наград канала)
   try {
     await auth.validate();
     const botId = auth.tokens.userId;
@@ -152,6 +152,27 @@ async function startRuntime() {
       desired.push({ key: `рейды @${c.login}`, type: 'channel.raid', version: '1', condition: { to_broadcaster_user_id: c.id } });
       desired.push({ key: `старт стрима @${c.login}`, type: 'stream.online', version: '1', condition: { broadcaster_user_id: c.id } });
       desired.push({ key: `конец стрима @${c.login}`, type: 'stream.offline', version: '1', condition: { broadcaster_user_id: c.id } });
+    }
+    // награды канала (Channel Points): Twitch создаёт такую подписку только
+    // токену ВЛАДЕЛЬЦА канала — токена «Входа как стример». Подписываем те каналы,
+    // которые принадлежат залогиненному стримеру.
+    if (broadcaster.tokens?.userId) {
+      const bcId = String(broadcaster.tokens.userId);
+      let rewardsMatched = 0;
+      for (const c of channels.list()) {
+        if (String(c.id) !== bcId) continue;
+        rewardsMatched += 1;
+        desired.push({
+          key: `награды @${c.login}`,
+          type: 'channel.channel_points_custom_reward_redemption.add',
+          version: '1',
+          condition: { broadcaster_user_id: c.id, user_id: bcId },
+          via: 'broadcaster', // создавать/удалять токеном стримера
+        });
+      }
+      if (!rewardsMatched) {
+        logSystem('Стример залогинен, но его канал не в списке каналов бота — подписка на награды не создана', 'warn');
+      }
     }
     socket.setDesired(desired);
     await socket.stop();
@@ -199,6 +220,7 @@ async function onConfigSaved(patch = {}) {
   const clientIdChanged = Boolean(patch.clientId) && patch.clientId !== before.clientId;
   if (clientIdChanged) {
     auth.logout();
+    broadcaster.logout(); // токены обоих входов привязаны к приложению
     logSystem('Client ID изменился — старые токены сброшены, нужен новый вход', 'warn');
   }
   logSystem(`Настройки сохранены (каналы: ${next.channels.join(', ') || '—'})`, 'info');
@@ -216,15 +238,14 @@ const app = {
   port,
   version: VERSION,
   auth,
+  broadcaster,
   helix,
   commands,
   processor,
   modules,
-  points,
   quotes,
-  bets,
+  redemptions,
   obs,
-  services,
   songs,
   socket,
   logs,
@@ -257,6 +278,14 @@ const app = {
         expiresAt: auth.tokens?.expiresAt ?? null,
         scopes: auth.tokens?.scopes ?? [],
         scopesRequired: SCOPES,
+      },
+      broadcaster: {
+        status: broadcaster.status,
+        login: broadcaster.tokens?.login ?? null,
+        userId: broadcaster.tokens?.userId ?? null,
+        expiresAt: broadcaster.tokens?.expiresAt ?? null,
+        scopes: broadcaster.tokens?.scopes ?? [],
+        scopesRequired: BROADCASTER_SCOPES,
       },
       runtime: {
         running: state.running,
@@ -355,58 +384,29 @@ const app = {
         cur.eventList = mergeEventList(cur.eventList, a.eventList);
       }
     }
-    // баллы/колесо/мем-магазин
-    if (patch.points && typeof patch.points === 'object') {
-      const a = patch.points;
-      const cur = settings.points;
+    // награды канала (редемпции): таблица мэппингов + кулдаун
+    if (patch.redemptions && typeof patch.redemptions === 'object') {
+      const a = patch.redemptions;
+      const cur = settings.redemptions;
       if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
-      if (a.intervalMin !== undefined) {
-        cur.intervalMin = Math.max(1, Math.min(60, Number(a.intervalMin) || 10));
-        points.rearm(); // критик: интервал применяется сразу, без перезапуска
+      if (a.cooldown !== undefined) cur.cooldown = Math.max(0, Math.min(3600, Number(a.cooldown) || 30));
+      if (Array.isArray(a.mappings)) {
+        const seen = new Set();
+        cur.mappings = a.mappings
+          .slice(0, 50)
+          .map((m) => ({
+            rewardName: String(m?.rewardName ?? '').trim().slice(0, 100),
+            action: ['song', 'meme', 'wheel', 'say', 'command'].includes(m?.action) ? m.action : 'song',
+            enabled: m?.enabled !== false,
+          }))
+          .filter((m) => {
+            const key = m.rewardName.toLowerCase();
+            if (!key) return false;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
       }
-      if (a.amount !== undefined) cur.amount = Math.max(0, Math.min(1000, Number(a.amount) || 10));
-      if (a.perMessage !== undefined) cur.perMessage = Math.max(0, Math.min(10, Number(a.perMessage) || 0));
-    }
-    if (patch.wheel && typeof patch.wheel === 'object') {
-      const a = patch.wheel;
-      const cur = settings.wheel;
-      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
-      if (a.minBet !== undefined) cur.minBet = Math.max(1, Math.min(100_000, Number(a.minBet) || 10));
-      if (a.maxBet !== undefined) cur.maxBet = Math.max(cur.minBet, Math.min(1_000_000, Number(a.maxBet) || 1000));
-      if (a.cooldown !== undefined) cur.cooldown = Math.max(0, Math.min(3600, Number(a.cooldown) || 60));
-      if (Array.isArray(a.items)) {
-        cur.items = a.items.slice(0, 20).map((it) => ({
-          label: String(it?.label || '').trim().slice(0, 60),
-          weight: Math.max(0, Math.min(100, Number(it?.weight) || 0)),
-          multiplier: Math.max(0, Math.min(100, Number(it?.multiplier) || 0)),
-        })).filter((it) => it.label);
-      }
-    }
-    if (patch.memShop && typeof patch.memShop === 'object') {
-      const a = patch.memShop;
-      const cur = settings.memShop;
-      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
-      if (a.cooldown !== undefined) cur.cooldown = Math.max(0, Math.min(3600, Number(a.cooldown) || 0));
-      if (Array.isArray(a.items)) {
-        cur.items = a.items.slice(0, 30).map((it) => ({
-          name: String(it?.name || '').trim().toLowerCase().replace(/^!/, '').slice(0, 32),
-          price: Math.max(0, Math.min(1_000_000, Number(it?.price) || 0)),
-          text: String(it?.text || '').trim().slice(0, 200),
-          sound: String(it?.sound || '').replace(/[\\/]/g, '').slice(0, 120),
-          enabled: it?.enabled !== false,
-        })).filter((it) => it.name);
-      }
-    }
-    // ставки и дуэли
-    if (patch.bets && typeof patch.bets === 'object') {
-      const a = patch.bets;
-      const cur = settings.bets;
-      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
-      if (a.fee !== undefined) cur.fee = Math.max(0, Math.min(10, Number(a.fee) || 0));
-      if (a.durationSec !== undefined) cur.durationSec = Math.max(10, Math.min(3600, Number(a.durationSec) || 300));
-      if (a.minBet !== undefined) cur.minBet = Math.max(1, Math.min(100_000, Number(a.minBet) || 10));
-      if (a.maxBet !== undefined) cur.maxBet = Math.max(cur.minBet, Math.min(1_000_000, Number(a.maxBet) || 1000));
-      if (a.duelCooldown !== undefined) cur.duelCooldown = Math.max(0, Math.min(3600, Number(a.duelCooldown) || 60));
     }
     // OBS (obs-websocket 5)
     if (patch.obs && typeof patch.obs === 'object') {
@@ -418,25 +418,11 @@ const app = {
       if (a.password !== undefined) cur.password = String(a.password ?? '').slice(0, 200);
       obs.reconfigure(); // вкл/выкл/смена адреса применяется сразу, без перезапуска
     }
-    // говорилка (!сказать): TTS за баллы
-    if (patch.say && typeof patch.say === 'object') {
-      const a = patch.say;
-      const cur = settings.say;
-      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
-      if (a.price !== undefined) cur.price = Math.max(0, Math.min(1_000_000, Number(a.price) || 50));
-      if (a.cooldown !== undefined) cur.cooldown = Math.max(0, Math.min(3600, Number(a.cooldown) || 60));
-      if (Array.isArray(a.blocked)) {
-        cur.blocked = a.blocked.slice(0, 100)
-          .map((w) => String(w || '').trim().toLowerCase().slice(0, 40))
-          .filter(Boolean);
-      }
-    }
-    // музыка: заказы за баллы
+    // музыка: заказы (бесплатные — награды канала разберём отдельной фазой)
     if (patch.songs && typeof patch.songs === 'object') {
       const a = patch.songs;
       const cur = settings.songs;
       if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
-      if (a.price !== undefined) cur.price = Math.max(0, Math.min(1_000_000, Number(a.price) || 0));
       if (a.maxLenSec !== undefined) cur.maxLenSec = Math.max(0, Math.min(36_000, Number(a.maxLenSec) || 600));
       if (a.perUser !== undefined) cur.perUser = Math.max(1, Math.min(10, Number(a.perUser) || 2));
       if (a.volume !== undefined) cur.volume = Math.max(0, Math.min(100, Math.round(Number(a.volume) || 0)));
@@ -452,11 +438,13 @@ const app = {
     saveJson(SETTINGS_FILE, settings);
   },
 
-  /** Сохранение услуг магазина из панели (PUT /api/services). */
-  saveServices(patch = {}) {
-    if (!Array.isArray(patch?.items)) throw new Error('Список услуг не понятен');
-    services.updateItems(patch.items);
-    return { items: services.items, orders: services.pending() };
+  /** Выход стримера: сброс токена + пересборка подписок (награды канала отпадают). */
+  async broadcasterLogout() {
+    broadcaster.stopAutoRefresh();
+    broadcaster.logout();
+    logSystem('Токен стримера сброшен — подписка на награды канала снята', 'warn');
+    await stopRuntime();
+    await startRuntime();
   },
 
   async runAction(action, body) {
@@ -564,7 +552,7 @@ const app = {
           displayName: 'Панель',
           text: `!${cName}`,
           badges: [{ set_id: 'moderator' }],
-        }, { skipCost: true }); // тест из панели не платит цену команды
+        });
         if (!ran) throw new Error('Команда не найдена, выключена или на кулдауне');
         return { tested: cName, channel: ch.login };
       }
@@ -578,6 +566,19 @@ const app = {
           recipient: 'ТестовыйДруг',
         });
         return { tested: body.kind || 'follow' };
+      }
+      case 'redemptiontest': {
+        // тест алерта награды канала (карточка «👑 Награды канала»)
+        overlay.push({
+          kind: 'redemption',
+          channel: channels.list()[0]?.login ?? null,
+          user: 'ТестовыйЗритель',
+          reward: 'мем',
+          text: 'ТестовыйЗритель активировал(а) награду «мем»: тестовое списание',
+          input: 'тестовое списание',
+          sound: '',
+        });
+        return { tested: 'redemption' };
       }
       case 'obstest': {
         // значения из формы (если юзер ещё не сохранил) поверх сохранённых
@@ -602,78 +603,6 @@ const app = {
         requireRuntime();
         await timers.test(String(body.id || ''), body.channel);
         return { tested: body.id };
-      }
-      case 'betsopen': {
-        // открытие тотализатора из панели: менеджер + объявление в чат (как у !ставка открыть)
-        requireRuntime();
-        const ch = resolveChannel();
-        const question = String(body.question || '').trim();
-        const options = (Array.isArray(body.options) ? body.options : [])
-          .map((o) => String(o ?? '').trim()).filter(Boolean);
-        if (!question) throw new Error('Нужен вопрос');
-        if (options.length < 2) throw new Error('Нужно минимум 2 варианта (раздели их «|»)');
-        if (options.length > 6) throw new Error('Максимум 6 вариантов');
-        // длительность конкретной ставки: менеджер берёт её из настроек — подменяем
-        // на время open() и возвращаем назад (файл настроек не трогаем)
-        const wanted = Math.max(10, Math.min(3600, Number(body.durationSec) || 0));
-        const prevDur = settings.bets.durationSec;
-        if (wanted) settings.bets.durationSec = wanted;
-        const opened = bets.open({ channelId: ch.id, question, options });
-        settings.bets.durationSec = prevDur;
-        if (opened.error) throw new Error(opened.error);
-        const cfg = bets.cfg();
-        const list = opened.options.map((label, i) => `${i + 1}) ${label}`).join(' ');
-        await helix.sendMessage({
-          broadcasterId: ch.id,
-          senderId: auth.tokens.userId,
-          text: `📈 Ставка открыта: «${opened.question}» — ${list}. Ставить: !ставить сумма номер (${cfg.minBet}–${cfg.maxBet}), на всё ${opened.durationSec} сек`.slice(0, 480),
-        });
-        return { opened: true, question: opened.question, options: opened.options, durationSec: opened.durationSec, channel: ch.login };
-      }
-      case 'betsresolve': {
-        // подведение итога из панели: выплаты/возвраты как у !итог + объявление в чат
-        requireRuntime();
-        const ch = resolveChannel();
-        const idx = Number(body.winnerIndex);
-        if (!Number.isInteger(idx) || idx <= 0) throw new Error('Номер победного варианта — целое число от 1');
-        const r = bets.resolve({ channelId: ch.id, winnerIndex: idx });
-        if (r.error) throw new Error(r.error);
-        for (const p of r.payouts) points.add(p.login, p.amount);
-        for (const ref of r.refunds ?? []) points.add(ref.login, ref.amount);
-        const text = !r.payouts.length
-          ? ((r.refunds ?? []).length
-            ? `🏁 Исход: «${r.winner}» — ставка закрыта без победителя, баллы возвращены 🙂`
-            : `🏁 Исход: «${r.winner}» — ставок не было, банк пуст`)
-          : `🏁 Исход: «${r.winner}» — банк ${r.pot}${r.fee ? ` (комиссия ${r.fee}%)` : ''}. Победители: ${(r.top ?? []).slice(0, 3).map((w, i) => `${i + 1}. ${w.name || w.login} +${w.amount}`).join(' · ')} 🎉`;
-        await helix.sendMessage({ broadcasterId: ch.id, senderId: auth.tokens.userId, text: text.slice(0, 480) });
-        return { resolved: true, winner: r.winner, pot: r.pot, payouts: r.payouts.length, refunds: (r.refunds ?? []).length, channel: ch.login };
-      }
-      case 'betscancel': {
-        // отмена из панели: живая ставка/вызов закрываются как «истёкшие» — все баллы возвращаются
-        requireRuntime();
-        const ch = resolveChannel();
-        const pool = bets.active(ch.id);
-        const duel = bets.pendingDuel(ch.id);
-        if (!pool && !duel) throw new Error('Сейчас нет открытой ставки (или вызова на дуэль)');
-        const refunds = bets.closeExpired(Date.now() + 604_800_000); // все живое считается просроченным и закрывается
-        for (const r of refunds) {
-          points.add(r.login, r.amount);
-          logSystem(`Возврат баллов (отмена из панели): @${r.login} +${r.amount}`);
-        }
-        await helix.sendMessage({
-          broadcasterId: ch.id,
-          senderId: auth.tokens.userId,
-          text: pool
-            ? `❌ Ставка «${pool.question}» отменена — все баллы возвращены 🙂`.slice(0, 480)
-            : `⚔️ Дуэль ${duel.from.name || duel.from.login} → @${duel.to} отменена — ставка ${duel.amount} вернулась 🙂`.slice(0, 480),
-        });
-        return { cancelled: true, refunds: refunds.length, channel: ch.login };
-      }
-      case 'serviceorder': {
-        // подтверждение заказа из панели: { id, op: 'done' | 'refund' }
-        const r = services.settle({ id: body.id, op: String(body.op || '') });
-        if (r.error) throw new Error(r.error);
-        return { settled: r.order.id, op: r.op };
       }
       case 'srnext': { // скип из панели
         const r = songs.skip();
@@ -751,6 +680,9 @@ server.listen(port, '127.0.0.1', () => {
 if (auth.load()) {
   logSystem(`Найден сохранённый вход: ${auth.tokens.login ?? 'неизвестный пользователь'}`, 'info');
 }
+if (broadcaster.load()) {
+  logSystem(`Найден вход стримера: ${broadcaster.tokens.login ?? 'неизвестный пользователь'} — награды канала будут видны`, 'info');
+}
 if (isConfigured(config) && auth.tokens) {
   startRuntime().catch((e) => logSystem(`Автозапуск не удался: ${e.message}`, 'error'));
 }
@@ -768,17 +700,17 @@ setInterval(async () => {
     }
   }
 }, 5 * 60_000).unref?.();
+// автообновление токена стримера — тот же ритм, что у токена бота
+broadcaster.autoRefresh((level, message) => logSystem(message, level));
 
 const shutdown = async () => {
   logSystem('Останавливаюсь…', 'info');
   commands.flushCounters();
   timers.stop();
   modules.stop();
-  bets.stop();
-  points.stop();
   quotes.stop();
   obs.stop();
-  services.stop();
+  broadcaster.stopAutoRefresh();
   await socket.stop();
   server.close();
   process.exit(0);

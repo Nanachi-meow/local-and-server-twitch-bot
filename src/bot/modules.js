@@ -11,6 +11,7 @@ const HOOK_ALIASES = {
   'channel.raid': 'raid',
   'stream.online': 'stream.online',
   'stream.offline': 'stream.offline',
+  'channel.channel_points_custom_reward_redemption.add': 'redemption', // награда канала
 };
 
 /** Из chat.notification выводим понятные хуки подписок. */
@@ -168,7 +169,6 @@ export class ModuleManager {
         chance: spec.chance === undefined ? 100 : Math.max(0, Math.min(100, Number(spec.chance) || 0)),
         level: ['everyone', 'sub', 'vip', 'mod'].includes(spec.level) ? spec.level : 'everyone',
         cooldown: Math.max(0, Math.min(3600, Number(spec.cooldown ?? 3) || 0)),
-        cost: Math.max(0, Math.min(100_000, Math.round(Number(spec.cost ?? 0) || 0))), // цена в баллах за команду модуля
       };
     }
     return null;

@@ -10,7 +10,6 @@ export const SCOPES = [
   'user:read:chat',
   'user:write:chat',
   'moderator:read:followers',
-  'moderator:read:chatters',
   'moderator:manage:shoutouts',
   'moderator:manage:announcements',
   'moderator:manage:chat_messages',

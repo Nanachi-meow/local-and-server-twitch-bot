@@ -5,7 +5,7 @@ import { QUOTES_FILE } from '../store.js';
  * Цитаты канала: массив { id, text, by, at } в data/quotes.json.
  * Номера автоинкрементные и не переиспользуются после удаления.
  * Без таймеров и start(): правки редки, поэтому сохраняются сразу
- * (флаг _dirty + saveNow по образцу points.js, но write-through).
+ * (флаг _dirty + saveNow, запись write-through).
  */
 export class QuotesManager {
   constructor({ logs = null, dataFile = QUOTES_FILE } = {}) {

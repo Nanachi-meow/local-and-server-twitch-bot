@@ -80,21 +80,6 @@ export class Helix {
     return stream;
   }
 
-  /** Активные зрители чата (для баллов за просмотр). Нужно: moderator:read:chatters + бот-модератор. */
-  async getChatters({ broadcasterId, moderatorId, limit = 500 }) {
-    const out = [];
-    let cursor;
-    for (let page = 0; page < 5 && out.length < limit; page += 1) {
-      const json = await this.call('GET', '/chat/chatters', {
-        query: { broadcaster_id: broadcasterId, moderator_id: moderatorId, first: 100, after: cursor },
-      });
-      for (const c of json?.data ?? []) out.push({ login: c.user_login, name: c.user_name });
-      cursor = json?.pagination?.cursor;
-      if (!cursor) break;
-    }
-    return out;
-  }
-
   // ---------- chat ----------
 
   /** Отправка сообщения от имени бота. pin=true — закрепить на 20 минут (официальное поведение эндпоинта). */

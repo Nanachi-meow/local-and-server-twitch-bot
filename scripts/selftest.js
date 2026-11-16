@@ -179,9 +179,8 @@ ok('легаси рп: action переехал в response', hugCmd.mode === 'te
 const hornyCmd = engine.custom.find((c) => c.name === 'хорни');
 ok('легаси random: стал variants', hornyCmd.mode === 'variants' && hornyCmd.variants.length === 1);
 
-// ---------- музыка: заказы YouTube за баллы ----------
+// ---------- музыка: заказы YouTube (бесплатные — баллов больше нет) ----------
 const { parseVideoId, SongsManager } = await import('../src/bot/songs.js');
-const { PointsManager: SRPoints } = await import('../src/bot/points.js');
 ok('музыка: parseVideoId youtu.be', parseVideoId('https://youtu.be/dQw4w9WgXcQ') === 'dQw4w9WgXcQ');
 ok('музыка: parseVideoId watch?v= с параметрами', parseVideoId('https://www.youtube.com/watch?t=42&v=abc12345678') === 'abc12345678');
 ok('музыка: parseVideoId shorts и голый ID', parseVideoId('https://youtube.com/shorts/aabbccdde11') === 'aabbccdde11' && parseVideoId('dQw4w9WgXcQ') === 'dQw4w9WgXcQ');
@@ -189,8 +188,7 @@ ok('музыка: parseVideoId мусор → null', parseVideoId('https://twitc
 
 const songsSettings = {
   events: {},
-  points: { enabled: true, intervalMin: 10, amount: 10, perMessage: 0 },
-  songs: { enabled: true, price: 100, maxLenSec: 600, perUser: 2, volume: 60, nowTemplate: '♪ {title} — заказал {by}' },
+  songs: { enabled: true, maxLenSec: 600, perUser: 2, volume: 60, nowTemplate: '♪ {title} — заказал {by}' },
 };
 const songsFile = path.join(process.env.BOT_DATA_DIR, 'songs.json');
 const fakeFetcher = async (url) => {
@@ -227,28 +225,15 @@ sm.saveNow();
 const storedSongs = JSON.parse(fs.readFileSync(songsFile, 'utf8'));
 ok('музыка: очередь сохраняется в файл', Array.isArray(storedSongs.queue) && storedSongs.queue.length === 1 && storedSongs.current?.id === 'abc12345678');
 
-// команды через движок: цена списывается, при отказе возвращается
-const srFakeHelix = {
-  sendMessage: async (b) => { sent.push(b.text); return { message_id: 'm' }; },
-  getStreamByLogin: async () => null,
-  getUserByLogin: async (login) => ({ id: '55', login, display_name: login }),
-  getChatters: async () => [],
-};
-const ptsSR = new SRPoints({ helix: srFakeHelix, auth: fakeAuth, logs, settings: songsSettings, channels: null, dataFile: path.join(process.env.BOT_DATA_DIR, 'points-sr.json') });
-ptsSR.add('girl', 200, 'Girl'); // заказ стоит 100 — хватит на один
-engine.points = ptsSR;
+// команды через движок: заказ бесплатный (цена теперь живёт в самой награде на Twitch)
 await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!ср https://youtu.be/qwer1234567', badges: [] });
-ok('музыка: !ср списывает баллы', sent.at(-1).includes('в очереди') && ptsSR.balance('girl') === 100);
-ptsSR.spend('girl', 100); // оставляем 0 — на второй заказ не хватит
-await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!ср https://youtu.be/zxcv1234567', badges: [] });
-ok('музыка: не хватает баллов — отказ', sent.at(-1).includes('не хватает') && ptsSR.balance('girl') === 0);
+ok('музыка: !ср заказ бесплатный', sent.at(-1).includes('в очереди') && sm.queue.some((s) => s.by === 'girl'));
 await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!ср это-не-ссылка', badges: [] });
-ok('музыка: не-ссылка отклоняется без списания', sent.at(-1).includes('не похоже') && ptsSR.balance('girl') === 0);
+ok('музыка: не-ссылка отклоняется', sent.at(-1).includes('не похоже'));
 await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!очередь', badges: [] });
 ok('музыка: !очередь отвечает', sent.at(-1).startsWith('🎵'));
 await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!скип', badges: [{ set_id: 'moderator' }] });
 ok('музыка: !скип (мод+) работает', sent.at(-1).includes('скипнут'));
-engine.points = null; // чистим за собой — чтобы следующие секции не путались
 
 let srNameThrew = false;
 try { engine.upsert({ name: 'ср', response: 'хак' }); } catch { srNameThrew = true; }
@@ -486,6 +471,7 @@ fs.writeFileSync(path.join(modsDir, 'mtest.js'), [
   "    'chat.message': async (m, api) => { if (m.message.text === '!модпеченька') await api.say('печенька от модуля'); },",
   "    'follow': async (ev, api) => { api.log(`follow:${ev.user_name}`); },",
   "    'sub': async (ev, api) => { api.log(`sub:${ev.chatter_user_name}`); },",
+  "    'redemption': async (ev, api) => { api.log(`redemption:${ev?.reward?.title}`); },",
   "  },",
   "};",
 ].join('\n'), 'utf8');
@@ -524,6 +510,11 @@ ok('модуль: хук follow дёргается', logs.system.items.some((l) 
 await mm.dispatch('channel.chat.notification', { broadcaster_user_id: '200', notice_type: 'sub', chatter_user_name: 'P' });
 ok('модуль: хук sub выводится из уведомления', logs.system.items.some((l) => String(l?.message || '').includes('sub:P')));
 
+await mm.dispatch('channel.channel_points_custom_reward_redemption.add', {
+  broadcaster_user_id: '200', user_login: 'n', user_name: 'N', user_input: 'хай', reward: { id: 'r1', title: 'мем' },
+});
+ok('модуль: хук redemption (награда канала) дёргается', logs.system.items.some((l) => String(l?.message || '').includes('redemption:мем')));
+
 mm.updateSettings('mtest', { chill: 10 });
 const storedMods = JSON.parse(fs.readFileSync(modsConfigFile, 'utf8'));
 ok('модуль: настройки сохраняются в файл', storedMods.settings.mtest.chill === 10);
@@ -548,119 +539,123 @@ await processor2.onRaid({ user: 'R', login: 'rr', viewers: 5, toId: '100' });
 ok('алерт: raid уходит в шину оверлея', ovCaptured.some((s) => s.includes('"kind":"raid"')));
 overlay.clients.clear();
 
-// ---------- баллы канала ----------
-const { PointsManager } = await import('../src/bot/points.js');
-const fakeHelixPts = {
-  sendMessage: async (b) => { sent.push(b.text); return { message_id: 'm' }; },
-  getStreamByLogin: async (login) => (login === 'alpha' ? { started_at: new Date().toISOString(), game_name: 'G', title: 'T' } : null),
-  getChatters: async () => [{ login: 'vasya', name: 'Vasya' }, { login: 'petya', name: 'Petya' }],
-  getUserByLogin: async (login) => (String(login).toLowerCase() === 'неведомыйник' ? null : ({ id: '55', login, display_name: login })),
-};
-const ptsSettings = {
-  events: {},
-  points: { enabled: true, intervalMin: 10, amount: 10, perMessage: 1 },
-  wheel: { enabled: true, minBet: 10, maxBet: 1000, cooldown: 0, items: [{ label: 'x2', weight: 10, multiplier: 2 }] },
-  memShop: { enabled: true, items: [{ name: 'ричка', price: 150, text: '🐭 {user} запустил РИЧКУ!', sound: '', enabled: true }] },
-};
-const ptsDataFile = path.join(process.env.BOT_DATA_DIR, 'points.json');
-const pts = new PointsManager({ helix: fakeHelixPts, auth: fakeAuth, logs, settings: ptsSettings, channels: registry, dataFile: ptsDataFile });
-engine.setPoints(pts);
-
-pts.add('petya', 500, 'Petya');
-ok('баллы: add/balance', pts.balance('petya') === 500);
-ok('баллы: spend не пускает больше имеющегося', !pts.spend('petya', 600) && pts.spend('petya', 100) && pts.balance('petya') === 400);
-const tr = await pts.transfer('petya', 'Vova', 50, 'Vova');
-ok('баллы: перевод работает', tr.ok && pts.balance('petya') === 350 && pts.balance('vova') === 50);
-
-await pts.accrueTick();
-ok('баллы: начисление зрителям живого канала (бота не считаем)', pts.balance('vasya') === 10 && pts.balance('petya') === 360);
-pts.noteMessage('vasya', 'Vasya');
-ok('баллы: бонус за сообщение', pts.balance('vasya') === 11);
-ok('баллы: топ сортирует', pts.top(2)[0].login === 'petya');
-pts.saveNow();
-ok('баллы: файл сохраняется', JSON.parse(fs.readFileSync(ptsDataFile, 'utf8')).petya.points === 360);
-
-await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!баллы', badges: [] });
-ok('баллы: !баллы отвечает балансом', sent.at(-1).includes('360') && sent.at(-1).includes('@petya'));
-await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!топ', badges: [] });
-ok('баллы: !топ отвечает списком', sent.at(-1).startsWith('Топ баллов:'));
-await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!перевести @vova 50', badges: [] });
-ok('баллы: !перевести списывает и начисляет', pts.balance('petya') === 310 && pts.balance('vova') === 100);
-await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!дать @petya 500', badges: [{ set_id: 'moderator' }] });
-ok('баллы: !дать (мод+) работает', pts.balance('petya') === 810);
-
-// колесо: единственный вариант x2 — детерминированно
-await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!колесо 100', badges: [] });
-ok('колесо: x2 удваивает ставку', pts.balance('petya') === 910 && sent.at(-1).includes('выигрыш x2'));
-await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!колесо 5', badges: [] });
-ok('колесо: минимальная ставка отсекается', sent.at(-1).includes('минимальная ставка'));
-
-// мем-магазин
-overlay.clients.add({ write: (s) => ovCaptured.push(String(s)) });
-ovCaptured.length = 0;
-await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!мем', badges: [] });
-ok('мем: без названия — список', sent.at(-1).includes('Мем-магазин') && sent.at(-1).includes('ричка'));
-await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!мем ричка', badges: [] });
-ok('мем: покупка списывает баллы', pts.balance('petya') === 910 - 150);
-ok('мем: алерт ушёл в оверлей с текстом', ovCaptured.some((s) => s.includes('"kind":"meme"') && s.includes('Petya запустил РИЧКУ')));
-pts.add('vasya', 5, 'Vasya');
-await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!мем ричка', badges: [] });
-ok('мем: не хватает баллов — отказ', sent.at(-1).includes('меньше') && pts.balance('vasya') === 16);
-
-// ---------- фиксы по ревью критика ----------
-// колесо без весов не жжёт ставку
-const savedWheelCfg = ptsSettings.wheel;
-ptsSettings.wheel = { enabled: true, minBet: 10, maxBet: 1000, cooldown: 0, items: [{ label: 'пусто', weight: 0, multiplier: 0 }] };
-pts.add('petya', 100, 'Petya');
-const petyaBeforeZeroWheel = pts.balance('petya');
-const spinBroken = pts.spin('petya', 'Petya', 50);
-ok('критик: колесо без весов — отказ без списания', Boolean(spinBroken.error) && pts.balance('petya') === petyaBeforeZeroWheel);
-ptsSettings.wheel = savedWheelCfg;
-
-// бонусы за сообщения гейтятся, бот сам себе не капает
-ptsSettings.points.enabled = false;
-pts.noteMessage('girl', 'Girl');
-ok('критик: выключенные баллы не капают за сообщения', pts.balance('girl') === 0);
-ptsSettings.points.enabled = true;
-pts.noteMessage('testbot', 'Bot');
-ok('критик: сам бот не начисляет себе баллы', pts.balance('testbot') === 0);
-pts.noteMessage('girl', 'Girl');
-ok('критик: сообщение зрителя капает', pts.balance('girl') === 1);
-
-// Infinity не ломает кошелёк
-pts.add('petya', Infinity, 'Petya');
-pts.add('petya', NaN, 'Petya');
-ok('критик: !дать 1e400 не делает баланс бесконечным', Number.isFinite(pts.balance('petya')));
-
-// перевод несуществующему отклонён, кошелёк не создаётся
-const badTr = await pts.transfer('petya', 'неведомыйник', 10);
-ok('критик: перевод на несуществующий ник — отказ', badTr.ok === false && !pts.store['неведомыйник']);
-
-// мем при закрытом оверлее — баллы не списаны
+// ---------- бесплатные фан-команды: колесо, мемы, говорилка (баллов больше нет) ----------
+const ovFree = [];
 overlay.clients.clear();
-const balBeforeMemeNoOverlay = pts.balance('petya');
-const memeFail = pts.buyMeme('petya', 'Petya', 'ричка');
-ok('критик: мем без открытого оверлея — отказ без списания', Boolean(memeFail.error) && pts.balance('petya') === balBeforeMemeNoOverlay);
-overlay.clients.add({ write: (s) => ovCaptured.push(String(s)) });
+overlay.clients.add({ write: (s) => ovFree.push(String(s)) });
 
-// мем-магазин: кулдаун покупок (критик)
-pts.settings.memShop.cooldown = 60;
-const memeOk1 = pts.buyMeme('petya', 'Petya', 'ричка');
-ok('критик: мем-магазин — первая покупка проходит', !memeOk1.error);
-const memeCd = pts.buyMeme('petya', 'Petya', 'ричка');
-ok('критик: мем-магазин — кулдаун держит повтор', Boolean(memeCd.error) && memeCd.error.includes('подожди'));
-pts.settings.memShop.cooldown = 0;
+// настройки живого объекта движка: колесо с единственным «весомым» вариантом — детерминировано
+settings.wheel = { enabled: true, cooldown: 60, items: [{ label: '💥 мимо', weight: 0 }, { label: '💎 ДЖЕКПОТ', weight: 10 }] };
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!колесо', badges: [] });
+ok('колесо: бесплатный спин — исход из таблицы весов', sent.at(-1).includes('ДЖЕКПОТ')
+  && ovFree.some((s) => s.includes('"kind":"wheel"') && s.includes('Petya')));
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!колесо', badges: [] });
+ok('колесо: кулдаун держит повтор', sent.at(-1).includes('охлади'));
+settings.wheel.cooldown = 0;
 
-// критик: saveNow баллов тоже репортит срыв записи (файл на месте каталога)
-const blockerDir = path.join(process.env.BOT_DATA_DIR, 'pts-blocked');
-fs.writeFileSync(blockerDir, 'x', 'utf8');
-const ptsBad = new PointsManager({ helix: fakeHelixPts, auth: fakeAuth, logs, settings: ptsSettings, channels: registry, dataFile: path.join(blockerDir, 'points.json') });
-ptsBad.add('x9', 5, 'X9');
-ptsBad.saveNow();
-ok('критик: срыв записи баллов виден в системной ленте', logs.system.items.some((l) => String(l?.message || '').includes('не записались баллы')) && ptsBad._dirty);
-fs.rmSync(blockerDir, { force: true });
+// мемы: бесплатно, список — только включённые, текст с {user} в оверлей
+settings.memShop = {
+  enabled: true, cooldown: 0,
+  items: [{ name: 'ричка', text: '🐭 {user} запустил РИЧКУ!', sound: '', enabled: true }, { name: 'скрытый', text: 'не виден', sound: '', enabled: false }],
+};
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!мем', badges: [] });
+ok('мем: без названия — список включённых', sent.at(-1).includes('ричка') && !sent.at(-1).includes('скрытый'));
+ovFree.length = 0;
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!мем ричка', badges: [] });
+ok('мем: бесплатный алерт уходит в оверлей', ovFree.some((s) => s.includes('"kind":"meme"') && s.includes('Petya запустил РИЧКУ'))
+  && sent.at(-1).includes('полетел'));
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!мем нетакого', badges: [] });
+ok('мем: незнакомое название — список', sent.at(-1).includes('Мемы:'));
 
-pts.stop();
+// говорилка: бесплатная, но с фильтрами и кулдауном
+settings.say = { enabled: true, cooldown: 60, blocked: ['кринж'] };
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!сказать', badges: [] });
+ok('сказать: без текста — подсказка', sent.at(-1).includes('Использование: !сказать'));
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!сказать это кринж', badges: [] });
+ok('сказать: запрещённое слово — отказ', sent.at(-1).includes('запрещённое'));
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: `!сказать ${'а'.repeat(201)}`, badges: [] });
+ok('сказать: длиннее 200 символов — отказ', sent.at(-1).includes('200'));
+ovFree.length = 0;
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!сказать привет чат', badges: [] });
+ok('сказать: бесплатная озвучка уходит в оверлей', ovFree.some((s) => s.includes('"kind":"meme"') && s.includes('🗣 Petya: привет чат')));
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!сказать ещё фраза', badges: [] });
+ok('сказать: кулдаун держит повтор', sent.at(-1).includes('через'));
+ovFree.length = 0;
+await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!сказать я girl', badges: [] });
+ok('сказать: другой зритель не под кулдауном', ovFree.some((s) => s.includes('🗣 Girl: я girl')));
+let sayNameThrew = false;
+try { engine.upsert({ name: 'сказать', response: 'хак' }); } catch { sayNameThrew = true; }
+ok('сказать: имя зарезервировано за встроенной', sayNameThrew && RESERVED.has('сказать'));
+
+// удалённые команды баллов: имена освобождены под кастомные
+ok('баллы: команды удалены, имена свободны', !RESERVED.has('баллы') && !RESERVED.has('топ')
+  && !RESERVED.has('перевести') && !RESERVED.has('дуэль') && !RESERVED.has('заказ'));
+
+// ---------- редемпшн-роутер (награды канала Twitch) ----------
+const { RedemptionRouter, REDEMPTION_ACTIONS } = await import('../src/bot/redemptions.js');
+const redSettings = {
+  redemptions: {
+    enabled: true,
+    cooldown: 30,
+    mappings: [
+      { rewardName: 'заказать песню', action: 'song', enabled: true },
+      { rewardName: 'мем', action: 'meme', enabled: false },
+    ],
+  },
+};
+const rr = new RedemptionRouter({ logs, settings: redSettings });
+ok('награды: справочник действий на месте', REDEMPTION_ACTIONS.includes('song') && REDEMPTION_ACTIONS.includes('command'));
+ok('награды: match без учёта регистра', rr.match('Заказать Песню')?.action === 'song');
+ok('награды: выключенный мэппинг не матчится', rr.match('мем') === null);
+ok('награды: незнакомая награда не матчится', rr.match('такой нет') === null);
+
+ovFree.length = 0;
+const evCount = logs.events.items.length;
+const r1 = rr.handle({ broadcaster_user_id: '100', user_login: 'petya', user_name: 'Petya', user_input: 'привет', reward: { id: 'r1', title: 'Заказать песню' } });
+ok('награды: замапленная — лог + оверлей', r1.pushed === true && r1.action === 'song');
+ok('награды: строка в ленте событий', logs.events.items.length === evCount + 1 && logs.events.items.at(-1).text.includes('Заказать песню'));
+ok('награды: оверлей получает kind redemption', ovFree.some((s) => s.includes('"kind":"redemption"') && s.includes('Petya')));
+
+const r2 = rr.handle({ broadcaster_user_id: '100', user_login: 'petya', user_name: 'Petya', user_input: '', reward: { id: 'r1', title: 'Заказать песню' } });
+ok('награды: кулдаун на юзера держит второй пуш', r2.cooldown === true && r2.pushed === undefined);
+const r3 = rr.handle({ broadcaster_user_id: '100', user_login: 'girl', user_name: 'Girl', user_input: '', reward: { id: 'r1', title: 'Заказать песню' } });
+ok('награды: другой юзер не под кулдауном', r3.pushed === true);
+const r4 = rr.handle({ broadcaster_user_id: '100', user_login: 'vova', user_name: 'Vova', user_input: 'ой', reward: { id: 'r2', title: 'мем' } });
+ok('награды: незамапленная — только лог, без оверлея', r4.pushed === undefined && !r4.error);
+redSettings.redemptions.enabled = false;
+const r5 = rr.handle({ broadcaster_user_id: '100', user_login: 'x', user_name: 'X', user_input: '', reward: { id: 'r1', title: 'Заказать песню' } });
+ok('награды: выключенный роутер молчит', r5.ignored === true);
+redSettings.redemptions.enabled = true;
+const rBad = rr.handle(null);
+ok('награды: мусорное событие не роняет роутер', typeof rBad === 'object' && !rBad.error);
+
+// ---------- BroadcasterAuth: структура без сети ----------
+const { BroadcasterAuth, BROADCASTER_SCOPES } = await import('../src/twitch/broadcaster-auth.js');
+const bca = new BroadcasterAuth({ clientId: 'cid', clientSecret: 'cs' });
+ok('стример: класс создаётся, методы на месте', ['load', 'persist', 'logout', 'beginAuth', 'checkState',
+  'exchangeCode', 'refresh', 'validate', 'ensureValid', 'autoRefresh', 'stopAutoRefresh', 'updateClient']
+  .every((m) => typeof bca[m] === 'function'));
+ok('стример: скоупы для наград канала', BROADCASTER_SCOPES.includes('channel:read:redemptions')
+  && BROADCASTER_SCOPES.includes('user:read:chat'));
+ok('стример: redirect на /auth/broadcaster/callback', bca.redirectUri(8080) === 'http://localhost:8080/auth/broadcaster/callback');
+const beginUrl = new URL(bca.beginAuth(8080));
+ok('стример: beginAuth ведёт на authorize с нужными скоупами',
+  beginUrl.origin + beginUrl.pathname === 'https://id.twitch.tv/oauth2/authorize'
+  && beginUrl.searchParams.get('scope').includes('channel:read:redemptions')
+  && beginUrl.searchParams.get('redirect_uri') === 'http://localhost:8080/auth/broadcaster/callback');
+const bcState = beginUrl.searchParams.get('state');
+ok('стример: state проверяется', bca.checkState('nope') === false && bca.checkState(bcState) === true);
+bca.tokens = { accessToken: 'x' };
+bca.updateClient({ clientId: 'другой' });
+ok('стример: смена Client ID сбрасывает токены', bca.tokens === null && bca.status === 'none');
+bca.tokens = { accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000, userId: '7', login: 'streamer', scopes: BROADCASTER_SCOPES };
+bca.persist();
+const bca2 = new BroadcasterAuth({ clientId: 'cid', clientSecret: 'cs' });
+ok('стример: токены переживают перезапуск (data/broadcaster-tokens.json)', bca2.load()?.login === 'streamer' && bca2.status === 'ok');
+bca2.logout();
+ok('стример: logout чистит файл и статус', bca2.tokens === null && bca2.load() === null);
+bca.logout();
+
 
 // ---------- цитаты ----------
 const { QuotesManager } = await import('../src/bot/quotes.js');
@@ -763,214 +758,25 @@ ok('event list: mergeEventList частичный патч держит size, м
   elPartial.enabled === false && elPartial.size === 8
   && elGarbage.enabled === true && elGarbage.size === 8);
 
-// ---------- ставки и дуэли ----------
-const { BetsManager } = await import('../src/bot/bets.js');
-const betsCfg = {
-  events: {},
-  points: { enabled: true, intervalMin: 10, amount: 10, perMessage: 0 },
-  bets: { enabled: true, fee: 0, durationSec: 300, minBet: 10, maxBet: 1000, duelCooldown: 0 },
-};
-const pts2 = new PointsManager({ helix: fakeHelixPts, auth: fakeAuth, logs, settings: betsCfg, channels: registry, dataFile: path.join(process.env.BOT_DATA_DIR, 'points-bets.json') });
-const bets = new BetsManager({ logs, settings: betsCfg });
-bets.setPoints(pts2);
-engine.setPoints(pts2);
-engine.setBets(bets);
-pts2.add('vasya', 1000, 'Vasya');
-pts2.add('petya', 1000, 'Petya');
-pts2.add('vova', 500, 'Vova');
-pts2.add('masha', 40, 'Masha');
+// ---------- loadSettings: дефолты наград (балльные секции исчезли) ----------
+ok('награды: дефолты в loadSettings', loadSettings().redemptions.enabled === true
+  && loadSettings().redemptions.cooldown === 30
+  && loadSettings().redemptions.mappings.length === 4);
+ok('награды: дефолтный мэппинг «заказать песню» → song',
+  loadSettings().redemptions.mappings[0].rewardName === 'заказать песню'
+  && loadSettings().redemptions.mappings[0].action === 'song');
+ok('награды: сохранённые настройки мержатся поверх дефолтов', (() => {
+  fs.mkdirSync(process.env.BOT_DATA_DIR, { recursive: true });
+  const f = path.join(process.env.BOT_DATA_DIR, 'settings.json');
+  fs.writeFileSync(f, JSON.stringify({ redemptions: { cooldown: 15 } }), 'utf8');
+  const r = loadSettings();
+  fs.rmSync(f, { force: true });
+  return r.redemptions.cooldown === 15 && r.redemptions.mappings.length === 4;
+})());
+ok('баллы: секции points/bets исчезли из настроек', loadSettings().points === undefined
+  && loadSettings().bets === undefined
+  && loadSettings().songs.price === undefined);
 
-let betsNameThrew = false;
-try { engine.upsert({ name: 'дуэль', response: 'хак' }); } catch { betsNameThrew = true; }
-ok('ставки: !дуэль зарезервирована', betsNameThrew);
-
-// открытие пула
-const op = bets.open({ channelId: '777', question: 'Кто чемпион?', options: ['Али', 'Боби'] });
-ok('ставки: открытие пула', !op.error && bets.active('777')?.question === 'Кто чемпион?' && op.options.length === 2 && op.durationSec === 300);
-ok('ставки: одна активная ставка на канал', Boolean(bets.open({ channelId: '777', question: 'x', options: ['а', 'б'] }).error));
-ok('ставки: один вариант — отказ', Boolean(bets.open({ channelId: '778', question: 'x', options: ['а'] }).error));
-ok('ставки: семь вариантов — отказ', Boolean(bets.open({ channelId: '778', question: 'x', options: ['1', '2', '3', '4', '5', '6', '7'] }).error));
-
-// лимиты и валидация place
-ok('ставки: ниже минимума — отказ', Boolean(bets.place({ channelId: '777', login: 'vasya', amount: 5, optionIndex: 1 }).error));
-ok('ставки: выше максимума — отказ', Boolean(bets.place({ channelId: '777', login: 'vasya', amount: 1001, optionIndex: 1 }).error));
-ok('ставки: несуществующий вариант — отказ', Boolean(bets.place({ channelId: '777', login: 'vasya', amount: 100, optionIndex: 3 }).error));
-ok('ставки: без открытой ставки — отказ', Boolean(bets.place({ channelId: '999', login: 'vasya', amount: 100, optionIndex: 1 }).error));
-
-// протокол пишется, менеджер баллы не трогает
-bets.place({ channelId: '777', login: 'vasya', amount: 300, optionIndex: 1 });
-bets.place({ channelId: '777', login: 'petya', amount: 700, optionIndex: 1 });
-bets.place({ channelId: '777', login: 'vova', amount: 100, optionIndex: 2 });
-ok('ставки: протокол записан, баллы не списаны', pts2.balance('vasya') === 1000 && bets.active('777').options[0].bets.length === 2 && bets.active('777').options[1].bets.length === 1);
-
-// итог: пропорциональная выплата и комиссия
-betsCfg.bets.fee = 10;
-const res = bets.resolve({ channelId: '777', winnerIndex: 1 });
-ok('итог: пропорциональная выплата при fee=10', !res.error && res.pot === 1100 && res.prizePool === 990
-  && res.payouts.find((p) => p.login === 'vasya').amount === 297
-  && res.payouts.find((p) => p.login === 'petya').amount === 693);
-ok('итог: пул закрыт', bets.active('777') === null);
-ok('итог: повторный итог — отказа нет ставки', Boolean(bets.resolve({ channelId: '777', winnerIndex: 1 }).error));
-
-// ставка мимо: банк не сгорает — ставки возвращаются
-bets.open({ channelId: '886', question: 'Доживём?', options: ['да', 'нет'] });
-bets.place({ channelId: '886', login: 'vova', amount: 100, optionIndex: 2 });
-ok('ставки: дробный номер варианта — отказ', Boolean(bets.place({ channelId: '886', login: 'vasya', amount: 100, optionIndex: 1.5 }).error));
-const res2 = bets.resolve({ channelId: '886', winnerIndex: 1 });
-ok('итог: победителя нет — банк не сгорает, ставки возвращаются', !res2.error && res2.payouts.length === 0 && res2.pot === 100
-  && res2.refunds.length === 1 && res2.refunds[0].login === 'vova' && res2.refunds[0].amount === 100);
-
-// таймаут: ручной closeExpired с возвратом ставок
-bets.open({ channelId: '777', question: 'Дождь?', options: ['да', 'нет'] });
-bets.place({ channelId: '777', login: 'vova', amount: 200, optionIndex: 1 });
-pts2.spend('vova', 200); // списание сделала команда
-const refunds = bets.closeExpired(Date.now() + 10 * 60_000);
-ok('таймаут: closeExpired вернул список возвратов', refunds.length === 1 && refunds[0].login === 'vova' && refunds[0].amount === 200);
-ok('таймаут: пул закрыт', bets.active('777') === null);
-for (const ref of refunds) pts2.add(ref.login, ref.amount);
-ok('таймаут: вызывающий вернул баллы', pts2.balance('vova') === 500);
-
-// тик по таймауту сам возвращает баллы через PointsManager
-bets.open({ channelId: '777', question: 'Тик?', options: ['да', 'нет'] });
-bets.place({ channelId: '777', login: 'masha', amount: 20, optionIndex: 1 });
-pts2.spend('masha', 20);
-bets.active('777').expiresAt = Date.now() - 1;
-bets._tick();
-ok('таймаут: тик сам возвращает баллы и закрывает пул', pts2.balance('masha') === 40 && bets.active('777') === null);
-
-// настоящий тик: ставка реально истекает по durationSec (минимальная длительность — 10 сек)
-betsCfg.bets.durationSec = 10;
-bets.open({ channelId: '777', question: 'Ждём?', options: ['да', 'нет'] });
-bets.place({ channelId: '777', login: 'vova', amount: 30, optionIndex: 1 });
-pts2.spend('vova', 30);
-await new Promise((resolve) => setTimeout(resolve, 10_300));
-bets._tick();
-ok('таймаут: настоящий _tick закрывает истёкшую по durationSec ставку', pts2.balance('vova') === 500 && bets.active('777') === null);
-betsCfg.bets.durationSec = 300;
-
-// ставочные команды в чате
-await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!ставка открыть Проверка А|Б', badges: [] });
-ok('ставки (чат): открывать могут только моды', sent.at(-1).includes('моды') && bets.active('100') === null);
-await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!ставка открыть Кто первый умрёт Али|Боби', badges: [{ set_id: 'moderator' }] });
-ok('ставки (чат): открытие перечисляет варианты', sent.at(-1).includes('Кто первый умрёт') && sent.at(-1).includes('1) Али'));
-await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!ставка', badges: [] });
-ok('ставки (чат): !ставка показывает вопрос и остаток секунд', sent.at(-1).includes('Кто первый умрёт') && sent.at(-1).includes('осталось'));
-await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!ставить 300 1', badges: [] });
-ok('ставки (чат): !ставить списывает баллы', pts2.balance('vasya') === 700 && sent.at(-1).includes('Али'));
-await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!ставить 700 1', badges: [] });
-await engine.handleChatMessage({ userId: '10', login: 'vova', displayName: 'Vova', text: '!ставить 100 2', badges: [] });
-ok('ставки (чат): несколько ставок приняты', pts2.balance('petya') === 300 && pts2.balance('vova') === 400);
-const st100 = bets.status('100');
-ok('ставки (чат): банк по вариантам', st100.options[0].total === 1000 && st100.options[1].total === 100 && st100.pot === 1100);
-await engine.handleChatMessage({ userId: '11', login: 'masha', displayName: 'Masha', text: '!ставить 50 1', badges: [] });
-ok('ставки (чат): мало баллов — отказ', sent.at(-1).includes('не хватает') && pts2.balance('masha') === 40);
-const pool100 = bets.active('100');
-ok('ставки (чат): отказ не попал в протокол', pool100.options[0].bets.length === 2 && !pool100.options[0].bets.some((b) => b.login === 'masha'));
-await engine.handleChatMessage({ userId: '11', login: 'masha', displayName: 'Masha', text: '!ставить 5 1', badges: [] });
-ok('ставки (чат): минимальная ставка из настроек', sent.at(-1).includes('минимальная'));
-await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!ставить 100 1.5', badges: [] });
-ok('ставки (чат): дробный номер варианта — отказ без записи', sent.at(-1).includes('целое')
-  && pts2.balance('vasya') === 700 && bets.active('100').options[0].bets.length === 2);
-const sentItogGuard = sent.length;
-await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!итог 1', badges: [] });
-ok('ставки (чат): !итог доступен только модам', sent.length === sentItogGuard && bets.active('100') !== null);
-await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!итог 1.5', badges: [{ set_id: 'moderator' }] });
-ok('ставки (чат): дробный итог — отказ, ставка жива', sent.at(-1).includes('целое') && bets.active('100') !== null);
-await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!итог 1', badges: [{ set_id: 'moderator' }] });
-ok('ставки (чат): !итог платит победителям (fee=10%)', pts2.balance('vasya') === 997 && pts2.balance('petya') === 993);
-ok('ставки (чат): !итог пишет топ победителей', sent.at(-1).includes('Petya') && sent.at(-1).includes('693') && sent.at(-1).includes('297'));
-ok('ставки (чат): после итога пул закрыт', bets.active('100') === null);
-
-// исход без победителя: банк не сгорает — баллы возвращаются
-await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!ставка открыть Кто проспорит А|Б', badges: [{ set_id: 'moderator' }] });
-await engine.handleChatMessage({ userId: '10', login: 'vova', displayName: 'Vova', text: '!ставить 100 2', badges: [] });
-ok('ставки (чат): вторая ставка принята', pts2.balance('vova') === 300);
-await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!итог 1', badges: [{ set_id: 'moderator' }] });
-ok('ставки (чат): победителя нет — баллы возвращены, банк не сгорел', sent.at(-1).includes('возвращены') && pts2.balance('vova') === 400 && bets.active('100') === null);
-betsCfg.bets.fee = 0;
-
-// дуэли (канал 200 — отдельный от ставок)
-const duelMsg = (uid, login, name, text) => engine.handleChatMessage({ broadcasterId: '200', userId: uid, login, displayName: name, text, badges: [] });
-// цель вызова валидируется через хеликс: подменяем на фейк, знающий «неведомыйник»
-const duelsHelixSave = engine.helix;
-engine.helix = { ...fakeHelix, getUserByLogin: fakeHelixPts.getUserByLogin };
-bets._rollWinner = () => ({ winner: 'a' }); // исход фиксирован
-await duelMsg('7', 'vasya', 'Vasya', '!дуэль @petya 100');
-ok('дуэль: вызов списывает у вызвавшего сразу', pts2.balance('vasya') === 897 && sent.at(-1).includes('вызыва'));
-ok('дуэль: вызов записан', bets.pendingDuel('200')?.from?.login === 'vasya' && bets.pendingDuel('200')?.to === 'petya' && bets.pendingDuel('200').amount === 100);
-await duelMsg('8', 'petya', 'Petya', '!дуэль @vasya 50');
-ok('дуэль: чужая сумма — подсказка, ничего не списано', sent.at(-1).includes('100') && pts2.balance('petya') === 993 && Boolean(bets.pendingDuel('200')));
-await duelMsg('8', 'petya', 'Petya', '!дуэль @vasya 100');
-ok('дуэль: победа вызвавшего (winner a)', pts2.balance('petya') === 893 && pts2.balance('vasya') === 1097 && sent.at(-1).includes('победил'));
-ok('дуэль: после дуэли вызов снят', bets.pendingDuel('200') === null);
-
-bets._rollWinner = () => ({ winner: 'b' });
-await duelMsg('10', 'vova', 'Vova', '!дуэль @vasya 50');
-await duelMsg('7', 'vasya', 'Vasya', '!дуэль @vova 50');
-ok('дуэль: победа принимающего (winner b)', pts2.balance('vova') === 350 && pts2.balance('vasya') === 1147);
-
-await duelMsg('10', 'vova', 'Vova', '!дуэль @masha 100');
-await duelMsg('11', 'masha', 'Masha', '!дуэль @vova 100');
-ok('дуэль: у соперника нет баллов — отказ с возвратом вызвавшему', sent.at(-1).includes('не хватает') && pts2.balance('vova') === 350 && bets.pendingDuel('200') === null);
-
-await duelMsg('11', 'masha', 'Masha', '!дуэль @petya 100');
-ok('дуэль: без баллов вызвать нельзя', sent.at(-1).includes('не хватает') && pts2.balance('masha') === 40 && bets.pendingDuel('200') === null);
-
-await duelMsg('7', 'vasya', 'Vasya', '!дуэль @vasya 100');
-ok('дуэль: сам с собой — нельзя', sent.at(-1).includes('самого себя') && bets.pendingDuel('200') === null && pts2.balance('vasya') === 1147);
-await duelMsg('7', 'vasya', 'Vasya', '!дуэль @неведомыйник 500');
-ok('дуэль: несуществующий ник — отказ без списания', sent.at(-1).includes('не нашла') && pts2.balance('vasya') === 1147 && bets.pendingDuel('200') === null);
-
-// кулдаун дуэлей на юзера (свежий игрок без истории дуэлей)
-betsCfg.bets.duelCooldown = 60;
-pts2.add('kolya', 1000, 'Kolya');
-await duelMsg('12', 'kolya', 'Kolya', '!дуэль @vova 100');
-ok('дуэль: вызов с кулдауном проходит', Boolean(bets.pendingDuel('200')) && pts2.balance('kolya') === 900);
-const cancelled = bets.cancelChallenge({ channelId: '200' });
-pts2.add(cancelled.from.login, cancelled.amount); // сняли вызов и вернули ставку
-await duelMsg('12', 'kolya', 'Kolya', '!дуэль @masha 30');
-ok('дуэль: кулдаун держит повторный вызов', sent.at(-1).includes('через') && bets.pendingDuel('200') === null && pts2.balance('kolya') === 1000);
-betsCfg.bets.duelCooldown = 0;
-
-// подметание старых кулдаунов: Map _duelLast не растёт вечно
-bets._duelLast.set('ghost', Date.now() - 2 * 3_600_000);
-bets._tick();
-ok('дуэль: кулдауны старше часа подметаются', !bets._duelLast.has('ghost') && bets._duelLast.size > 0);
-
-// вызов без ответа истекает — возврат
-await duelMsg('10', 'vova', 'Vova', '!дуэль @petya 100');
-ok('дуэль: вызов записан', Boolean(bets.pendingDuel('200')));
-const duelRefunds = bets.closeExpired(Date.now() + 10 * 60_000);
-ok('дуэль: истёкший вызов возвращает ставку', duelRefunds.length === 1 && duelRefunds[0].login === 'vova' && duelRefunds[0].amount === 100);
-pts2.add('vova', 100);
-ok('дуэль: баланс восстановлен после истечения', pts2.balance('vova') === 350 && bets.pendingDuel('200') === null);
-
-// «!дуэль отмена»: снять вызов может инициатор или моды
-await duelMsg('12', 'kolya', 'Kolya', '!дуэль @vova 25');
-ok('дуэль: вызов записан (для отмены)', Boolean(bets.pendingDuel('200')) && pts2.balance('kolya') === 975);
-await duelMsg('11', 'masha', 'Masha', '!дуэль отмена');
-ok('дуэль: посторонний не может отменить вызов', sent.at(-1).includes('моды') && Boolean(bets.pendingDuel('200')) && pts2.balance('kolya') === 975);
-await duelMsg('12', 'kolya', 'Kolya', '!дуэль отмена');
-ok('дуэль: инициатор отменил вызов, ставка вернулась', bets.pendingDuel('200') === null && pts2.balance('kolya') === 1000);
-await duelMsg('12', 'kolya', 'Kolya', '!дуэль @masha 20');
-await engine.handleChatMessage({ broadcasterId: '200', userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!дуэль отмена', badges: [{ set_id: 'moderator' }] });
-ok('дуэль: мод может отменить чужой вызов', bets.pendingDuel('200') === null && pts2.balance('kolya') === 1000);
-await duelMsg('7', 'vasya', 'Vasya', '!дуэль отмена');
-ok('дуэль: без вызова — отменять нечего', sent.at(-1).includes('нечего') && bets.pendingDuel('200') === null);
-engine.helix = duelsHelixSave; // возвращаем исходный фейк-хеликс
-
-// stop: активные ставки и вызовы возвращают баллы, а не пропадают
-bets.open({ channelId: '777', question: 'Стоп?', options: ['да', 'нет'] });
-bets.place({ channelId: '777', login: 'petya', amount: 50, optionIndex: 2 });
-pts2.spend('petya', 50);
-bets.challenge({ channelId: '300', fromLogin: 'vova', fromName: 'Vova', toLogin: 'petya', amount: 40 });
-pts2.spend('vova', 40);
-bets.start();
-const timerWas = bets._timer !== null;
-bets.stop();
-ok('ставки: stop возвращает баллы живых ставок и вызовов', timerWas && bets._timer === null
-  && pts2.balance('petya') === 893 && pts2.balance('vova') === 350
-  && bets.active('777') === null && bets.pendingDuel('300') === null);
 
 // ---------- OBS-клиент (obs-websocket 5): чистые функции протокола ----------
 const {
@@ -1082,139 +888,6 @@ fakeObs.setCurrentProgramScene = async () => { throw new Error('SceneNotFound: �
 await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!сцена Кухня', badges: [{ set_id: 'moderator' }] });
 ok('obs: ошибка переключения подсказывает доступные сцены', sent.at(-1).includes('не вышло') && sent.at(-1).includes('есть сцены'));
 
-// ---------- волна 2: цена команд, !сказать, магазин услуг ----------
-const sentEcon = [];
-const fakeHelixEcon = {
-  sendMessage: async (b) => { sentEcon.push(b.text); return { message_id: 'm' }; },
-  getStreamByLogin: async () => null,
-  getUserByLogin: async (login) => ({ id: '42', login, display_name: login }),
-};
-const econSettings = {
-  events: {},
-  say: { enabled: true, price: 50, cooldown: 60, blocked: ['кринж'] },
-};
-const econState = { counters: {} };
-const econEngine = new CommandEngine({ helix: fakeHelixEcon, auth: fakeAuth, logs, settings: econSettings, state: econState });
-const pts3 = new PointsManager({ helix: fakeHelixPts, auth: fakeAuth, logs, settings: econSettings, channels: registry, dataFile: path.join(process.env.BOT_DATA_DIR, 'points-econ.json') });
-econEngine.setPoints(pts3);
-econEngine.setContext({ broadcasterId: '100', botUserId: '1', channel: 'mychannel' });
-pts3.add('vasya', 1000, 'Vasya');
-pts3.add('vova', 1000, 'Vova');
-pts3.add('masha', 10, 'Masha');
-
-// --- цена кастомных команд в баллах ---
-econEngine.upsert({ name: 'vipфакт', response: 'секретный факт для {user}', level: 'everyone', cooldown: 0, cost: 100 });
-await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!vipфакт', badges: [] });
-ok('цена: платная команда сработала', sentEcon.at(-1) === 'секретный факт для Vasya' && pts3.balance('vasya') === 900);
-ok('цена: счётчик вызовов вырос', econEngine.custom.find((c) => c.name === 'vipфакт').count === 1);
-
-const cmdsRunBefore = econState.counters.commandsRun;
-const vipCountBefore = econEngine.custom.find((c) => c.name === 'vipфакт').count;
-const sentBeforeFail = sentEcon.length;
-await econEngine.handleChatMessage({ userId: '11', login: 'masha', displayName: 'Masha', text: '!vipфакт', badges: [] });
-ok('цена: не хватило баллов — молчаливый отказ', sentEcon.length === sentBeforeFail && pts3.balance('masha') === 10);
-ok('цена: при отказе счётчики не двигаются', econState.counters.commandsRun === cmdsRunBefore && econEngine.custom.find((c) => c.name === 'vipфакт').count === vipCountBefore);
-
-const ptsRef = econEngine.points;
-econEngine.points = null; // движок баллов не подключён — цену игнорируем
-await econEngine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!vipфакт', badges: [] });
-ok('цена: без движка баллов цена игнорируется', sentEcon.at(-1) === 'секретный факт для Petya');
-econEngine.points = ptsRef;
-
-ok('цена: cost клампится до 100000', econEngine.normalizeCommand({ name: 'x', response: 'y', cost: 999999 }).cost === 100_000);
-ok('цена: мусорный и отрицательный cost → 0', econEngine.normalizeCommand({ name: 'x', response: 'y', cost: 'abc' }).cost === 0
-  && econEngine.normalizeCommand({ name: 'x', response: 'y', cost: -7 }).cost === 0);
-
-// цена модульных команд: schema с cost
-fs.writeFileSync(path.join(modsDir, 'mcost.js'), "export default { name: 'mcost', commands: { платныйфакт: { response: '{user} платный факт', cost: 10 } } };\n", 'utf8');
-const mmCost = new ModuleManager({ dir: modsDir, configFile: modsConfigFile, helix: fakeHelixEcon, auth: fakeAuth, logs, channels: registry });
-await mmCost.load();
-econEngine.setModules(mmCost);
-await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!платныйфакт', badges: [] });
-ok('цена: модульная команда тоже платная', sentEcon.at(-1) === 'Vasya платный факт' && pts3.balance('vasya') === 890);
-mmCost.stop();
-
-// --- !сказать за баллы ---
-overlay.clients.clear();
-const ovEcon = [];
-overlay.clients.add({ write: (s) => ovEcon.push(String(s)) });
-
-await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!сказать', badges: [] });
-ok('сказать: без текста — подсказка с ценой', sentEcon.at(-1).includes('Использование: !сказать') && sentEcon.at(-1).includes('50'));
-await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!сказать это кринж', badges: [] });
-ok('сказать: запрещённое слово — отказ без списания', sentEcon.at(-1).includes('запрещённое') && pts3.balance('vasya') === 890);
-await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: `!сказать ${'а'.repeat(201)}`, badges: [] });
-ok('сказать: длиннее 200 символов — отказ', sentEcon.at(-1).includes('200') && pts3.balance('vasya') === 890);
-await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!сказать привет чат', badges: [] });
-ok('сказать: списывает цену', pts3.balance('vasya') === 840);
-ok('сказать: фраза ушла в оверлей kind=meme', ovEcon.some((s) => s.includes('"kind":"meme"') && s.includes('Vasya: привет чат')));
-ok('сказать: подтверждение в чат с балансом', sentEcon.at(-1).includes('озвучено') && sentEcon.at(-1).includes('840'));
-await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!сказать ещё фраза', badges: [] });
-ok('сказать: кулдаун держит повтор без списания', sentEcon.at(-1).includes('через') && pts3.balance('vasya') === 840);
-await econEngine.handleChatMessage({ userId: '11', login: 'masha', displayName: 'Masha', text: '!сказать дорого', badges: [] });
-ok('сказать: не хватает баллов — отказ', sentEcon.at(-1).includes('нужно') && pts3.balance('masha') === 10);
-let sayNameThrew = false;
-try { econEngine.upsert({ name: 'сказать', response: 'хак' }); } catch { sayNameThrew = true; }
-ok('сказать: имя зарезервировано за встроенной', sayNameThrew && RESERVED.has('сказать'));
-
-// --- магазин услуг (redemption store) ---
-const { ServicesManager } = await import('../src/bot/services.js');
-const svcFile = path.join(process.env.BOT_DATA_DIR, 'services.json');
-const svc = new ServicesManager({ logs, points: pts3, dataFile: svcFile });
-econEngine.setServices(svc);
-svc.updateItems([
-  { name: 'дуэт', price: 200, stock: 2, enabled: true, text: 'катка со стримером' },
-  { name: 'совет', price: 50, stock: 0, enabled: true, text: 'жизненный совет' },
-  { name: 'скрытая', price: 10, stock: 0, enabled: false, text: 'не видна' },
-]);
-
-await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!заказ', badges: [] });
-ok('заказ: без названия — список услуг (только включённые)', sentEcon.at(-1).includes('Услуги') && sentEcon.at(-1).includes('дуэт') && !sentEcon.at(-1).includes('скрытая'));
-await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!заказ дуэт', badges: [] });
-ok('заказ: списывает баллы, уменьшает запас, создаёт заказ', sentEcon.at(-1).includes('принят')
-  && pts3.balance('vasya') === 640 && svc.items.find((i) => i.name === 'дуэт').stock === 1 && svc.pending().length === 1);
-await econEngine.handleChatMessage({ userId: '10', login: 'vova', displayName: 'Vova', text: '!заказ дуэт', badges: [] });
-ok('заказ: вторая покупка забирает последнюю единицу', pts3.balance('vova') === 800 && svc.items.find((i) => i.name === 'дуэт').stock === -1);
-await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!заказ дуэт', badges: [] });
-ok('заказ: распродано — отказ', sentEcon.at(-1).includes('распродано') && pts3.balance('vasya') === 640);
-await econEngine.handleChatMessage({ userId: '10', login: 'vova', displayName: 'Vova', text: '!заказ совет', badges: [] });
-ok('заказ: запас 0 = бесконечно', sentEcon.at(-1).includes('принят') && svc.items.find((i) => i.name === 'совет').stock === 0);
-for (let i = 0; i < 3; i++) {
-  await econEngine.handleChatMessage({ userId: '10', login: 'vova', displayName: 'Vova', text: '!заказ совет', badges: [] });
-}
-ok('заказ: лимит — 5 ждущих на юзера', svc.pending().filter((o) => o.login === 'vova').length === 5 && pts3.balance('vova') === 600);
-await econEngine.handleChatMessage({ userId: '10', login: 'vova', displayName: 'Vova', text: '!заказ совет', badges: [] });
-ok('заказ: шестой заказ отклонён без списания', sentEcon.at(-1).includes('ждущих') && pts3.balance('vova') === 600);
-await econEngine.handleChatMessage({ userId: '11', login: 'masha', displayName: 'Masha', text: '!заказ совет', badges: [] });
-ok('заказ: не хватает баллов — отказ без заказа', sentEcon.at(-1).includes('нужно') && pts3.balance('masha') === 10
-  && svc.pending().filter((o) => o.login === 'masha').length === 0);
-
-const ordersListBefore = sentEcon.length;
-await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!заказы', badges: [] });
-ok('заказы: обычному зрителю нельзя', sentEcon.length === ordersListBefore);
-await econEngine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!заказы', badges: [{ set_id: 'moderator' }] });
-ok('заказы: мод видит ждущих', sentEcon.at(-1).includes('дуэт') && sentEcon.at(-1).includes('@vova'));
-
-const firstOrder = svc.pending()[0];
-svc.settle({ id: firstOrder.id, op: 'done' });
-ok('заказ: «Выполнено» убирает из ждущих, статус done', !svc.pending().some((o) => o.id === firstOrder.id)
-  && svc.orders.find((o) => o.id === firstOrder.id)?.status === 'done');
-const vovaOrder = svc.pending().find((o) => o.login === 'vova');
-const vovaBeforeRefund = pts3.balance('vova');
-svc.settle({ id: vovaOrder.id, op: 'refund' });
-ok('заказ: «Вернуть баллы» возвращает и убирает заказ', pts3.balance('vova') === vovaBeforeRefund + vovaOrder.price
-  && svc.orders.find((o) => o.id === vovaOrder.id) === undefined);
-ok('заказ: неизвестный id — ошибка', Boolean(svc.settle({ id: 999, op: 'done' }).error));
-
-const svc2 = new ServicesManager({ logs, points: pts3, dataFile: svcFile });
-ok('заказ: persistence — services.json переживает перезапуск', svc2.items.length === 3
-  && svc2.items.find((i) => i.name === 'дуэт').stock === -1
-  && svc2.pending().length === 4
-  && svc2.orders.some((o) => o.status === 'done'));
-
-let svcNameThrew = false;
-try { econEngine.upsert({ name: 'заказ', response: 'хак' }); } catch { svcNameThrew = true; }
-ok('заказ: имена зарезервированы', svcNameThrew && RESERVED.has('заказ') && RESERVED.has('заказы'));
 
 console.log(`\nВсе ${passed} тестов прошли ✅`);
 fs.rmSync(process.env.BOT_DATA_DIR, { recursive: true, force: true });

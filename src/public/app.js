@@ -72,7 +72,10 @@ function handleHash() {
   const hash = decodeURIComponent(location.hash || '');
   if (!hash) return;
   const banner = $('#banner');
-  if (hash.startsWith('#ok')) {
+  if (hash.startsWith('#ok:broadcaster')) {
+    banner.textContent = '✅ Стример залогинен — бот видит списания наград канала.';
+    banner.className = 'banner ok';
+  } else if (hash.startsWith('#ok')) {
     banner.textContent = '✅ Успех! Бот залогинен.';
     banner.className = 'banner ok';
   } else if (hash.startsWith('#err:')) {
@@ -210,6 +213,7 @@ function renderState(st) {
   $('#st-sub').textContent = st.counters.sub ?? 0;
 
   $('#redirect-uri').textContent = `http://localhost:${st.port}/auth/callback`;
+  $('#redirect-uri-broadcaster').textContent = `http://localhost:${st.port}/auth/broadcaster/callback`;
 
   // настройки: обновляем поля только если их не редактируют прямо сейчас
   if (!settingsFormTouched) {
@@ -237,6 +241,14 @@ function renderState(st) {
   $('#auth-info').innerHTML = a.login
     ? `Вход выполнен: <b>${esc(a.login)}</b>${a.expiresAt ? ` · токен истекает ${new Date(a.expiresAt).toLocaleString('ru-RU')}` : ''}`
     : '';
+
+  // «👑 Награды канала»: статус второго входа (стримером)
+  const bc = st.broadcaster ?? {};
+  $('#broadcaster-login').classList.toggle('hidden', Boolean(bc.login));
+  $('#broadcaster-logout').classList.toggle('hidden', !bc.login);
+  $('#broadcaster-info').innerHTML = bc.login
+    ? `Вход как стример: <b>${esc(bc.login)}</b>${bc.expiresAt ? ` · токен истекает ${new Date(bc.expiresAt).toLocaleString('ru-RU')}` : ''} — списания наград видны`
+    : 'Стример не залогинен — без этого бот не видит списания наград канала.';
 
   if (rt.lastError) {
     setChip('#chip-conn', 'ошибка', 'err');
@@ -295,14 +307,13 @@ async function loadCommands() {
         </select>
       </td>
       <td class="cellcd"><input class="f-cooldown" type="number" min="0" max="3600" value="${c.cooldown ?? 0}" /></td>
-      <td class="cellcd"><input class="f-cost" type="number" min="0" max="100000" value="${c.cost ?? 0}" title="цена в баллах, 0 = бесплатно" /></td>
       <td class="cellon"><input class="f-enabled" type="checkbox" ${c.enabled !== false ? 'checked' : ''} /></td>
       <td>
         <button class="act cmd-save">💾</button>
         <button class="act ghost cmd-del">🗑</button>
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="8" class="hint">Пока нет кастомных команд — добавь первую!</td></tr>';
+  }).join('') || '<tr><td colspan="7" class="hint">Пока нет кастомных команд — добавь первую!</td></tr>';
 
   $('#builtins').innerHTML = builtins.map((b) =>
     `<span class="chip" title="${esc(b.label)}">${esc(b.name)} · ${LEVEL_RU[b.level] ?? b.level} · ${esc(b.label)}</span>`
@@ -480,7 +491,6 @@ $('#cmds-body').addEventListener('click', async (e) => {
       ...orig,
       level: row.querySelector('.f-level').value,
       cooldown: Number(row.querySelector('.f-cooldown').value || 0),
-      cost: Number(row.querySelector('.f-cost').value || 0),
       enabled: row.querySelector('.f-enabled').checked,
     };
     if (mode === 'variants' && row.querySelector('.f-variants')) {
@@ -502,7 +512,6 @@ $('#add-btn').addEventListener('click', async () => {
     response: $('#add-content').value,
     level: $('#add-level').value,
     cooldown: Number($('#add-cooldown').value || 0),
-    cost: Number($('#add-cost').value || 0),
     enabled: true,
   };
   try {
@@ -693,6 +702,7 @@ async function loadSettings() {
   renderAutoPin();
   renderTimers();
   renderObs();
+  renderRedemptions();
 }
 
 $('#events-list').addEventListener('click', async (e) => {
@@ -811,6 +821,7 @@ async function putSettings(patch) {
   renderAso();
   renderAutoPin();
   renderTimers();
+  renderRedemptions();
 }
 
 $('#aso-save').addEventListener('click', async () => {
@@ -989,354 +1000,90 @@ $('#t-body').addEventListener('click', async (e) => {
   } catch (err) { toast(err.message, true); }
 });
 
-// ---------------- баллы ----------------
+// ---------------- награды канала (Channel Points) ----------------
 
-let __mediaList = [];
+const RW_ACTIONS = [
+  ['song', '🎵 песня'],
+  ['meme', '🎬 мем'],
+  ['wheel', '🎡 колесо'],
+  ['say', '🗣 TTS'],
+  ['command', '⌨️ команда'],
+];
 
-async function loadPointsTab() {
-  const [pts, st, media, svc] = await Promise.all([api('/api/points'), api('/api/settings'), api('/api/media'), api('/api/services')]);
-  __mediaList = media.files ?? [];
-  const p = st.points ?? {};
-  $('#pts-enabled').checked = Boolean(p.enabled);
-  $('#pts-interval').value = p.intervalMin ?? 10;
-  $('#pts-amount').value = p.amount ?? 10;
-  $('#pts-permsg').value = p.perMessage ?? 1;
-
-  $('#pts-top').innerHTML = (pts.top ?? []).map((r, i) => `
-    <tr><td>${i + 1}</td><td class="cellname">${esc(r.name || r.login)}</td>
-    <td>${r.points} 💎</td><td>${r.watchedMin ?? 0}</td></tr>`).join('')
-    || '<tr><td colspan="4" class="hint">Пока никто не накопил — баллы капают, когда ты стримишь и идёт чат</td></tr>';
-
-  // колесо
-  const w = st.wheel ?? {};
-  $('#wh-enabled').checked = Boolean(w.enabled);
-  $('#wh-min').value = w.minBet ?? 10;
-  $('#wh-max').value = w.maxBet ?? 1000;
-  $('#wh-cd').value = w.cooldown ?? 60;
-  $('#wh-body').innerHTML = (w.items ?? []).map((it) => `
-    <tr class="wh-row">
-      <td class="cellresp"><input class="wh-label" value="${esc(it.label)}" maxlength="60" /></td>
-      <td class="cellcd"><input class="wh-weight" type="number" min="0" max="100" step="0.5" value="${it.weight}" /></td>
-      <td class="cellcd"><input class="wh-mult" type="number" min="0" max="100" step="0.5" value="${it.multiplier}" /></td>
-      <td><button class="act ghost wh-del">🗑</button></td>
-    </tr>`).join('') || '<tr><td colspan="4" class="hint">вариантов нет — добавь ниже</td></tr>';
-
-  // мем-магазин
-  const m = st.memShop ?? {};
-  $('#ms-enabled').checked = Boolean(m.enabled);
-  $('#ms-cooldown').value = m.cooldown ?? 30;
-  const soundOpts = (files) => ['<option value="">— без звука —</option>',
-    ...(files ?? []).map((f) => `<option value="${esc(f)}">${esc(f)}</option>`)].join('');
-  $('#ms-body').innerHTML = (m.items ?? []).map((it) => `
-    <tr class="ms-row">
-      <td class="cellname"><input class="ms-name" value="${esc(it.name)}" maxlength="32" /></td>
-      <td class="cellresp"><input class="ms-text" value="${esc(it.text || '')}" maxlength="200" /></td>
-      <td class="cellcd"><input class="ms-price" type="number" min="0" value="${it.price ?? 100}" /></td>
-      <td class="cellcd"><select class="ms-sound">${soundOpts(__mediaList)}</select></td>
-      <td class="cellon"><input class="ms-enabled" type="checkbox" ${it.enabled !== false ? 'checked' : ''} /></td>
-      <td><button class="act ghost ms-del">🗑</button></td>
-    </tr>`).join('') || '<tr><td colspan="6" class="hint">мемов нет — добавь ниже</td></tr>';
-  // выбранные звуки подставим после рендера
-  document.querySelectorAll('#ms-body .ms-row').forEach((row, i) => {
-    const sel = row.querySelector('.ms-sound');
-    sel.value = (m.items ?? [])[i]?.sound || '';
-  });
-
-  // говорилка (!сказать)
-  const say = st.say ?? {};
-  $('#say-enabled').checked = Boolean(say.enabled);
-  $('#say-price').value = say.price ?? 50;
-  $('#say-cd').value = say.cooldown ?? 60;
-  $('#say-blocked').value = (say.blocked ?? []).join(', ');
-
-  // магазин услуг: редактор + ждущие заказы
-  const svcStock = (n) => (n < 0 ? '−1 (распродано)' : String(n));
-  $('#svc-body').innerHTML = (svc.items ?? []).map((it) => `
-    <tr class="svc-row" data-id="${esc(it.id)}">
-      <td class="cellname"><input class="svc-name" value="${esc(it.name)}" maxlength="32" /></td>
-      <td class="cellresp"><input class="svc-text" value="${esc(it.text || '')}" maxlength="200" placeholder="что получает зритель" /></td>
-      <td class="cellcd"><input class="svc-price" type="number" min="0" max="1000000" value="${it.price ?? 100}" /></td>
-      <td class="cellcd"><input class="svc-stock" type="number" min="-1" max="100000" value="${it.stock ?? 0}" title="0 = бесконечно, число = сколько осталось, −1 = распродано" /></td>
-      <td class="cellon"><input class="svc-enabled" type="checkbox" ${it.enabled !== false ? 'checked' : ''} /></td>
-      <td><button class="act ghost svc-del" title="${svcStock(it.stock)}">🗑</button></td>
-    </tr>`).join('') || '<tr><td colspan="6" class="hint">услуг нет — добавь ниже</td></tr>';
-  $('#svc-orders').innerHTML = (svc.orders ?? []).map((o) => `
-    <tr data-id="${o.id}">
-      <td class="cellname">#${o.id}</td>
-      <td>${esc(o.service)}</td>
-      <td>@${esc(o.login)}</td>
-      <td class="hint">${fmtTime(o.at)} · ${o.price} 💎</td>
-      <td>
-        <button class="act svc-done" title="заказ выполнен — убрать из ждущих">✅ Выполнено</button>
-        <button class="act ghost svc-refund" title="вернуть баллы покупателю">↩ Вернуть баллы</button>
-      </td>
-    </tr>`).join('') || '<tr><td colspan="5" class="hint">заказов нет — зрители покупают командой !заказ название</td></tr>';
+function renderRedemptions() {
+  const st = window.__settings?.redemptions;
+  if (!st) return;
+  $('#rw-cooldown').value = st.cooldown ?? 30;
+  $('#rw-enabled').checked = st.enabled !== false;
+  $('#rw-body').innerHTML = (st.mappings ?? []).map((m) => `
+    <tr class="rw-row" data-action="${esc(m.action ?? 'song')}">
+      <td class="cellresp"><input class="rw-name" value="${esc(m.rewardName ?? '')}" maxlength="100" placeholder="как награда называется на Twitch" /></td>
+      <td class="cellmode"><select class="rw-action">${RW_ACTIONS.map(([v, l]) => `<option value="${v}"${m.action === v ? ' selected' : ''}>${l}</option>`).join('')}</select></td>
+      <td class="cellon"><input class="rw-enabled" type="checkbox" ${m.enabled !== false ? 'checked' : ''} /></td>
+      <td><button class="act ghost rw-del" title="убрать награду">🗑</button></td>
+    </tr>`).join('') || '<tr><td colspan="4" class="hint">наград нет — добавь ниже (название должно совпадать с наградой на Twitch)</td></tr>';
 }
 
-$('#pts-refresh').addEventListener('click', () => loadPointsTab().catch(() => {}));
-
-$('#pts-save').addEventListener('click', async () => {
-  try {
-    await putSettings({
-      points: {
-        enabled: $('#pts-enabled').checked,
-        intervalMin: Number($('#pts-interval').value) || 10,
-        amount: Number($('#pts-amount').value) || 10,
-        perMessage: Number($('#pts-permsg').value) || 0,
-      },
-    });
-    toast('Баллы сохранены ✅');
-  } catch (e) { toast(e.message, true); }
-});
-
-function collectWheel() {
-  const items = [...document.querySelectorAll('#wh-body .wh-row')].map((row) => ({
-    label: row.querySelector('.wh-label').value,
-    weight: Number(row.querySelector('.wh-weight').value) || 0,
-    multiplier: Number(row.querySelector('.wh-mult').value) || 0,
-  })).filter((it) => it.label.trim());
+function collectRedemptions() {
+  const mappings = [...document.querySelectorAll('#rw-body .rw-row')].map((row) => ({
+    rewardName: row.querySelector('.rw-name').value.trim(),
+    action: row.querySelector('.rw-action').value,
+    enabled: row.querySelector('.rw-enabled').checked,
+  })).filter((m) => m.rewardName);
   return {
-    enabled: $('#wh-enabled').checked,
-    minBet: Number($('#wh-min').value) || 10,
-    maxBet: Number($('#wh-max').value) || 1000,
-    cooldown: Number($('#wh-cd').value) || 60,
-    items,
+    enabled: $('#rw-enabled').checked,
+    cooldown: Number($('#rw-cooldown').value) || 30,
+    mappings,
   };
 }
 
-$('#wh-add').addEventListener('click', () => {
-  $('#wh-body').insertAdjacentHTML('beforeend', `
-    <tr class="wh-row">
-      <td class="cellresp"><input class="wh-label" placeholder="💎 x50" maxlength="60" /></td>
-      <td class="cellcd"><input class="wh-weight" type="number" min="0" max="100" step="0.5" value="1" /></td>
-      <td class="cellcd"><input class="wh-mult" type="number" min="0" max="100" step="0.5" value="2" /></td>
-      <td><button class="act ghost wh-del">🗑</button></td>
+$('#rw-save').addEventListener('click', async () => {
+  try {
+    await putSettings({ redemptions: collectRedemptions() });
+    renderRedemptions();
+    toast('Награды канала сохранены ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#rw-add').addEventListener('click', () => {
+  $('#rw-body').insertAdjacentHTML('beforeend', `
+    <tr class="rw-row">
+      <td class="cellresp"><input class="rw-name" placeholder="${esc($('#rw-add-name').value.trim() || 'заказать песню')}" maxlength="100" /></td>
+      <td class="cellmode"><select class="rw-action">${RW_ACTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></td>
+      <td class="cellon"><input class="rw-enabled" type="checkbox" checked /></td>
+      <td><button class="act ghost rw-del">🗑</button></td>
     </tr>`);
+  $('#rw-add-name').value = '';
 });
 
-$('#wh-save').addEventListener('click', async () => {
+$('#rw-body').addEventListener('click', (e) => {
+  if (e.target.classList.contains('rw-del')) e.target.closest('tr')?.remove();
+});
+
+$('#rw-add-name').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('#rw-add').click();
+});
+
+$('#rw-test').addEventListener('click', async () => {
   try {
-    await putSettings({ wheel: collectWheel() });
-    toast('Колесо сохранено ✅');
+    await api('/api/actions/redemptiontest', { method: 'POST', body: '{}' });
+    toast('Тестовая награда отправлена — смотри оверлей (страница должна быть открыта)');
   } catch (e) { toast(e.message, true); }
 });
 
-$('#wh-body').addEventListener('click', (e) => {
-  if (e.target.classList.contains('wh-del')) e.target.closest('tr')?.remove();
-});
-
-function collectMemShop() {
-  const items = [...document.querySelectorAll('#ms-body .ms-row')].map((row) => ({
-    name: row.querySelector('.ms-name').value,
-    text: row.querySelector('.ms-text').value,
-    price: Number(row.querySelector('.ms-price').value) || 0,
-    sound: row.querySelector('.ms-sound').value,
-    enabled: row.querySelector('.ms-enabled').checked,
-  })).filter((it) => it.name.trim());
-  return { enabled: $('#ms-enabled').checked, cooldown: Number($('#ms-cooldown').value) || 0, items };
-}
-
-$('#ms-add').addEventListener('click', () => {
-  $('#ms-body').insertAdjacentHTML('beforeend', `
-    <tr class="ms-row">
-      <td class="cellname"><input class="ms-name" placeholder="мем" maxlength="32" /></td>
-      <td class="cellresp"><input class="ms-text" placeholder="🎬 {user} запустил мемивую штуку!" maxlength="200" /></td>
-      <td class="cellcd"><input class="ms-price" type="number" min="0" value="100" /></td>
-      <td class="cellcd"><select class="ms-sound">${'<option value="">— без звука —</option>' + __mediaList.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join('')}</select></td>
-      <td class="cellon"><input class="ms-enabled" type="checkbox" checked /></td>
-      <td><button class="act ghost ms-del">🗑</button></td>
-    </tr>`);
-});
-
-$('#ms-save').addEventListener('click', async () => {
+$('#broadcaster-logout').addEventListener('click', async () => {
+  if (!confirm('Сбросить токен стримера? Бот перестанет видеть списания наград.')) return;
   try {
-    await putSettings({ memShop: collectMemShop() });
-    toast('Мем-магазин сохранён ✅');
+    await api('/api/broadcaster/logout', { method: 'POST' });
+    toast('Токен стримера сброшен');
+    poll();
   } catch (e) { toast(e.message, true); }
 });
 
-$('#ms-body').addEventListener('click', (e) => {
-  if (e.target.classList.contains('ms-del')) e.target.closest('tr')?.remove();
+$('#redirect-uri-broadcaster').addEventListener('click', (e) => {
+  navigator.clipboard?.writeText(e.target.textContent).then(() => toast('Redirect URL скопирован'));
 });
 
-// ---------------- тотализатор (карточка на вкладке «💎 Баллы») ----------------
-
-let __betsTimer = null;
-let __betsBusy = false;
-
-// опрос активной ставки: каждые 5 сек ПОКА ставка жива (interval с очисткой, как poll())
-async function pollBets() {
-  if (__betsBusy) return;
-  __betsBusy = true;
-  try {
-    renderBets(await api('/api/bets'));
-  } catch {
-    // бот недоступен — молча, следующий опрос повторит
-  } finally {
-    __betsBusy = false;
-  }
-}
-
-function renderBets({ status, top, cfg }) {
-  const box = $('#bets-live');
-  if (!status) {
-    box.innerHTML = '<p class="hint">Сейчас нет открытой ставки — моды открывают в чате (<code>!ставка открыть вопрос в1|в2</code>) или кнопкой ниже.</p>';
-    if (__betsTimer) { clearInterval(__betsTimer); __betsTimer = null; }
-  } else {
-    box.innerHTML = `
-      <div class="evcard">
-        <h3>«${esc(status.question)}» — банк ${status.pot} 💎, осталось ${status.secondsLeft} сек</h3>
-        <div class="grid2">
-          <table class="cmds">
-            <thead><tr><th>№</th><th>Вариант</th><th>Банк</th><th>Ставок</th></tr></thead>
-            <tbody>${status.options.map((o) => `
-              <tr><td class="cellcd">${o.index})</td><td class="cellresp">${esc(o.label)}</td>
-              <td>${o.total} 💎</td><td class="hint">${o.bets}</td></tr>`).join('')}
-            </tbody>
-          </table>
-          <table class="cmds">
-            <thead><tr><th colspan="3">Топ ставок</th></tr></thead>
-            <tbody>${(top ?? []).map((t, i) => `
-              <tr><td class="cellcd">${i + 1}.</td><td class="cellname">${esc(t.name || t.login)}</td>
-              <td class="hint">${t.amount} 💎 → №${t.optionIndex} ${esc(t.option)}</td></tr>`).join('')
-              || '<tr><td colspan="3" class="hint">ставок пока нет</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      </div>`;
-    if (!__betsTimer) __betsTimer = setInterval(pollBets, 5000);
-  }
-  // префилл длительности — только пока поле не редактируют руками
-  const dur = $('#bets-duration');
-  if (dur && document.activeElement !== dur) dur.value = cfg?.durationSec ?? 300;
-}
-
-$('#bets-open-btn').addEventListener('click', async () => {
-  const question = $('#bets-question').value.trim();
-  const options = $('#bets-options').value.split('|').map((s) => s.trim()).filter(Boolean);
-  const durationSec = Number($('#bets-duration').value) || 0;
-  if (!question) { toast('Напиши вопрос ставки', true); return; }
-  if (options.length < 2) { toast('Нужно минимум 2 варианта — раздели их «|»', true); return; }
-  if (options.length > 6) { toast('Максимум 6 вариантов', true); return; }
-  try {
-    await api('/api/actions/betsopen', { method: 'POST', body: JSON.stringify({ question, options, durationSec, channel: qaChannel() }) });
-    $('#bets-question').value = '';
-    $('#bets-options').value = '';
-    toast('Ставка открыта 📈 — бот объявил в чат');
-    pollBets();
-  } catch (e) { toast(e.message, true); }
-});
-
-$('#bets-resolve-btn').addEventListener('click', async () => {
-  const winnerIndex = Number($('#bets-winner').value);
-  if (!Number.isInteger(winnerIndex) || winnerIndex < 1) { toast('Укажи номер победного варианта (1–6)', true); return; }
-  try {
-    const r = await api('/api/actions/betsresolve', { method: 'POST', body: JSON.stringify({ winnerIndex, channel: qaChannel() }) });
-    toast(r.payouts
-      ? `Итог подведён: «${r.winner}» — банк ${r.pot}, выплачено ${r.payouts} 🏁`
-      : r.refunds
-        ? `Итог: победителей нет — возвращено ${r.refunds} игрокам 🙂`
-        : `Итог: «${r.winner}» — ставок не было`);
-    pollBets();
-  } catch (e) { toast(e.message, true); }
-});
-
-$('#bets-cancel-btn').addEventListener('click', async () => {
-  if (!confirm('Закрыть открытую ставку и вернуть всем поставленные баллы?')) return;
-  try {
-    const r = await api('/api/actions/betscancel', { method: 'POST', body: JSON.stringify({ channel: qaChannel() }) });
-    toast(`Ставка отменена — возвратов: ${r.refunds} 🗑`);
-    pollBets();
-  } catch (e) { toast(e.message, true); }
-});
-
-$('#bets-refresh').addEventListener('click', () => pollBets());
-
-// ---------------- говорилка (!сказать) ----------------
-
-$('#say-save').addEventListener('click', async () => {
-  try {
-    await putSettings({
-      say: {
-        enabled: $('#say-enabled').checked,
-        price: Number($('#say-price').value) || 0,
-        cooldown: Number($('#say-cd').value) || 0,
-        blocked: $('#say-blocked').value.split(',').map((s) => s.trim()).filter(Boolean),
-      },
-    });
-    toast('Говорилка сохранена ✅');
-  } catch (e) { toast(e.message, true); }
-});
-
-// ---------------- магазин услуг (заказы) ----------------
-
-function collectServices() {
-  const items = [...document.querySelectorAll('#svc-body .svc-row')].map((row) => ({
-    id: row.dataset.id,
-    name: row.querySelector('.svc-name').value,
-    text: row.querySelector('.svc-text').value,
-    price: Number(row.querySelector('.svc-price').value) || 0,
-    stock: Number(row.querySelector('.svc-stock').value) || 0,
-    enabled: row.querySelector('.svc-enabled').checked,
-  })).filter((it) => it.name.trim());
-  return items;
-}
-
-$('#svc-add').addEventListener('click', () => {
-  $('#svc-body').insertAdjacentHTML('beforeend', `
-    <tr class="svc-row" data-id="svc-new-${Date.now()}">
-      <td class="cellname"><input class="svc-name" placeholder="дуэт" maxlength="32" /></td>
-      <td class="cellresp"><input class="svc-text" placeholder="что получает зритель" maxlength="200" /></td>
-      <td class="cellcd"><input class="svc-price" type="number" min="0" max="1000000" value="100" /></td>
-      <td class="cellcd"><input class="svc-stock" type="number" min="-1" max="100000" value="0" title="0 = бесконечно" /></td>
-      <td class="cellon"><input class="svc-enabled" type="checkbox" checked /></td>
-      <td><button class="act ghost svc-del">🗑</button></td>
-    </tr>`);
-});
-
-$('#svc-save').addEventListener('click', async () => {
-  try {
-    const { items, orders } = await api('/api/services', { method: 'PUT', body: JSON.stringify({ items: collectServices() }) });
-    toast('Услуги сохранены ✅');
-    // перерисуем таблицы из ответа сервера (id новых строк, свежие заказы)
-    $('#svc-body').innerHTML = (items ?? []).map((it) => `
-      <tr class="svc-row" data-id="${esc(it.id)}">
-        <td class="cellname"><input class="svc-name" value="${esc(it.name)}" maxlength="32" /></td>
-        <td class="cellresp"><input class="svc-text" value="${esc(it.text || '')}" maxlength="200" /></td>
-        <td class="cellcd"><input class="svc-price" type="number" min="0" max="1000000" value="${it.price}" /></td>
-        <td class="cellcd"><input class="svc-stock" type="number" min="-1" max="100000" value="${it.stock}" /></td>
-        <td class="cellon"><input class="svc-enabled" type="checkbox" ${it.enabled !== false ? 'checked' : ''} /></td>
-        <td><button class="act ghost svc-del">🗑</button></td>
-      </tr>`).join('');
-    $('#svc-orders').innerHTML = (orders ?? []).map((o) => `
-      <tr data-id="${o.id}">
-        <td class="cellname">#${o.id}</td>
-        <td>${esc(o.service)}</td>
-        <td>@${esc(o.login)}</td>
-        <td class="hint">${fmtTime(o.at)} · ${o.price} 💎</td>
-        <td><button class="act svc-done">✅ Выполнено</button> <button class="act ghost svc-refund">↩ Вернуть баллы</button></td>
-      </tr>`).join('') || '<tr><td colspan="5" class="hint">заказов нет — зрители покупают командой !заказ название</td></tr>';
-  } catch (e) { toast(e.message, true); }
-});
-
-$('#svc-body').addEventListener('click', (e) => {
-  if (e.target.classList.contains('svc-del')) e.target.closest('tr')?.remove();
-});
-
-$('#svc-orders').addEventListener('click', async (e) => {
-  const row = e.target.closest('tr[data-id]');
-  if (!row) return;
-  const op = e.target.classList.contains('svc-done') ? 'done'
-    : e.target.classList.contains('svc-refund') ? 'refund' : null;
-  if (!op) return;
-  const id = Number(row.dataset.id);
-  if (op === 'refund' && !confirm(`Вернуть баллы за заказ #${id} и убрать его?`)) return;
-  try {
-    await api('/api/actions/serviceorder', { method: 'POST', body: JSON.stringify({ id, op }) });
-    toast(op === 'done' ? 'Заказ выполнен ✅' : 'Баллы возвращены ↩');
-    loadPointsTab().catch(() => {});
-  } catch (err) { toast(err.message, true); }
-});
 // ---------------- оверлей (алерты для OBS) ----------------
 
 const OV_KINDS = [
@@ -1506,7 +1253,7 @@ $('#ov-body').addEventListener('click', async (e) => {
   } catch (err) { toast(err.message, true); }
 });
 
-// ---------------- музыка (заказы YouTube за баллы) ----------------
+// ---------------- музыка (заказы YouTube) ----------------
 
 async function loadSongsTab() {
   const st = await api('/api/songs');
@@ -1515,7 +1262,6 @@ async function loadSongsTab() {
   $('#music-url-field').value = `${location.origin}/music`;
   $('#music-open').href = `${location.origin}/music`;
   $('#sg-enabled').checked = Boolean(s.enabled);
-  $('#sg-price').value = s.price ?? 100;
   $('#sg-maxlen').value = s.maxLenSec ?? 600;
   $('#sg-peruser').value = s.perUser ?? 2;
   $('#sg-volume').value = s.volume ?? 60;
@@ -1542,7 +1288,6 @@ $('#sg-save').addEventListener('click', async () => {
     await putSettings({
       songs: {
         enabled: $('#sg-enabled').checked,
-        price: Number($('#sg-price').value) || 0,
         maxLenSec: Number($('#sg-maxlen').value) || 600,
         perUser: Number($('#sg-peruser').value) || 2,
         volume: Number($('#sg-volume').value) || 60,
@@ -1756,10 +1501,8 @@ loadCommands().catch(() => {});
 loadSettings().catch(() => {});
 loadModules().catch(() => {});
 loadOverlaySettings().catch(() => {});
-loadPointsTab().catch(() => {});
 loadSongsTab().catch(() => {});
 loadProxySettings().catch(() => {});
 loadQuotes().catch(() => {});
-pollBets();
 poll();
 setInterval(poll, 2000);

@@ -26,7 +26,6 @@
     <button class="tab" data-tab="events">События</button>
     <button class="tab" data-tab="autoso">Автошатауты</button>
     <button class="tab" data-tab="timers">Таймеры</button>
-    <button class="tab" data-tab="points">💎 Баллы</button>
     <button class="tab" data-tab="songs">🎵 Музыка</button>
     <button class="tab" data-tab="overlay">📺 Оверлей</button>
     <button class="tab" data-tab="modules">🧩 Модули</button>
@@ -125,7 +124,7 @@
         <p class="hint">Полный список: правь тексты, доступ, кулдауны. Режим ответа, таргет, шанс и диапазоны настраиваются в меню команды на вкладке <span class="goto-tab" data-tab="rp" style="text-decoration:underline">🎭 Фан</span>. В чате: <code>!addcmd !имя ответ</code>, <code>!editcmd</code>, <code>!delcmd</code> (мод+). Переменные: <code>{user}</code>, <code>{target}</code>, <code>{args}</code>, <code>{channel}</code>, <code>{uptime}</code>, <code>{game}</code>, <code>{random:1-100}</code>, в рандом-числе <code>{roll}</code>.</p>
         <table class="cmds" id="cmds-table">
           <thead>
-            <tr><th>Команда</th><th>Режим</th><th>Ответ / Варианты</th><th>Доступ</th><th>Кулдаун, сек</th><th>Цена, баллов</th><th>Вкл</th><th></th></tr>
+            <tr><th>Команда</th><th>Режим</th><th>Ответ / Варианты</th><th>Доступ</th><th>Кулдаун, сек</th><th>Вкл</th><th></th></tr>
           </thead>
           <tbody id="cmds-body"></tbody>
         </table>
@@ -140,7 +139,6 @@
             <option value="mod">моды</option>
           </select>
           <input id="add-cooldown" type="number" min="0" max="3600" value="5" style="width:70px" title="кулдаун, сек" />
-          <input id="add-cost" type="number" min="0" max="100000" value="0" style="width:80px" title="цена в баллах, 0 = бесплатно" />
           <button class="act" id="add-btn">Добавить</button>
         </div>
       </div>
@@ -293,112 +291,11 @@
       </div>
     </section>
 
-    <!-- ============ БАЛЛЫ ============ -->
-    <section id="tab-points" class="tabpane">
-      <div class="card">
-        <h2>💎 Баллы канала</h2>
-        <p class="hint">Зрители копят баллы: за просмотр (бот опрашивает, кто в чате, раз в N минут — нужен скоуп <code>moderator:read:chatters</code>: при его нехватке в логе будет подсказка перезайти ботом) и за сообщения в чате. Тратят на <b>колесо</b> (<code>!колесо N</code>) и <b>мем-алерты</b> (<code>!мем название</code> — покупка всплывает в оверлее). Команды: <code>!баллы</code>, <code>!топ</code>, <code>!перевести @ник N</code>, <code>!дать @ник N</code> (мод+).</p>
-        <div class="evcard">
-          <label><input type="checkbox" id="pts-enabled" /> баллы включены</label>
-          <label>начислять каждые, минут <input type="number" id="pts-interval" min="1" max="60" style="width:70px" /></label>
-          <label>столько за интервал <input type="number" id="pts-amount" min="0" max="1000" style="width:70px" /></label>
-          <label>бонус за сообщение <input type="number" id="pts-permsg" min="0" max="10" style="width:60px" title="0 = выкл" /></label>
-          <div class="row"><button class="act" id="pts-save">Сохранить</button></div>
-        </div>
-      </div>
-      <div class="card">
-        <h2>🏆 Топ зрителей</h2>
-        <table class="cmds">
-          <thead><tr><th>#</th><th>Зритель</th><th>Баллы</th><th>Минут просмотра</th></tr></thead>
-          <tbody id="pts-top"></tbody>
-        </table>
-        <button class="act ghost" id="pts-refresh">Обновить</button>
-      </div>
-      <div class="card">
-        <h2>📈 Тотализатор</h2>
-        <p class="hint">Ставка <b>первого канала</b> бота: вопрос, банки по вариантам и топ ставок — карточка обновляется сама каждые 5 секунд, пока ставка жива. Кнопки ниже — быстрые действия мода (панель локальная и доверенная): бот продублирует результат в чат, панель покажет тост. «Отмена» закрывает открытую ставку (а заодно и другие живые ставки бота) и возвращает всем поставленные баллы.</p>
-        <div id="bets-live"></div>
-        <h3>Управление</h3>
-        <div class="addrow">
-          <input id="bets-question" class="wide" placeholder="вопрос ставки…" maxlength="200" />
-          <input id="bets-options" placeholder="варианты через |" maxlength="400" style="flex:1;min-width:220px" />
-          <input id="bets-duration" type="number" min="10" max="3600" style="width:90px" title="секунд на ставки" />
-          <button class="act" id="bets-open-btn">Открыть</button>
-        </div>
-        <div class="addrow">
-          <span class="hint">победный вариант №</span>
-          <input id="bets-winner" type="number" min="1" max="6" style="width:70px" />
-          <button class="act" id="bets-resolve-btn">Итог</button>
-          <button class="act ghost" id="bets-cancel-btn">Отмена (с возвратом)</button>
-          <button class="act ghost" id="bets-refresh">Обновить</button>
-        </div>
-      </div>
-      <div class="card">
-        <h2>🎡 Колесо (рулетка за баллы)</h2>
-        <p class="hint">Взвешенная рулетка: вес = как часто выпадает, множитель ×N — во сколько раз вернётся ставка. Мем-алерт результата крутится в оверлее.</p>
-        <div class="evcard">
-          <label><input type="checkbox" id="wh-enabled" /> колесо включено</label>
-          <label>мин. ставка <input type="number" id="wh-min" min="1" style="width:70px" /></label>
-          <label>макс. ставка <input type="number" id="wh-max" min="1" style="width:80px" /></label>
-          <label>кулдаун, сек <input type="number" id="wh-cd" min="0" max="3600" style="width:70px" /></label>
-          <div class="row"><button class="act" id="wh-save">Сохранить</button></div>
-        </div>
-        <table class="cmds">
-          <thead><tr><th>Выпадает</th><th>Вес</th><th>Множитель</th></tr></thead>
-          <tbody id="wh-body"></tbody>
-        </table>
-        <button class="act ghost" id="wh-add">+ вариант</button>
-      </div>
-      <div class="card">
-        <h2>🎬 Мем-магазин (алерты за баллы)</h2>
-        <p class="hint">Зритель пишет <code>!мем название</code> → баллы списываются, на оверлей летит текст (со звуком, если выбран). Звуки — файлы в папке <code>overlay-media/</code>.</p>
-        <div class="evcard">
-          <label><input type="checkbox" id="ms-enabled" /> магазин включен</label>
-          <label>кулдаун покупок, сек <input type="number" id="ms-cooldown" min="0" max="3600" style="width:70px" /></label>
-          <div class="row"><button class="act" id="ms-save">Сохранить</button></div>
-        </div>
-        <table class="cmds">
-          <thead><tr><th>Название</th><th>Текст алерта ({user})</th><th>Цена</th><th>Звук</th><th>Вкл</th><th></th></tr></thead>
-          <tbody id="ms-body"></tbody>
-        </table>
-        <button class="act ghost" id="ms-add">+ мем</button>
-      </div>
-      <div class="card">
-        <h2>🗣 Говорилка (!сказать)</h2>
-        <p class="hint">Зритель пишет <code>!сказать текст</code> — баллы списываются, фраза всплывает в оверлее и звучит через TTS (если на вкладке «📺 Оверлей» включена озвучка). Чёрный список: фраза, содержащая любое из слов (по подстроке, без учёта регистра), отклоняется без списания. Максимум — 200 символов.</p>
-        <div class="evcard">
-          <label><input type="checkbox" id="say-enabled" /> говорилка включена</label>
-          <label>цена, баллов <input type="number" id="say-price" min="0" max="1000000" style="width:90px" /></label>
-          <label>кулдаун, сек <input type="number" id="say-cd" min="0" max="3600" style="width:70px" /></label>
-          <label>чёрный список слов (через запятую)</label>
-          <input type="text" id="say-blocked" maxlength="2000" placeholder="например: спам, реклама" />
-          <div class="row"><button class="act" id="say-save">Сохранить</button></div>
-        </div>
-      </div>
-      <div class="card">
-        <h2>🛎 Заказы (магазин услуг)</h2>
-        <p class="hint">Услуги за баллы с ручным выполнением: зритель пишет <code>!заказ название</code> — баллы списываются, заказ появляется в списке ниже. «✅ Выполнено» убирает заказ (остаётся в истории), «↩ Вернуть баллы» — возвращает баллы и убирает заказ. Запас: <b>0 = бесконечно</b>, число = сколько осталось; распроданные услуги помечаются сами (−1). Моды смотрят ждущих командой <code>!заказы</code>; у одного зрителя — не больше 5 ждущих заказов.</p>
-        <table class="cmds">
-          <thead><tr><th>Услуга</th><th>Описание</th><th>Цена</th><th>Запас</th><th>Вкл</th><th></th></tr></thead>
-          <tbody id="svc-body"></tbody>
-        </table>
-        <div class="row">
-          <button class="act ghost" id="svc-add">+ услуга</button>
-          <button class="act" id="svc-save">💾 Сохранить услуги</button>
-        </div>
-        <h3>Ждут выполнения</h3>
-        <table class="cmds">
-          <thead><tr><th>№</th><th>Услуга</th><th>Зритель</th><th>Когда</th><th></th></tr></thead>
-          <tbody id="svc-orders"></tbody>
-        </table>
-      </div>
-    </section>
-
     <!-- ============ МУЗЫКА ============ -->
     <section id="tab-songs" class="tabpane">
       <div class="card">
         <h2>🎵 Плеер музыки для OBS</h2>
-        <p class="hint">Зрители заказывают треки командой <code>!ср &lt;ссылка YouTube&gt;</code> за баллы (или бесплатно). Плеер живёт на отдельной странице — добавь её в OBS как <b>Браузер-источник</b>: <code id="music-url"></code> — так музыку можно вывести в отдельную аудиодорожку OBS (правый клик по источнику в микшере → «Расширенные свойства аудио» → назначь дорожку, отличную от стрим-микса). Шаблон надписи и внешний вид — настраиваются; сам плеер — файл <code>sr-player.js</code>, можно править/заменять целиком.</p>
+        <p class="hint">Зрители заказывают треки командой <code>!ср &lt;ссылка YouTube&gt;</code> — бесплатно (цена настраивается в самой награде на Twitch; связка с наградами канала — в планах). Плеер живёт на отдельной странице — добавь её в OBS как <b>Браузер-источник</b>: <code id="music-url"></code> — так музыку можно вывести в отдельную аудиодорожку OBS (правый клик по источнику в микшере → «Расширенные свойства аудио» → назначь дорожку, отличную от стрим-микса). Шаблон надписи и внешний вид — настраиваются; сам плеер — файл <code>sr-player.js</code>, можно править/заменять целиком.</p>
         <div class="addrow">
           <input id="music-url-field" class="wide" readonly />
           <button class="act" id="music-copy">Скопировать</button>
@@ -409,7 +306,6 @@
         <h2>⚙️ Настройки заказов</h2>
         <div class="evcard">
           <label><input type="checkbox" id="sg-enabled" /> музыка включена</label>
-          <label>цена заказа, баллов <input type="number" id="sg-price" min="0" max="100000" style="width:70px" /></label>
           <label>макс. длина, сек <input type="number" id="sg-maxlen" min="0" max="36000" style="width:80px" /></label>
           <label>треков на юзера в очереди <input type="number" id="sg-peruser" min="1" max="10" style="width:60px" /></label>
           <label>громкость плеера <input type="number" id="sg-volume" min="0" max="100" style="width:60px" /></label>
@@ -483,7 +379,7 @@
     <section id="tab-modules" class="tabpane">
       <div class="card">
         <h2>🧩 Модули</h2>
-        <p class="hint">Модуль — это обычный <code>.js</code>-файл в папке <code>modules/</code> проекта: команды, хуки на события и настройки. Изменения файлов подхватываются на лету; упавший модуль не роняет бота. Каждому модулю доступны свои настройки (правятся здесь) и API: <code>api.say/announce/pin/shoutout</code>, <code>api.settings</code>, <code>api.saveSettings()</code>, <code>api.channel</code>, <code>api.log()</code>. Примеры событий: <code>chat.message</code>, <code>follow</code>, <code>raid</code>, <code>sub</code>, <code>resub</code>, <code>subgift</code>, <code>stream.online</code>, <code>stream.offline</code>, <code>tick</code> (раз в 20 сек). Как писать — в README, раздел «Модули».</p>
+        <p class="hint">Модуль — это обычный <code>.js</code>-файл в папке <code>modules/</code> проекта: команды, хуки на события и настройки. Изменения файлов подхватываются на лету; упавший модуль не роняет бота. Каждому модулю доступны свои настройки (правятся здесь) и API: <code>api.say/announce/pin/shoutout</code>, <code>api.settings</code>, <code>api.saveSettings()</code>, <code>api.channel</code>, <code>api.log()</code>. Примеры событий: <code>chat.message</code>, <code>follow</code>, <code>raid</code>, <code>sub</code>, <code>resub</code>, <code>subgift</code>, <code>stream.online</code>, <code>stream.offline</code>, <code>redemption</code> (награда канала), <code>tick</code> (раз в 20 сек). Как писать — в README, раздел «Модули».</p>
         <div class="rp-row" style="margin-bottom:10px">
           <button class="act ghost" id="modules-reload">⟳ Перечитать модули</button>
           <span class="hint" id="modules-count"></span>
@@ -522,6 +418,31 @@
         </div>
         <p class="hint">Бот войдёт под тем аккаунтом, под которым залогинен Twitch в этом браузере. Нужен <u>аккаунт бота</u> — если браузер держит твой стримерский, открой ссылку в инкогнито (сначала залогинься в Twitch как бот).<br>
         Учти: на канале бота нужно сделать модератором — <code>/mod имя_бота</code> в своём чате.</p>
+      </div>
+      <div class="card">
+        <h2>👑 Награды канала (Channel Points)</h2>
+        <div id="broadcaster-info" class="hint"></div>
+        <div class="authbtns">
+          <a class="act" id="broadcaster-login" href="/auth/broadcaster">Войти как стример</a>
+          <button class="act ghost hidden" id="broadcaster-logout">Выйти (сбросить токен стримера)</button>
+        </div>
+        <p class="hint">Второй вход — под <u>твоим стримерским</u> аккаунтом (не бота!): события списания наград канала Twitch отдаёт только токену владельца канала. В настройках приложения на dev.twitch.tv добавь ещё один <b>OAuth Redirect URL</b>: <code class="copy" id="redirect-uri-broadcaster">http://localhost:8080/auth/broadcaster/callback</code> (клик — скопировать). После входа бот видит каждое списание награды: пишет его в ленту событий и показывает в оверлее.</p>
+        <h3>Награды, которые бот показывает</h3>
+        <p class="hint">Название должно совпадать с наградой на Twitch (регистр не важен). Замапленные награды всплывают в оверлее (kind <code>redemption</code>) и попадают в ленту; остальные — только в ленту. Кулдаун (сек) ограничивает частоту overlay-алертов одного зрителя. Колонка «действие» — заготовка на будущее: привязка наград к песням/мемам/колесу появится отдельной фазой.</p>
+        <div class="evcard">
+          <label>кулдаун оверлей-алертов, сек <input type="number" id="rw-cooldown" min="0" max="3600" style="width:70px" /></label>
+          <label><input type="checkbox" id="rw-enabled" /> показывать награды</label>
+        </div>
+        <table class="cmds">
+          <thead><tr><th>Название награды на Twitch</th><th>Действие (скоро)</th><th>Вкл</th><th></th></tr></thead>
+          <tbody id="rw-body"></tbody>
+        </table>
+        <div class="addrow">
+          <input id="rw-add-name" placeholder="например: заказать песню" maxlength="100" class="wide" />
+          <button class="act ghost" id="rw-add">+ награда</button>
+          <button class="act" id="rw-save">💾 Сохранить</button>
+          <button class="act ghost" id="rw-test">Тест: алерт в оверлее</button>
+        </div>
       </div>
       <div class="card">
         <h2>🌐 Прокси (для музыки и метаданных)</h2>

@@ -156,6 +156,41 @@ export function createHttpServer({ app }) {
       return;
     }
 
+    // ---------- OAuth «Вход как стример» (награды канала) ----------
+    if (route === '/auth/broadcaster' && req.method === 'GET') {
+      if (!app.isConfigured()) {
+        redirect(res, '/#err:' + encodeURIComponent('Сначала заполни настройки приложения'));
+        return;
+      }
+      redirect(res, app.broadcaster.beginAuth(app.port));
+      return;
+    }
+
+    if (route === '/auth/broadcaster/callback' && req.method === 'GET') {
+      const error = u.searchParams.get('error_description') || u.searchParams.get('error');
+      if (error) {
+        redirect(res, '/#err:' + encodeURIComponent(error));
+        return;
+      }
+      const code = u.searchParams.get('code');
+      const state = u.searchParams.get('state');
+      if (!code || !app.broadcaster.checkState(state)) {
+        redirect(res, '/#err:' + encodeURIComponent('Неверный state — начни вход стримера заново'));
+        return;
+      }
+      try {
+        await app.broadcaster.exchangeCode(code, app.port);
+        app.logSystem(`Вход как стример выполнен: ${app.broadcaster.tokens.login}`, 'info');
+        if (app.state.running) await app.stopRuntime(); // пересобрать подписки: + награды канала
+        await app.startRuntime();
+        redirect(res, '/#ok:broadcaster');
+      } catch (e) {
+        app.logSystem(`Ошибка входа стримера: ${e.message}`, 'error');
+        redirect(res, '/#err:' + encodeURIComponent(e.message));
+      }
+      return;
+    }
+
     // ---------- API ----------
     if (route === '/api/state' && req.method === 'GET') {
       sendJson(res, 200, app.apiState());
@@ -223,8 +258,14 @@ export function createHttpServer({ app }) {
       return;
     }
 
-    if (route === '/api/points' && req.method === 'GET') {
-      sendJson(res, 200, { top: app.points.top(20), settings: app.settings.points });
+    // сброс входа стримера (карточка «👑 Награды канала»)
+    if (route === '/api/broadcaster/logout' && req.method === 'POST') {
+      try {
+        await app.broadcasterLogout();
+        sendJson(res, 200, { ok: true });
+      } catch (e) {
+        sendJson(res, 400, { error: app.humanizeError(e) });
+      }
       return;
     }
 
@@ -253,40 +294,6 @@ export function createHttpServer({ app }) {
         return;
       }
       sendJson(res, 200, { ok: true, removed });
-      return;
-    }
-
-    // ---------- тотализатор (карточка на вкладке «Баллы»): первый канал бота ----------
-    if (route === '/api/bets' && req.method === 'GET') {
-      const channelId = app.state.broadcasterId;
-      const status = app.bets.status(channelId);
-      const pool = app.bets.active(channelId);
-      const top = [];
-      if (pool) {
-        pool.options.forEach((o, i) => {
-          for (const b of o.bets) {
-            top.push({ login: b.login, name: b.name || b.login, amount: b.amount, option: o.label, optionIndex: i + 1 });
-          }
-        });
-        top.sort((a, b) => b.amount - a.amount);
-      }
-      sendJson(res, 200, { status, top: top.slice(0, 5), cfg: app.bets.cfg() });
-      return;
-    }
-
-    if (route === '/api/services' && req.method === 'GET') {
-      sendJson(res, 200, { items: app.services.items, orders: app.services.pending() });
-      return;
-    }
-
-    if (route === '/api/services' && req.method === 'PUT') {
-      const body = await readJsonBody(req);
-      try {
-        const saved = app.saveServices(body);
-        sendJson(res, 200, { ok: true, ...saved });
-      } catch (e) {
-        sendJson(res, 400, { error: e.message });
-      }
       return;
     }
 
