@@ -254,6 +254,22 @@ export function createHttpServer({ app }) {
       return;
     }
 
+    if (route === '/api/services' && req.method === 'GET') {
+      sendJson(res, 200, { items: app.services.items, orders: app.services.pending() });
+      return;
+    }
+
+    if (route === '/api/services' && req.method === 'PUT') {
+      const body = await readJsonBody(req);
+      try {
+        const saved = app.saveServices(body);
+        sendJson(res, 200, { ok: true, ...saved });
+      } catch (e) {
+        sendJson(res, 400, { error: e.message });
+      }
+      return;
+    }
+
     if (route === '/api/modules' && req.method === 'GET') {
       sendJson(res, 200, { modules: app.modules.list() });
       return;

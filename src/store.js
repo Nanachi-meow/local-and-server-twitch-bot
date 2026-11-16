@@ -15,6 +15,7 @@ export const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 export const TOKENS_FILE = path.join(DATA_DIR, 'tokens.json');
 export const POINTS_FILE = path.join(DATA_DIR, 'points.json');
 export const QUOTES_FILE = path.join(DATA_DIR, 'quotes.json');
+export const SERVICES_FILE = path.join(DATA_DIR, 'services.json');
 
 export function ensureDataDir() {
   fs.mkdirSync(DATA_DIR, { recursive: true });

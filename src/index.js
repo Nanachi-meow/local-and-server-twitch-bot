@@ -9,6 +9,7 @@ import { PointsManager } from './bot/points.js';
 import { QuotesManager } from './bot/quotes.js';
 import { BetsManager } from './bot/bets.js';
 import { ObsClient } from './bot/obs.js';
+import { ServicesManager } from './bot/services.js';
 import { overlay } from './bot/alerts.js';
 import { createHttpServer } from './server.js';
 import { logs } from './logs.js';
@@ -71,6 +72,9 @@ points.start(); // начисление за просмотр + автосохр
 
 const quotes = new QuotesManager({ logs }); // цитаты канала: data/quotes.json, без таймеров
 commands.setQuotes(quotes);
+
+const services = new ServicesManager({ logs, points }); // магазин услуг: data/services.json
+commands.setServices(services);
 
 const bets = new BetsManager({ logs, settings });
 commands.setBets(bets);
@@ -216,6 +220,7 @@ const app = {
   quotes,
   bets,
   obs,
+  services,
   socket,
   logs,
   settings,
@@ -408,7 +413,27 @@ const app = {
       if (a.password !== undefined) cur.password = String(a.password ?? '').slice(0, 200);
       obs.reconfigure(); // вкл/выкл/смена адреса применяется сразу, без перезапуска
     }
+    // говорилка (!сказать): TTS за баллы
+    if (patch.say && typeof patch.say === 'object') {
+      const a = patch.say;
+      const cur = settings.say;
+      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (a.price !== undefined) cur.price = Math.max(0, Math.min(1_000_000, Number(a.price) || 50));
+      if (a.cooldown !== undefined) cur.cooldown = Math.max(0, Math.min(3600, Number(a.cooldown) || 60));
+      if (Array.isArray(a.blocked)) {
+        cur.blocked = a.blocked.slice(0, 100)
+          .map((w) => String(w || '').trim().toLowerCase().slice(0, 40))
+          .filter(Boolean);
+      }
+    }
     saveJson(SETTINGS_FILE, settings);
+  },
+
+  /** Сохранение услуг магазина из панели (PUT /api/services). */
+  saveServices(patch = {}) {
+    if (!Array.isArray(patch?.items)) throw new Error('Список услуг не понятен');
+    services.updateItems(patch.items);
+    return { items: services.items, orders: services.pending() };
   },
 
   async runAction(action, body) {
@@ -516,7 +541,7 @@ const app = {
           displayName: 'Панель',
           text: `!${cName}`,
           badges: [{ set_id: 'moderator' }],
-        });
+        }, { skipCost: true }); // тест из панели не платит цену команды
         if (!ran) throw new Error('Команда не найдена, выключена или на кулдауне');
         return { tested: cName, channel: ch.login };
       }
@@ -621,6 +646,12 @@ const app = {
         });
         return { cancelled: true, refunds: refunds.length, channel: ch.login };
       }
+      case 'serviceorder': {
+        // подтверждение заказа из панели: { id, op: 'done' | 'refund' }
+        const r = services.settle({ id: body.id, op: String(body.op || '') });
+        if (r.error) throw new Error(r.error);
+        return { settled: r.order.id, op: r.op };
+      }
       default:
         throw new Error(`Неизвестное действие: ${action}`);
     }
@@ -706,6 +737,7 @@ const shutdown = async () => {
   points.stop();
   quotes.stop();
   obs.stop();
+  services.stop();
   await socket.stop();
   server.close();
   process.exit(0);

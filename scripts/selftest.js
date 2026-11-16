@@ -1007,6 +1007,140 @@ fakeObs.setCurrentProgramScene = async () => { throw new Error('SceneNotFound: �
 await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!сцена Кухня', badges: [{ set_id: 'moderator' }] });
 ok('obs: ошибка переключения подсказывает доступные сцены', sent.at(-1).includes('не вышло') && sent.at(-1).includes('есть сцены'));
 
+// ---------- волна 2: цена команд, !сказать, магазин услуг ----------
+const sentEcon = [];
+const fakeHelixEcon = {
+  sendMessage: async (b) => { sentEcon.push(b.text); return { message_id: 'm' }; },
+  getStreamByLogin: async () => null,
+  getUserByLogin: async (login) => ({ id: '42', login, display_name: login }),
+};
+const econSettings = {
+  events: {},
+  say: { enabled: true, price: 50, cooldown: 60, blocked: ['кринж'] },
+};
+const econState = { counters: {} };
+const econEngine = new CommandEngine({ helix: fakeHelixEcon, auth: fakeAuth, logs, settings: econSettings, state: econState });
+const pts3 = new PointsManager({ helix: fakeHelixPts, auth: fakeAuth, logs, settings: econSettings, channels: registry, dataFile: path.join(process.env.BOT_DATA_DIR, 'points-econ.json') });
+econEngine.setPoints(pts3);
+econEngine.setContext({ broadcasterId: '100', botUserId: '1', channel: 'mychannel' });
+pts3.add('vasya', 1000, 'Vasya');
+pts3.add('vova', 1000, 'Vova');
+pts3.add('masha', 10, 'Masha');
+
+// --- цена кастомных команд в баллах ---
+econEngine.upsert({ name: 'vipфакт', response: 'секретный факт для {user}', level: 'everyone', cooldown: 0, cost: 100 });
+await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!vipфакт', badges: [] });
+ok('цена: платная команда сработала', sentEcon.at(-1) === 'секретный факт для Vasya' && pts3.balance('vasya') === 900);
+ok('цена: счётчик вызовов вырос', econEngine.custom.find((c) => c.name === 'vipфакт').count === 1);
+
+const cmdsRunBefore = econState.counters.commandsRun;
+const vipCountBefore = econEngine.custom.find((c) => c.name === 'vipфакт').count;
+const sentBeforeFail = sentEcon.length;
+await econEngine.handleChatMessage({ userId: '11', login: 'masha', displayName: 'Masha', text: '!vipфакт', badges: [] });
+ok('цена: не хватило баллов — молчаливый отказ', sentEcon.length === sentBeforeFail && pts3.balance('masha') === 10);
+ok('цена: при отказе счётчики не двигаются', econState.counters.commandsRun === cmdsRunBefore && econEngine.custom.find((c) => c.name === 'vipфакт').count === vipCountBefore);
+
+const ptsRef = econEngine.points;
+econEngine.points = null; // движок баллов не подключён — цену игнорируем
+await econEngine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!vipфакт', badges: [] });
+ok('цена: без движка баллов цена игнорируется', sentEcon.at(-1) === 'секретный факт для Petya');
+econEngine.points = ptsRef;
+
+ok('цена: cost клампится до 100000', econEngine.normalizeCommand({ name: 'x', response: 'y', cost: 999999 }).cost === 100_000);
+ok('цена: мусорный и отрицательный cost → 0', econEngine.normalizeCommand({ name: 'x', response: 'y', cost: 'abc' }).cost === 0
+  && econEngine.normalizeCommand({ name: 'x', response: 'y', cost: -7 }).cost === 0);
+
+// цена модульных команд: schema с cost
+fs.writeFileSync(path.join(modsDir, 'mcost.js'), "export default { name: 'mcost', commands: { платныйфакт: { response: '{user} платный факт', cost: 10 } } };\n", 'utf8');
+const mmCost = new ModuleManager({ dir: modsDir, configFile: modsConfigFile, helix: fakeHelixEcon, auth: fakeAuth, logs, channels: registry });
+await mmCost.load();
+econEngine.setModules(mmCost);
+await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!платныйфакт', badges: [] });
+ok('цена: модульная команда тоже платная', sentEcon.at(-1) === 'Vasya платный факт' && pts3.balance('vasya') === 890);
+mmCost.stop();
+
+// --- !сказать за баллы ---
+overlay.clients.clear();
+const ovEcon = [];
+overlay.clients.add({ write: (s) => ovEcon.push(String(s)) });
+
+await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!сказать', badges: [] });
+ok('сказать: без текста — подсказка с ценой', sentEcon.at(-1).includes('Использование: !сказать') && sentEcon.at(-1).includes('50'));
+await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!сказать это кринж', badges: [] });
+ok('сказать: запрещённое слово — отказ без списания', sentEcon.at(-1).includes('запрещённое') && pts3.balance('vasya') === 890);
+await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: `!сказать ${'а'.repeat(201)}`, badges: [] });
+ok('сказать: длиннее 200 символов — отказ', sentEcon.at(-1).includes('200') && pts3.balance('vasya') === 890);
+await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!сказать привет чат', badges: [] });
+ok('сказать: списывает цену', pts3.balance('vasya') === 840);
+ok('сказать: фраза ушла в оверлей kind=meme', ovEcon.some((s) => s.includes('"kind":"meme"') && s.includes('Vasya: привет чат')));
+ok('сказать: подтверждение в чат с балансом', sentEcon.at(-1).includes('озвучено') && sentEcon.at(-1).includes('840'));
+await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!сказать ещё фраза', badges: [] });
+ok('сказать: кулдаун держит повтор без списания', sentEcon.at(-1).includes('через') && pts3.balance('vasya') === 840);
+await econEngine.handleChatMessage({ userId: '11', login: 'masha', displayName: 'Masha', text: '!сказать дорого', badges: [] });
+ok('сказать: не хватает баллов — отказ', sentEcon.at(-1).includes('нужно') && pts3.balance('masha') === 10);
+let sayNameThrew = false;
+try { econEngine.upsert({ name: 'сказать', response: 'хак' }); } catch { sayNameThrew = true; }
+ok('сказать: имя зарезервировано за встроенной', sayNameThrew && RESERVED.has('сказать'));
+
+// --- магазин услуг (redemption store) ---
+const { ServicesManager } = await import('../src/bot/services.js');
+const svcFile = path.join(process.env.BOT_DATA_DIR, 'services.json');
+const svc = new ServicesManager({ logs, points: pts3, dataFile: svcFile });
+econEngine.setServices(svc);
+svc.updateItems([
+  { name: 'дуэт', price: 200, stock: 2, enabled: true, text: 'катка со стримером' },
+  { name: 'совет', price: 50, stock: 0, enabled: true, text: 'жизненный совет' },
+  { name: 'скрытая', price: 10, stock: 0, enabled: false, text: 'не видна' },
+]);
+
+await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!заказ', badges: [] });
+ok('заказ: без названия — список услуг (только включённые)', sentEcon.at(-1).includes('Услуги') && sentEcon.at(-1).includes('дуэт') && !sentEcon.at(-1).includes('скрытая'));
+await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!заказ дуэт', badges: [] });
+ok('заказ: списывает баллы, уменьшает запас, создаёт заказ', sentEcon.at(-1).includes('принят')
+  && pts3.balance('vasya') === 640 && svc.items.find((i) => i.name === 'дуэт').stock === 1 && svc.pending().length === 1);
+await econEngine.handleChatMessage({ userId: '10', login: 'vova', displayName: 'Vova', text: '!заказ дуэт', badges: [] });
+ok('заказ: вторая покупка забирает последнюю единицу', pts3.balance('vova') === 800 && svc.items.find((i) => i.name === 'дуэт').stock === -1);
+await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!заказ дуэт', badges: [] });
+ok('заказ: распродано — отказ', sentEcon.at(-1).includes('распродано') && pts3.balance('vasya') === 640);
+await econEngine.handleChatMessage({ userId: '10', login: 'vova', displayName: 'Vova', text: '!заказ совет', badges: [] });
+ok('заказ: запас 0 = бесконечно', sentEcon.at(-1).includes('принят') && svc.items.find((i) => i.name === 'совет').stock === 0);
+for (let i = 0; i < 3; i++) {
+  await econEngine.handleChatMessage({ userId: '10', login: 'vova', displayName: 'Vova', text: '!заказ совет', badges: [] });
+}
+ok('заказ: лимит — 5 ждущих на юзера', svc.pending().filter((o) => o.login === 'vova').length === 5 && pts3.balance('vova') === 600);
+await econEngine.handleChatMessage({ userId: '10', login: 'vova', displayName: 'Vova', text: '!заказ совет', badges: [] });
+ok('заказ: шестой заказ отклонён без списания', sentEcon.at(-1).includes('ждущих') && pts3.balance('vova') === 600);
+await econEngine.handleChatMessage({ userId: '11', login: 'masha', displayName: 'Masha', text: '!заказ совет', badges: [] });
+ok('заказ: не хватает баллов — отказ без заказа', sentEcon.at(-1).includes('нужно') && pts3.balance('masha') === 10
+  && svc.pending().filter((o) => o.login === 'masha').length === 0);
+
+const ordersListBefore = sentEcon.length;
+await econEngine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!заказы', badges: [] });
+ok('заказы: обычному зрителю нельзя', sentEcon.length === ordersListBefore);
+await econEngine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!заказы', badges: [{ set_id: 'moderator' }] });
+ok('заказы: мод видит ждущих', sentEcon.at(-1).includes('дуэт') && sentEcon.at(-1).includes('@vova'));
+
+const firstOrder = svc.pending()[0];
+svc.settle({ id: firstOrder.id, op: 'done' });
+ok('заказ: «Выполнено» убирает из ждущих, статус done', !svc.pending().some((o) => o.id === firstOrder.id)
+  && svc.orders.find((o) => o.id === firstOrder.id)?.status === 'done');
+const vovaOrder = svc.pending().find((o) => o.login === 'vova');
+const vovaBeforeRefund = pts3.balance('vova');
+svc.settle({ id: vovaOrder.id, op: 'refund' });
+ok('заказ: «Вернуть баллы» возвращает и убирает заказ', pts3.balance('vova') === vovaBeforeRefund + vovaOrder.price
+  && svc.orders.find((o) => o.id === vovaOrder.id) === undefined);
+ok('заказ: неизвестный id — ошибка', Boolean(svc.settle({ id: 999, op: 'done' }).error));
+
+const svc2 = new ServicesManager({ logs, points: pts3, dataFile: svcFile });
+ok('заказ: persistence — services.json переживает перезапуск', svc2.items.length === 3
+  && svc2.items.find((i) => i.name === 'дуэт').stock === -1
+  && svc2.pending().length === 4
+  && svc2.orders.some((o) => o.status === 'done'));
+
+let svcNameThrew = false;
+try { econEngine.upsert({ name: 'заказ', response: 'хак' }); } catch { svcNameThrew = true; }
+ok('заказ: имена зарезервированы', svcNameThrew && RESERVED.has('заказ') && RESERVED.has('заказы'));
+
 console.log(`\nВсе ${passed} тестов прошли ✅`);
 fs.rmSync(process.env.BOT_DATA_DIR, { recursive: true, force: true });
 process.exit(0);

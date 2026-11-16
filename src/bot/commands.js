@@ -10,6 +10,7 @@ export const RESERVED = new Set([
   'followage', 'addcmd', 'editcmd', 'delcmd', 'bot',
   'баллы', 'топ', 'дать', 'перевести', 'колесо', 'мем', 'цитата',
   'ставка', 'ставить', 'итог', 'дуэль', 'сцена', 'сцены',
+  'сказать', 'заказ', 'заказы',
 ]);
 
 const NAME_RE = /^!?[A-Za-zА-Яа-яЁё0-9_\-]{1,32}$/;
@@ -87,6 +88,10 @@ export class CommandEngine {
     this.obs = obs;
   }
 
+  setServices(services) {
+    this.services = services;
+  }
+
   // ---------------- хранилище ----------------
 
   list() {
@@ -127,6 +132,7 @@ export class CommandEngine {
       needsTarget: Boolean(cmd?.needsTarget),
       level: LEVELS[cmd?.level] ? cmd.level : 'everyone',
       cooldown: Math.max(0, Math.min(3600, Number(cmd?.cooldown) || 0)),
+      cost: Math.max(0, Math.min(100_000, Math.round(Number(cmd?.cost) || 0))), // цена в баллах, 0 = бесплатно
       enabled: cmd?.enabled !== false,
       count: Number(cmd?.count) || 0,
     };
@@ -193,7 +199,8 @@ export class CommandEngine {
 
   // ---------------- обработка сообщений чата ----------------
 
-  async handleChatMessage({ broadcasterId, userId, login, displayName, text, badges }) {
+  /** Обработка сообщения чата. opts.skipCost — не списывать цену (тест из панели). */
+  async handleChatMessage({ broadcasterId, userId, login, displayName, text, badges }, opts = {}) {
     this.state.counters.messagesSeen = (this.state.counters.messagesSeen || 0) + 1;
     const trimmed = String(text || '').trim();
     if (!trimmed.startsWith('!')) return false;
@@ -232,6 +239,13 @@ export class CommandEngine {
       const last = this._cool.get(key) || 0;
       if (Date.now() - last < cmd.cooldown * 1000) return false;
       this._cool.set(key, Date.now());
+    }
+
+    // цена команды в баллах (кастомные и модульные): списываем ДО выполнения.
+    // Не хватило — молчаливый отказ, счётчики вызовов не двигаются.
+    // PointsManager нет — цену игнорируем (команда бесплатно).
+    if (!opts?.skipCost && (custom || modCmd) && (cmd.cost ?? 0) > 0 && this.points) {
+      if (!this.points.spend(login, cmd.cost)) return false;
     }
 
     this.state.counters.commandsRun = (this.state.counters.commandsRun || 0) + 1;
@@ -548,6 +562,83 @@ export class CommandEngine {
             return;
           }
           await engine.say(session, `@${session.login} купил(а) «${r.item.name}» за ${r.price} ${plural(r.price, ['балл', 'балла', 'баллов'])} — смотри стрим! 🎬 (осталось: ${engine.points.balance(session.login)})`);
+        },
+      },
+
+      // ---------- говорилка: TTS за баллы ----------
+      сказать: {
+        level: 'everyone', label: 'TTS за баллы: !сказать <текст>',
+        async run(session, args) {
+          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
+          const cfg = {
+            enabled: true,
+            price: 50,
+            cooldown: 60, // сек между фразами одного зрителя
+            blocked: [], // запрещённые слова (по подстроке, без учёта регистра)
+            ...(engine.settings?.say ?? {}),
+          };
+          const text = args.join(' ').trim();
+          if (!cfg.enabled) { await engine.say(session, 'Говорилка сейчас выключена 🙅'); return; }
+          if (!text) {
+            await engine.say(session, `Использование: !сказать <текст> — озвучу на стриме за ${cfg.price} ${plural(cfg.price, ['балл', 'балла', 'баллов'])} 🔊`);
+            return;
+          }
+          if (text.length > 200) {
+            await engine.say(session, `@${session.login}, текст слишком длинный — максимум 200 символов (у тебя ${text.length})`);
+            return;
+          }
+          const lower = text.toLowerCase();
+          const bad = (Array.isArray(cfg.blocked) ? cfg.blocked : []).find((w) => w && lower.includes(String(w).toLowerCase()));
+          if (bad) {
+            await engine.say(session, `@${session.login}, тут запрещённое слово — скажи что-нибудь другое 🤫`);
+            return;
+          }
+          const cd = Math.max(0, Math.min(3600, Number(cfg.cooldown) || 0));
+          const key = `${session.broadcasterId}:say:${session.userId}`;
+          const last = engine._cool.get(key) || 0;
+          if (cd && Date.now() - last < cd * 1000) {
+            const left = Math.ceil((cd * 1000 - (Date.now() - last)) / 1000);
+            await engine.say(session, `@${session.login}, охлади пыл — следующая фраза через ${left} сек`);
+            return;
+          }
+          if (!overlay.clients.size) {
+            await engine.say(session, 'Оверлей не открыт (добавь его в OBS или открой в браузере) — баллы не списаны');
+            return;
+          }
+          if (cfg.price > 0 && !engine.points.spend(session.login, cfg.price)) {
+            await engine.say(session, `@${session.login}, нужно ${cfg.price} ${plural(cfg.price, ['балл', 'балла', 'баллов'])}, а у тебя меньше`);
+            return;
+          }
+          engine._cool.set(key, Date.now());
+          const who = session.displayName || session.login;
+          overlay.push({ kind: 'meme', channel: null, user: who, text: `🗣 ${who}: ${text}`, sound: '' });
+          await engine.say(session, `🔊 @${session.login}, озвучено за ${cfg.price} ${plural(cfg.price, ['балл', 'балла', 'баллов'])} (осталось: ${engine.points.balance(session.login)})`);
+        },
+      },
+
+      // ---------- магазин услуг (redemption store) ----------
+      заказ: {
+        level: 'everyone', label: 'заказать услугу: !заказ <название>',
+        async run(session, args) {
+          if (!engine.points) { await engine.say(session, 'Баллы не настроены'); return; }
+          if (!engine.services) { await engine.say(session, 'Магазин услуг не настроен'); return; }
+          const r = engine.services.order({ login: session.login, name: session.displayName, serviceName: args[0] ?? '' });
+          if (r.error) { await engine.say(session, `@${session.login}, ${r.error}`); return; }
+          if (r.list) {
+            await engine.say(session, `Услуги: ${r.list.slice(0, 6).join(' · ') || 'пока пусто — настроь в панели'}. Заказ: !заказ название 💎`);
+            return;
+          }
+          await engine.say(session, `🛎 @${session.login}, заказ «${r.order.service}» принят за ${r.price} ${plural(r.price, ['балл', 'балла', 'баллов'])} — ждём выполнения (баланс: ${engine.points.balance(session.login)})`);
+        },
+      },
+      заказы: {
+        level: 'mod', label: 'ждущие заказы: !заказы (мод+)',
+        async run(session) {
+          if (!engine.services) { await engine.say(session, 'Магазин услуг не настроен'); return; }
+          const list = engine.services.pending();
+          if (!list.length) { await engine.say(session, 'Ждущих заказов нет 🎉'); return; }
+          const rows = list.slice(0, 8).map((o) => `#${o.id} ${o.service} — @${o.login}`);
+          await engine.say(session, (`🛎 Ждут выполнения: ${rows.join(' · ')}`).slice(0, 480));
         },
       },
 
@@ -1003,6 +1094,13 @@ export function loadSettings() {
       port: 4455,         // порт WebSocket-сервера OBS
       password: '',       // пароль из «Настройки WebSocket-сервера» OBS (хранится локально)
       ...(stored.obs ?? {}),
+    },
+    say: {
+      enabled: true,
+      price: 50,      // баллов за фразу
+      cooldown: 60,   // сек между фразами одного зрителя
+      blocked: ['спам', 'реклама'], // запрещённые слова (подстрока) — заполняет стример
+      ...(stored.say ?? {}),
     },
   };
 }
