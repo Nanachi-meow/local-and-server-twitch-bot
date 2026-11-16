@@ -70,6 +70,13 @@
     font-size: 13px; color: rgba(255, 255, 255, .45);
     text-shadow: 0 1px 3px #000;
   }
+  /* подсказка: браузер запретил автозвук до первого клика по странице */
+  #mute-hint {
+    position: fixed; left: 10px; bottom: 30px;
+    font-size: 13px; color: rgba(255, 255, 255, .75);
+    background: rgba(10, 8, 20, .7); border-radius: 8px; padding: 4px 10px;
+    text-shadow: 0 1px 3px #000; cursor: pointer;
+  }
   /* виджет «сейчас играет» — только надпись, звук живёт на /music */
   #sr-now {
     position: fixed; right: 24px; top: 84px;
@@ -85,6 +92,7 @@
   <div id="stage"></div>
   <div id="sr-now" class="hidden"></div>
   <div id="events" hidden></div>
+  <div id="mute-hint" class="hidden" title="включить звук видео">🔇 клик — включить звук видео</div>
   <div id="conn">…</div>
 <script src="/sr-player.js"></script>
 <script>
@@ -233,9 +241,19 @@
       mediaEl = el.querySelector('video');
       if (mediaEl) {
         const v = vol(kindCfg?.soundVolume ?? 85);
-        mediaEl.muted = v <= 0; // нулевая громкость = mute (иначе браузер может не дать autoplay)
+        mediaEl.dataset.wantVol = String(v); // целевая громкость — пригодится после «разрешения звука»
+        mediaEl.muted = v <= 0;
         mediaEl.volume = Math.max(0.001, v);
-        mediaEl.play().catch(() => { mediaEl.muted = true; mediaEl.play().catch(() => {}); }); // политика автозапуска: звук не дали — играем без него
+        if (v > 0 && !userInteracted) {
+          // браузер без клика по странице не даёт автозвук: играем тихо и подсказываем
+          mediaEl.play().catch(() => {
+            mediaEl.muted = true;
+            mediaEl.play().catch(() => {});
+            showMuteHint();
+          });
+        } else {
+          mediaEl.play().catch(() => { mediaEl.muted = true; mediaEl.play().catch(() => {}); });
+        }
       }
     }
 
@@ -260,6 +278,26 @@
   function pump() {
     while (queue.length && active < MAX_ACTIVE) show(queue.shift());
   }
+
+  // ---------- звук видео: браузер требует клик до первого автовоспроизведения со звуком ----------
+  // в OBS Browser Source обычно можно и так; в обычном браузере — до первого клика глушим,
+  // потом включаем всем играющим видео их целевую громкость
+  let userInteracted = false;
+  function showMuteHint() {
+    const h = document.getElementById('mute-hint');
+    if (h && userInteracted) return;
+    if (h) h.classList.remove('hidden');
+  }
+  function unmuteAll() {
+    document.querySelectorAll('#stage video').forEach((v) => {
+      const want = Number(v.dataset.wantVol || 0);
+      if (want > 0) { v.muted = false; v.volume = Math.max(0.001, want); }
+    });
+    document.getElementById('mute-hint')?.classList.add('hidden');
+  }
+  document.addEventListener('pointerdown', () => { userInteracted = true; unmuteAll(); }, { once: false });
+  document.addEventListener('keydown', () => { userInteracted = true; unmuteAll(); }, { once: false });
+  document.getElementById('mute-hint').addEventListener('click', unmuteAll);
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

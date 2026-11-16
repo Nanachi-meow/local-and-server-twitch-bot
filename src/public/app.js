@@ -1006,6 +1006,18 @@ function amUpdatePreview() {
   const text = $('#am-template').value || 'текст плашки…';
   box.innerHTML = `<div class="am-alert am-k-${kind}">${mediaHTML}
     <div class="am-text">${esc(text)}<small>${AM_SUB[kind] || ''}</small></div></div>`;
+  // клик по видео в превью — послушать его с выбранной громкостью (mute/unmute)
+  const vid = box.querySelector('video');
+  if (vid) {
+    vid.muted = true;
+    vid.title = 'клик — послушать/заглушить видео';
+    vid.style.cursor = 'pointer';
+    vid.addEventListener('click', () => {
+      vid.muted = !vid.muted;
+      if (!vid.muted) vid.volume = Math.max(0.001, Math.min(1, Number($('#am-volume').value) / 100));
+      toast(vid.muted ? 'видео заглушено в превью' : `звук видео: ${$('#am-volume').value}%`);
+    });
+  }
 }
 
 function amRefreshCard() {
@@ -1066,7 +1078,6 @@ $('#am-save').addEventListener('click', async () => {
   };
   try {
     const s = await putSettings({ alerts: { [amKind]: alert } });
-    window.__settings = s;
     amRefreshCard();
     closeAlertModal();
     toast('Алерт сохранён ✅');
@@ -1203,6 +1214,7 @@ async function putSettings(patch) {
   renderAutoPin();
   renderTimers();
   renderRedemptions();
+  return st; // важно: модалка алерта и другие вызовы кладут это в window.__settings
 }
 
 $('#aso-save').addEventListener('click', async () => {
