@@ -406,15 +406,15 @@ async function loadCommands() {
   const body = $('#cmds-body');
   body.innerHTML = custom.map((c) => {
     const mode = cmdMode(c);
-    const variants = (c.variants || []).join(' | ');
+    const variants = c.variants || [];
     const contentCell = mode === 'variants'
-      ? `<input class="f-variants" value="${esc(variants)}" maxlength="480" title="варианты через |" />`
+      ? variantsListHTML(c)
       : `<input class="f-response" value="${esc(c.response || '')}" maxlength="480" title="${mode === 'roll' ? 'текст для чисел вне диапазонов' : 'текст ответа'}" ${mode === 'roll' ? 'placeholder="числа вне диапазонов (можно {roll})"' : ''} />`;
     return `
     <tr data-name="${esc(c.name)}">
       <td class="cellname"><code>!${esc(c.name)}</code> <span class="hint">${c.count || 0}×</span></td>
       <td class="celltype"><span class="chip" title="${esc(MODE_RU[mode])}">${MODE_ICON[mode]} ${MODE_RU[mode]}</span>${c.needsTarget ? '<span class="chip">🎯 @ник</span>' : ''}</td>
-      <td class="cellresp">${contentCell}${mode === 'roll' ? `<div class="hint">от ${c.rollMin ?? 0} до ${c.rollMax ?? 100}, диапазонов: ${(c.ranges || []).length} — настраивается во вкладке 🎭 Фан</div>` : ''}</td>
+      <td class="cellresp">${contentCell}${mode === 'roll' ? `<div class="hint">от ${c.rollMin ?? 0} до ${c.rollMax ?? 100}, диапазонов: ${(c.ranges || []).length} — меню в 🎭 Фан-командах ниже</div>` : ''}</td>
       <td class="celllevel">${accessBtnHTML('custom', c.name, c.level, c.allow)}</td>
       <td class="cellcd"><input class="f-cooldown" type="number" min="0" max="3600" value="${c.cooldown ?? 0}" /></td>
       <td class="cellon"><input class="f-enabled" type="checkbox" ${c.enabled !== false ? 'checked' : ''} /></td>
@@ -543,10 +543,55 @@ function rangeRowHTML(r = {}) {
     </div>`;
 }
 
+function variantRowHTML(v = '') {
+  return `
+    <div class="vr">
+      <input class="f-variant" value="${esc(v)}" maxlength="480" placeholder="вариант ответа — можно {user}, {target}, {random:1-100}" />
+      <button class="act ghost v-del" title="убрать вариант">✕</button>
+    </div>`;
+}
+
+/** Варианты: построчный редактор, свёрнутый в одну строку «вариантов: N» — разворачивается для правки. */
+function variantsListHTML(c) {
+  const list = c?.variants || [];
+  const preview = list.length
+    ? `${esc(String(list[0]).slice(0, 60))}${list[0].length > 60 || list.length > 1 ? '…' : ''}`
+    : 'пусто';
+  const extra = list.length > 1 ? ` <span class="hint">и ещё ${list.length - 1}</span>` : '';
+  return `
+    <details class="rp-sub">
+      <summary>🎲 вариантов: ${list.length} — ${preview}${extra}</summary>
+      <div class="f-variants-list">
+        ${list.map((v) => variantRowHTML(v)).join('')}
+        <button class="act ghost v-add">+ вариант</button>
+      </div>
+    </details>`;
+}
+
+// добавить/убрать вариант — работает в таблице, в фан-меню и в форме создания (делегирование)
+document.addEventListener('click', (e) => {
+  if (e.target.classList.contains('v-del')) {
+    e.target.closest('.vr')?.remove();
+    return;
+  }
+  if (e.target.classList.contains('v-add')) {
+    const list = e.target.closest('.f-variants-list');
+    if (!list) return;
+    e.target.insertAdjacentHTML('beforebegin', variantRowHTML(''));
+    const rows = list.querySelectorAll('.vr input.f-variant');
+    rows[rows.length - 1]?.focus();
+  }
+});
+
+/** Собрать варианты из построчного редактора. */
+function collectVariants(root) {
+  return [...(root?.querySelectorAll('.f-variant') ?? [])].map((i) => i.value.trim()).filter(Boolean);
+}
+
 function fanModeFieldsHTML(c, mode) {
   if (mode === 'variants') {
-    return `<label class="hint">варианты — по одному на строку (бот выбирает случайно)</label>
-      <textarea class="f-variants" rows="4" maxlength="2000" placeholder="шар говорит: да 🔮&#10;шар говорит: нет ❌">${esc((c.variants || []).join('\n'))}</textarea>`;
+    return `<label class="hint">варианты — по одному в строке, бот выбирает случайно</label>
+      ${variantsListHTML(c)}`;
   }
   if (mode === 'roll') {
     const ranges = (c.ranges || []).map((r) => rangeRowHTML(r)).join('') || '<p class="hint">диапазонов пока нет — жми «+ диапазон» (пример: 1 — «почти не хорни», 40-50 — «очень хорни»)</p>';
@@ -629,8 +674,8 @@ $('#cmds-body').addEventListener('click', async (e) => {
       cooldown: Number(row.querySelector('.f-cooldown').value || 0),
       enabled: row.querySelector('.f-enabled').checked,
     };
-    if (mode === 'variants' && row.querySelector('.f-variants')) {
-      body.variants = row.querySelector('.f-variants').value.split('|').map((s) => s.trim()).filter(Boolean);
+    if (mode === 'variants') {
+      body.variants = collectVariants(row);
     }
     if (row.querySelector('.f-response')) body.response = row.querySelector('.f-response').value;
     try {
@@ -714,7 +759,7 @@ $('#fan-list').addEventListener('click', async (e) => {
       enabled: item.querySelector('.f-enabled').checked,
     };
     if (mode === 'variants') {
-      body.variants = item.querySelector('.f-variants').value.split('\n').map((s) => s.trim()).filter(Boolean);
+      body.variants = collectVariants(item);
     } else if (mode === 'roll') {
       body.rollMin = Number(item.querySelector('.f-min').value ?? 0);
       body.rollMax = Number(item.querySelector('.f-max').value ?? 100);
@@ -740,7 +785,12 @@ $('#fan-add-mode').addEventListener('change', () => {
   const mode = $('#fan-add-mode').value;
   $('#fan-add-min').classList.toggle('hidden', mode !== 'roll');
   $('#fan-add-max').classList.toggle('hidden', mode !== 'roll');
-  const ph = { text: 'текст ответа — например: {user} обнимает {target} 🤗', variants: 'варианты через | — например: да 🔮 | нет ❌', roll: 'числа вне диапазонов (можно {roll}) — сами диапазоны добавишь в меню' };
+  $('#fan-add-text').classList.toggle('hidden', mode === 'variants');
+  $('#fan-add-variants').classList.toggle('hidden', mode !== 'variants');
+  if (mode === 'variants' && !$('#fan-add-variants .f-variant')) {
+    $('#fan-add-variants .f-variants-list').insertAdjacentHTML('afterbegin', variantRowHTML(''));
+  }
+  const ph = { text: 'текст ответа — например: {user} обнимает {target} 🤗', roll: 'числа вне диапазонов (можно {roll}) — сами диапазоны добавишь в меню' };
   $('#fan-add-text').placeholder = ph[mode] || ph.text;
 });
 
@@ -756,7 +806,10 @@ $('#fan-add-btn').addEventListener('click', async () => {
     chance: 100,
     enabled: true,
   };
-  if (mode === 'variants') body.variants = content.split('|').map((s) => s.trim()).filter(Boolean);
+  if (mode === 'variants') {
+    body.variants = collectVariants($('#fan-add-variants'));
+    if (!body.variants.length) { toast('Добавь хотя бы один вариант (кнопка «+ вариант»)', true); return; }
+  }
   else if (mode === 'roll') {
     body.rollMin = Number($('#fan-add-min').value ?? 0);
     body.rollMax = Number($('#fan-add-max').value ?? 100);
@@ -766,6 +819,11 @@ $('#fan-add-btn').addEventListener('click', async () => {
     await api('/api/commands', { method: 'PUT', body: JSON.stringify(body) });
     $('#fan-add-name').value = '';
     $('#fan-add-text').value = '';
+    const vl = $('#fan-add-variants .f-variants-list');
+    if (vl) {
+      vl.querySelectorAll('.vr').forEach((r) => r.remove());
+      vl.insertAdjacentHTML('afterbegin', variantRowHTML(''));
+    }
     toast('Команда создана ✅ Раскрыл её в списке — донастрой');
     loadCommands();
     const fresh = document.querySelector(`#fan-list .rp-item[data-name="${String(body.name).toLowerCase().replace(/^!/, '')}"]`);

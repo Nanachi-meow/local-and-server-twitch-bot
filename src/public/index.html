@@ -159,6 +159,10 @@
               <option value="roll">рандом-число</option>
             </select>
             <input id="fan-add-text" class="wide" maxlength="480" placeholder="текст ответа — например: {user} обнимает {target} 🤗" />
+          <div id="fan-add-variants" class="hidden">
+            <p class="hint">каждый вариант — своя строка, «+ вариант» добавляет новую</p>
+            <div class="f-variants-list"><button class="act ghost v-add">+ вариант</button></div>
+          </div>
             <input id="fan-add-min" type="number" min="0" max="1000000" value="0" style="width:64px" title="число от" />
             <input id="fan-add-max" type="number" min="0" max="1000000" value="100" style="width:64px" title="число до" />
             <button class="act" id="fan-add-btn">Создать</button>
