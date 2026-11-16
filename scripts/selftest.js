@@ -473,6 +473,8 @@ fs.writeFileSync(path.join(modsDir, 'mtest.js'), [
   "    'sub': async (ev, api) => { api.log(`sub:${ev.chatter_user_name}`); },",
   "    'redemption': async (ev, api) => { api.log(`redemption:${ev?.reward?.title}`); },",
   "  },",
+  "  async start(api) { globalThis.__mtestStarted = (globalThis.__mtestStarted || 0) + 1; api.setInterval(() => { globalThis.__mtestTicks = (globalThis.__mtestTicks || 0) + 1; }, 2); },",
+  "  async stop(api) { globalThis.__mtestStopped = (globalThis.__mtestStopped || 0) + 1; api.store.save(); },",
   "};",
 ].join('\n'), 'utf8');
 fs.writeFileSync(path.join(modsDir, 'mbroken.js'), "throw new Error('бум при загрузке');\n", 'utf8');
@@ -495,6 +497,12 @@ const brokenInfo = mm.list().find((m) => m.name === 'mbroken');
 ok('модуль: загрузился', Boolean(mInfo && !mInfo.error));
 ok('модуль: сломанный помечен ошибкой и не мешает остальным', Boolean(brokenInfo?.error) && !mInfo?.error);
 ok('модуль: настройки по умолчанию', mInfo.settings.chill === 5 && mInfo.settings.включен === true);
+
+// lifecycle + managed-таймеры: start вызван, interval зарегистрирован и тикает
+await new Promise((r) => setTimeout(r, 30));
+const ticksAfterStart = globalThis.__mtestTicks;
+ok('модуль: lifecycle start вызван, managed interval тикает',
+  globalThis.__mtestStarted === 1 && ticksAfterStart > 0 && (mm._timers.get('mtest')?.length ?? 0) >= 1);
 
 engine.setModules(mm);
 await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!модфакт', badges: [] });
@@ -519,15 +527,183 @@ mm.updateSettings('mtest', { chill: 10 });
 const storedMods = JSON.parse(fs.readFileSync(modsConfigFile, 'utf8'));
 ok('модуль: настройки сохраняются в файл', storedMods.settings.mtest.chill === 10);
 
-mm.setEnabled('mtest', false);
+await mm.setEnabled('mtest', false);
+await new Promise((r) => setTimeout(r, 40));
+ok('модуль: lifecycle stop вызван, managed interval очищен',
+  globalThis.__mtestStopped === 1 && globalThis.__mtestTicks === ticksAfterStart && !mm._timers.has('mtest'));
 const sentModBefore = sentMod.length;
 await mm.dispatch('channel.chat.message', { broadcaster_user_id: '200', chatter_user_id: '9', message: { text: '!модпеченька' } });
 ok('модуль: выключенный молчит', sentMod.length === sentModBefore && mm.findCommand('модфакт') === null);
 mm.setEnabled('mtest', true);
 
+// перехват chat.message: модуль-блокировщик + перезагрузка, чтобы бот его подхватил
+fs.writeFileSync(path.join(modsDir, 'mblock.js'), [
+  "export default {",
+  "  name: 'mblock',",
+  "  description: 'перехват чата для теста',",
+  "  events: { 'chat.message': async () => false },",
+  "};",
+].join('\n'), 'utf8');
+
 await mm.reload();
 ok('модуль: reload живой', mm.list().some((m) => m.name === 'mtest' && !m.error));
+
+const blockedRes = await mm.dispatch('channel.chat.message', { broadcaster_user_id: '200', chatter_user_id: '5', message: { text: 'перехвачено' } });
+ok('перехват: return false из хука chat.message блокирует событие', blockedRes === false);
+
+await mm.setEnabled('mblock', false);
+const passRes = await mm.dispatch('channel.chat.message', { broadcaster_user_id: '200', chatter_user_id: '5', message: { text: 'не блокировано' } });
+ok('перехват: без блок-хука событие проходит', passRes !== false);
+
 mm.stop();
+
+// ---------- модули: ПОЛНЫЙ API (helix/store/obs/overlay/timers/lifecycle/async-команды) ----------
+// грузим НАСТОЯЩИЕ модули из папки проекта: example.js + vip-activity.js
+const { fileURLToPath } = await import('node:url');
+const realModulesDir = fileURLToPath(new URL('../modules', import.meta.url));
+const storeDirApi = path.join(process.env.BOT_DATA_DIR, 'module-store-api');
+
+const helixApiCalls = [];
+const sentApi = [];
+const fakeHelixApi = {
+  call: async (method, p, { query, body } = {}) => {
+    helixApiCalls.push({ method, path: p, query, body });
+    if (method === 'GET' && p === '/channels/vips') {
+      return { data: [
+        { user_id: '55', user_login: 'sleepy', user_name: 'Sleepy' },
+        { user_id: '66', user_login: 'active', user_name: 'Active' },
+      ] };
+    }
+    if (method === 'DELETE' && p === '/channels/vips') return { data: [] };
+    if (method === 'GET' && p === '/users') return { data: [{ id: '42', login: query?.login, display_name: 'Vasya', created_at: '2020-01-01T00:00:00Z' }] };
+    return { data: [] };
+  },
+  sendMessage: async (b) => { sentApi.push({ ...b }); return { message_id: 'api-m' }; },
+  getUserByLogin: async (login) => ({ id: '55', login, display_name: login }),
+  getStreamByLogin: async () => null,
+  shoutout: async () => ({}),
+  announce: async () => ({}),
+};
+const fakeBcHelix = {
+  call: async (method, p, opts = {}) => {
+    helixApiCalls.push({ method, path: `bc:${p}`, query: opts?.query });
+    return { via: 'broadcaster' };
+  },
+};
+const obsSceneCalls = [];
+const fakeObsApi = {
+  async setCurrentProgramScene(name) { obsSceneCalls.push(name); },
+  async getSceneList() { return { scenes: ['Стрим', 'BRB'], current: 'Стрим' }; },
+  async setSceneItemEnabled(scene, source, visible) { obsSceneCalls.push([scene, source, visible]); },
+};
+
+const mm2 = new ModuleManager({
+  dir: realModulesDir,
+  configFile: path.join(process.env.BOT_DATA_DIR, 'modules-api.json'),
+  storeDir: storeDirApi,
+  helix: fakeHelixApi,
+  auth: fakeAuth,
+  logs,
+  channels: registry,
+  settings: { proxy: { enabled: false, url: '' } },
+  state: { running: true, counters: { messagesSeen: 5 } },
+  obs: fakeObsApi,
+  broadcasterAuth: { tokens: { accessToken: 'bc-token', userId: '7' } },
+  broadcasterHelix: fakeBcHelix,
+});
+
+await mm2.load();
+const exInfo = mm2.list().find((m) => m.name === 'example');
+const vipInfo = mm2.list().find((m) => m.name === 'vip-activity');
+ok('модули-примеры: example.js и vip-activity.js грузятся без ошибок',
+  Boolean(exInfo && !exInfo.error && vipInfo && !vipInfo.error));
+ok('модули: lifecycle start вызван (example и vip-activity)',
+  logs.system.items.some((l) => String(l?.message || '').includes('example загружен'))
+  && logs.system.items.some((l) => String(l?.message || '').includes('vip-activity: запущен')));
+ok('модули: managed interval зарегистрирован через api.setInterval в start',
+  (mm2._timers.get('example')?.length ?? 0) >= 1);
+
+// async-команды модулей через движок команд
+const engine3 = new CommandEngine({ helix: fakeHelixApi, auth: fakeAuth, logs, settings, state: { counters: {} } });
+engine3.setChannels(registry);
+engine3.setModules(mm2);
+await engine3.handleChatMessage({ broadcasterId: '200', userId: '7', login: 'vasya', displayName: 'Vasya', text: '!факт', badges: [] });
+ok('модули: строковая команда из example.js', sentApi.at(-1)?.text === 'Vasya, котики мурчат 🐱');
+await engine3.handleChatMessage({ broadcasterId: '200', userId: '7', login: 'vasya', displayName: 'Vasya', text: '!профиль @sleepy', badges: [] });
+ok('модули: async-команда дёргает api.helix.get',
+  helixApiCalls.some((c) => c.method === 'GET' && c.path === '/users' && c.query?.login === 'sleepy'));
+ok('модули: async-команда отвечает через api.say в канал команды',
+  sentApi.at(-1)?.text === 'Vasya — ID 42, создан 2020-01-01' && sentApi.at(-1)?.broadcasterId === '200');
+await engine3.handleChatMessage({ broadcasterId: '200', userId: '7', login: 'vasya', displayName: 'Vasya', text: '!счёт', badges: [] });
+ok('модули: store.get/set — счётчик вызовов', sentApi.at(-1)?.text === '!счёт вызван 1 раз(а)');
+await engine3.handleChatMessage({ broadcasterId: '200', userId: '8', login: 'petya', displayName: 'Petya', text: '!счёт', badges: [] });
+ok('модули: store инкрементируется между вызовами', sentApi.at(-1)?.text === '!счёт вызван 2 раз(а)');
+
+// хук chat.message из example.js
+await mm2.dispatch('channel.chat.message', { broadcaster_user_id: '200', chatter_user_id: '9', chatter_user_login: 'ping', chatter_user_name: 'Ping', message: { text: '!пинг' } });
+ok('модули: хук chat.message example-модуля отвечает', sentApi.at(-1)?.text === 'понг от example-модуля!');
+
+// lifecycle stop: store сохраняется на диск, managed-таймеры чистятся
+await mm2.setEnabled('example', false);
+ok('модули: stop сохраняет store в data/module-store/<имя>.json', (() => {
+  const f = path.join(storeDirApi, 'example.json');
+  return fs.existsSync(f) && JSON.parse(fs.readFileSync(f, 'utf8')).count === 2;
+})());
+ok('модули: managed interval очищен при stop', !mm2._timers.has('example'));
+
+// vip-activity: активный юзер пишет в чат (его VIP трогать нельзя)
+await mm2.dispatch('channel.chat.message', { broadcaster_user_id: '200', chatter_user_id: '66', chatter_user_login: 'active', chatter_user_name: 'Active', message: { text: 'я активный, не снимайте VIP!' } });
+
+// vip-activity: сухой прогон (dryRun=true — только предупреждение)
+const vipLogsBefore = logs.system.items.length;
+await mm2._fire('tick', { now: Date.now() });
+ok('vip-activity: dryRun — предупреждение без снятия', logs.system.items.slice(vipLogsBefore)
+  .some((l) => String(l?.message || '').includes('Sleepy неактивен') && String(l?.message || '').includes('dryRun')));
+ok('vip-activity: dryRun — DELETE не вызывается', !helixApiCalls.some((c) => c.method === 'DELETE'));
+
+// vip-activity: боевой прогон (dryRun=false)
+mm2.updateSettings('vip-activity', { dryRun: false, scanMinutes: 0 });
+const ovBus = (await import('../src/bot/alerts.js')).overlay;
+ovBus.clients.clear();
+const ovVip = [];
+ovBus.clients.add({ write: (s) => ovVip.push(String(s)) });
+await mm2._fire('tick', { now: Date.now() });
+ok('vip-activity: снимает VIP у неактивного',
+  helixApiCalls.some((c) => c.method === 'DELETE' && c.path === '/channels/vips' && c.query?.user_id === '55'));
+ok('vip-activity: активного не трогает', !helixApiCalls.some((c) => c.method === 'DELETE' && c.query?.user_id === '66'));
+ok('модули: overlay.push кидает алерт из модуля в шину', ovVip.some((s) => s.includes('"kind":"meme"') && s.includes('потерял VIP')));
+ovBus.clients.clear();
+
+// данные и состояние
+const vipApi = mm2.apiFor('vip-activity');
+ok('модули: api.state — счётчики и статус бота', vipApi.state.running === true && vipApi.state.counters.messagesSeen === 5);
+ok('модули: api.channels() отдаёт полные объекты каналов',
+  Array.isArray(vipApi.channels()) && vipApi.channels().some((c) => c.id === '200' && c.login === 'beta'));
+
+// Helix токеном стримера
+const bcRes = await vipApi.broadcaster.helix.get('/channel_points/custom_rewards', { broadcaster_id: '100' });
+ok('модули: api.broadcaster.helix ходит токеном стримера',
+  helixApiCalls.some((c) => c.path === 'bc:/channel_points/custom_rewards') && bcRes?.via === 'broadcaster');
+const noBcApi = mm.apiFor('mtest');
+const noBc = await noBcApi.broadcaster.helix.get('/anything');
+ok('модули: api.broadcaster.helix без входа стримера — понятная ошибка', noBc?.error === 'стример не залогинен');
+
+// OBS из модулей
+ok('модули: api.obs.getScenes отдаёт сцены', (await vipApi.obs.getScenes())?.scenes?.[0] === 'Стрим');
+await vipApi.obs.setScene('BRB');
+await vipApi.obs.toggleSource('Стрим', 'Webcam', false);
+ok('модули: api.obs.setScene/toggleSource вызываются',
+  obsSceneCalls[0] === 'BRB' && JSON.stringify(obsSceneCalls[1]) === JSON.stringify(['Стрим', 'Webcam', false]));
+ok('модули: api.obs без OBS — понятная ошибка', (await noBcApi.obs.getScenes())?.error === 'OBS не подключён');
+
+// api.stop(): модуль выключает сам себя и сохраняет store
+await vipApi.stop();
+ok('модули: api.stop() выключает модуль и сохраняет его store', (() => {
+  const f = path.join(storeDirApi, 'vip-activity.json');
+  const saved = fs.existsSync(f) && JSON.parse(fs.readFileSync(f, 'utf8'));
+  return Boolean(saved && saved['last:66'] && mm2.list().find((m) => m.name === 'vip-activity')?.enabled === false);
+})());
+
 
 // ---------- алерты оверлея: fire() пушит в шину ----------
 const { overlay } = await import('../src/bot/alerts.js');

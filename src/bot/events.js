@@ -57,14 +57,14 @@ export class EventProcessor {
     for (const [k, ts] of map) if (ts < cut) map.delete(k);
   }
 
-  async dispatch(type, event) {
+  async dispatch(type, event, opts = {}) {
     // критик: дедап-карты не должны расти бесконечно — подметаем изредка
     this._pruneRecent(this._recentRaids, 3_600_000);
     this._pruneRecent(this._recentFollows, 3_600_000);
     this._pruneRecent(this._autoSo, 86_400_000);
     switch (type) {
       case 'channel.chat.message':
-        await this.onChatMessage(event);
+        await this.onChatMessage(event, opts);
         break;
       case 'channel.chat.notification':
         await this.onChatNotification(event);
@@ -93,7 +93,8 @@ export class EventProcessor {
 
   // ---------------- чат ----------------
 
-  async onChatMessage(m) {
+  /** Обработка сообщения чата. skipCommands=true — модуль перехватил: к движку команд не пускаем. */
+  async onChatMessage(m, { skipCommands = false } = {}) {
     const bId = m?.broadcaster_user_id;
     const channel = this._isOurChannel(bId) ? (this.channels?.loginOf(bId) ?? null) : null;
     this.logs.chat.push({
@@ -109,6 +110,7 @@ export class EventProcessor {
     } catch (e) {
       this.logs.system.push({ level: 'error', message: `Автошатаут не сработал: ${e.message}` });
     }
+    if (skipCommands) return;
     try {
       await this.commands?.handleChatMessage({
         broadcasterId: bId,

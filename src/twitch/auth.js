@@ -5,6 +5,7 @@ import { TOKENS_FILE, loadJson, saveJson } from '../store.js';
 /** Скоупы, которые просим у бота при входе.
  *  user:read/write:chat — читать и писать чат через официальный Chat Bot API.
  *  moderator:* — фоллоу-ивенты, шатауты, анонсы, закрепы (бот должен быть модератором канала).
+ *  channel:*:vips — чтение/снятие VIP (модули: api.helix.get('/channels/vips') и т.п.).
  */
 export const SCOPES = [
   'user:read:chat',
@@ -13,6 +14,8 @@ export const SCOPES = [
   'moderator:manage:shoutouts',
   'moderator:manage:announcements',
   'moderator:manage:chat_messages',
+  'channel:read:vips',
+  'channel:manage:vips',
 ];
 
 const ID_URL = 'https://id.twitch.tv';

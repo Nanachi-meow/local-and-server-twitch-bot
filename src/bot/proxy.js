@@ -16,7 +16,7 @@ function parseProxyUrl(raw) {
 }
 
 /** Минимальный HTTP-клиент через прокси (CONNECT + TLS) на чистых модулях Node. */
-function requestViaProxy(proxyUrl, targetUrl, { method = 'GET', timeoutMs = 12_000 } = {}) {
+function requestViaProxy(proxyUrl, targetUrl, { method = 'GET', timeoutMs = 12_000, headers = {}, body } = {}) {
   const p = parseProxyUrl(proxyUrl);
   if (p.error) return Promise.reject(new Error(p.error));
   const target = new URL(targetUrl);
@@ -49,7 +49,12 @@ function requestViaProxy(proxyUrl, targetUrl, { method = 'GET', timeoutMs = 12_0
           servername: target.hostname,
           method,
           path: target.pathname + target.search,
-          headers: { Host: target.host, 'User-Agent': 'Mozilla/5.0 (local-twitch-bot)' },
+          headers: {
+            Host: target.host,
+            'User-Agent': 'Mozilla/5.0 (local-twitch-bot)',
+            ...headers,
+            ...(body !== undefined ? { 'Content-Length': Buffer.byteLength(String(body)) } : {}),
+          },
           timeout: timeoutMs,
         }, (resp) => {
           const chunks = [];
@@ -58,7 +63,7 @@ function requestViaProxy(proxyUrl, targetUrl, { method = 'GET', timeoutMs = 12_0
         });
         r.on('timeout', () => { r.destroy(new Error('таймаут запроса')); });
         r.on('error', finish);
-        r.end();
+        r.end(body === undefined ? undefined : String(body));
       };
       if (isTls) {
         const ts = tls.connect({ socket, servername: target.hostname }, () => send(ts));
@@ -78,20 +83,37 @@ function requestViaProxy(proxyUrl, targetUrl, { method = 'GET', timeoutMs = 12_0
  * Возвращает { status, body }. Прокси не настроен/выключен — идём напрямую.
  */
 export async function httpGet(url, proxy = null) {
+  return httpRequest(url, { proxy });
+}
+
+/**
+ * Произвольный HTTP-запрос (GET/POST/...) — напрямую или через прокси из настроек.
+ * body — строка или Buffer (объекты сериализует сам вызывающий).
+ * Возвращает { status, body }. Прокси не настроен/выключен — идём напрямую.
+ */
+export async function httpRequest(url, { proxy = null, method = 'GET', headers = {}, body, timeoutMs = 12_000 } = {}) {
   if (proxy?.enabled && proxy?.url) {
-    return requestViaProxy(proxy.url, url);
+    return requestViaProxy(proxy.url, url, { method, timeoutMs, headers, body });
   }
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const lib = u.protocol === 'https:' ? https : http;
-    const req = lib.request(u, { method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0 (local-twitch-bot)' }, timeout: 12_000 }, (res) => {
+    const req = lib.request(u, {
+      method,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (local-twitch-bot)',
+        ...headers,
+        ...(body !== undefined ? { 'Content-Length': Buffer.byteLength(String(body)) } : {}),
+      },
+      timeout: timeoutMs,
+    }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
     });
     req.on('timeout', () => { req.destroy(new Error('таймаут запроса')); });
     req.on('error', reject);
-    req.end();
+    req.end(body === undefined ? undefined : String(body));
   });
 }
 

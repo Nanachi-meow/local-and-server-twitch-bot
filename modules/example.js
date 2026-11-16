@@ -1,42 +1,59 @@
 /**
- * Пример модуля для бота. Копируй, переименовывай, меняй под себя —
- * правки подхватываются на лету, перезапускать бота не нужно.
- * Полный разбор — в README, раздел «Модули».
+ * Пример модуля: команды (строка + async-функция), хуки, хранилище, lifecycle.
+ * Копируй, переименовывай, меняй под себя — правки подхватываются на лету.
+ *
+ * ПОЛНЫЙ справочник API (helix/store/fetch/obs/overlay/таймеры/события) —
+ * в modules/vip-activity.js (гайд в шапке) и в ДОКУМЕНТАЦИЯ.md → «Модули».
  */
 export default {
   // имя для панели (дефолт — имя файла)
   name: 'example',
-  description: 'пример: команда !факт и !печенька с текстом из настроек',
+  description: 'пример: команды, хуки, хранилище, Helix API',
 
-  // настройки по умолчанию — их можно менять в панели, вкладка «🧩 Модули»
+  // настройки по умолчанию — правятся в панели, вкладка «🧩 Модули»
   settings: {
-    печенька: '🍪 {user} угощает {target} печенькой!',
-    сообщение: 'модуль example живой',
+    приветствие: 'Привет, {user}!',
   },
 
-  // декларативные команды: строка = простой текст-ответ,
-  // объект = полная схема как у фан-команд (mode/variants/roll/needsTarget/...)
+  // lifecycle: вызывается при загрузке и включении модуля
+  async start(api) {
+    api.log('example загружен');
+    // пример managed-интервала: очищается автоматически при остановке модуля
+    api.setInterval(() => {}, 60_000);
+  },
+
   commands: {
-    'факт': '{user}, котики мурчат на частоте 25–150 Гц 🐱',
-    'печеньимворлд': { mode: 'roll', rollMin: 0, rollMax: 100, chance: 100, cooldown: 5, response: '{user} стал печенькой на {roll}%', ranges: [
-      { from: 0, to: 33, text: '{user} слегка посыпан мукой: {roll}% печеньки 🥐' },
-      { from: 34, to: 66, text: '{user} наполовину печенька: {roll}% 🍪' },
-      { from: 67, to: 100, text: '{user} — просроченное печенько: {roll}% 🍪💀' },
-    ] },
+    // 1) строка = простой текст-ответ (шаблонные переменные работают)
+    'факт': '{user}, котики мурчат 🐱',
+
+    // 2) async-команда — полный доступ к API модуля
+    'профиль': async (session, args, api) => {
+      const target = args[0]?.replace(/^@/, '') || session.login;
+      const u = await api.helix.get('/users', { login: target });
+      if (u?.data?.[0]) {
+        await api.say(`${u.data[0].display_name} — ID ${u.data[0].id}, создан ${u.data[0].created_at?.split('T')[0]}`);
+      } else {
+        await api.say(`Не нашла ${target} 🤷`);
+      }
+    },
+
+    // 3) счётчик вызовов через персистентное хранилище (переживает рестарт)
+    'счёт': async (session, _, api) => {
+      const n = (api.store.get('count', 0) || 0) + 1;
+      api.store.set('count', n);
+      await api.say(`!счёт вызван ${n} раз(а)`);
+    },
   },
 
-  // хуки на события: async (событие, api) => {}
-  // api: say/announce/pin/shoutout, settings, saveSettings(), channel, channels(), log()
   events: {
+    // хуки: async (событие, api) => {} — return false заблокирует событие
     'chat.message': async (m, api) => {
-      const text = String(m?.message?.text ?? '');
-      if (!text.startsWith('!печенька')) return;
-      const target = (text.split(/\s+/)[1] ?? m.chatter_user_name).replace(/^@/, '');
-      const line = String(api.settings['печенька'] ?? '🍪 {user} угощает {target} печенькой!')
-        .replaceAll('{user}', m.chatter_user_name)
-        .replaceAll('{target}', target);
-      api.log(`печенька для ${target} в #${api.channel}`);
-      await api.say(line);
+      if (m?.message?.text === '!пинг') await api.say('понг от example-модуля!');
     },
+  },
+
+  // lifecycle: вызывается при выключении/перезагрузке — чистим и сохраняемся
+  async stop(api) {
+    api.store.save();
   },
 };

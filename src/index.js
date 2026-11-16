@@ -65,9 +65,26 @@ processor.setCommands(commands);
 
 const timers = new TimerRunner({ helix, auth, logs, settings, channels });
 
-const modules = new ModuleManager({ helix, auth, logs, channels });
+// OBS раньше модулей: api.obs у плагинов должен быть живым уже на их start()
+const obs = new ObsClient({ logs, settings });
+commands.setObs(obs);
+if (settings.obs?.enabled) obs.start(); // подключение к OBS при настроенном включении
+
+// Модули — полноправные плагины: им видны Helix (бота и стримера), хранилище,
+// OBS, оверлей, managed-таймеры и состояние бота.
+const modules = new ModuleManager({
+  helix,
+  auth,
+  logs,
+  channels,
+  settings,           // api.fetch → settings.proxy
+  state,              // api.state (счётчики, running)
+  obs,                // api.obs
+  broadcasterAuth: broadcaster,  // «Вход как стример» — api.broadcaster.helix
+  broadcasterHelix: helixBc,     // Helix-клиент с токеном стримера
+});
 commands.setModules(modules);
-await modules.load(); // файлы из modules/ — до старта сервера
+await modules.load(); // файлы из modules/ — до старта сервера (lifecycle start)
 modules.start(); // тик 'tick' каждые 20с + автоподхват правок файлов
 
 const songs = new SongsManager({ logs, settings });
@@ -80,14 +97,13 @@ const redemptions = new RedemptionRouter({ logs, settings });
 const quotes = new QuotesManager({ logs }); // цитаты канала: data/quotes.json, без таймеров
 commands.setQuotes(quotes);
 
-const obs = new ObsClient({ logs, settings });
-commands.setObs(obs);
-if (settings.obs?.enabled) obs.start(); // подключение к OBS при настроенном включении
-
 const socket = new EventSocket({
   helix,
   broadcasterHelix: helixBc, // подписки токеном стримера (награды канала)
-  onEvent: (type, event) => {
+  onEvent: async (type, event) => {
+    // модули видят событие первыми: хук chat.message может вернуть false — и заблокировать его
+    const passed = await modules.dispatch(type, event).catch(() => true);
+    if (passed === false) return; // перехвачено модулем
     if (type === 'channel.chat.message') {
       timers.noteChat(event); // счётчик для таймеров
     }
@@ -95,7 +111,6 @@ const socket = new EventSocket({
       redemptions.handle(event); // награды канала: лента + оверлей
     }
     processor.dispatch(type, event);
-    modules.dispatch(type, event).catch(() => {}); // хуки модулей (ошибки логируются внутри)
   },
   onLog: (message, level) => logs.system.push({ level, message }),
 });
@@ -707,7 +722,7 @@ const shutdown = async () => {
   logSystem('Останавливаюсь…', 'info');
   commands.flushCounters();
   timers.stop();
-  modules.stop();
+  await modules.stop(); // stop-хуки модулей + сохранение их хранилищ
   quotes.stop();
   obs.stop();
   broadcaster.stopAutoRefresh();
