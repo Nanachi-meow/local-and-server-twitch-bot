@@ -18,7 +18,7 @@ import {
 } from './config.js';
 import { SETTINGS_FILE, saveJson } from './store.js';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 const state = {
   startedAt: Date.now(),
