@@ -190,6 +190,22 @@ tr[data-type="random"] .f-response, tr[data-type="random"] .f-action { display: 
 .chip.preset:hover { filter: brightness(1.25); }
 .chip.preset:active { transform: scale(0.96); }
 
+/* сворачивающиеся гайды в панели */
+details.guide-box { margin: 12px 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+details.guide-box summary {
+  cursor: pointer; padding: 10px 14px; background: rgba(255,255,255,.04);
+  font-size: 14px; list-style: none; user-select: none;
+}
+details.guide-box summary::-webkit-details-marker { display: none; }
+details.guide-box summary::before { content: '▸ '; color: var(--muted); }
+details.guide-box[open] summary::before { content: '▾ '; }
+details.guide-box summary:hover { background: rgba(255,255,255,.07); }
+details.guide-box .guide-body { padding: 10px 16px; border-top: 1px solid var(--line); font-size: 14px; line-height: 1.6; }
+details.guide-box .guide-body ol { padding-left: 20px; margin: 4px 0; }
+details.guide-box .guide-body li { margin: 6px 0; }
+details.guide-box .guide-body code { cursor: pointer; }
+details.guide-box .guide-body code:hover { text-decoration: underline; }
+
 /* фан-команды: аккордеон-меню */
 .rp-item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; background: rgba(255, 255, 255, 0.02); }
 .rp-item summary { cursor: pointer; list-style: none; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }

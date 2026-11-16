@@ -392,6 +392,27 @@
     <section id="tab-settings" class="tabpane">
       <div class="card">
         <h2>🔌 Приложение и канал</h2>
+
+        <details class="guide-box">
+          <summary><b>📖 Где взять Client ID и Client Secret? (нажми — покажу гайд)</b></summary>
+          <div class="guide-body">
+            <ol>
+              <li>Открой <a href="https://dev.twitch.tv/console/apps" target="_blank" style="text-decoration:underline"><b>dev.twitch.tv/console/apps</b></a> (залогинься под своим <u>личным</u> аккаунтом Twitch). Если нет доступа — подтверди телефон в <a href="https://www.twitch.tv/settings/security" target="_blank" style="text-decoration:underline">настройках безопасности Twitch</a>.</li>
+              <li>Если приложений нет — жми <b>«Register Your Application»</b>: Name — любое, <b>OAuth Redirect URLs</b> — вставь <u>обе</u> строки ниже (кнопка «Add URL» для второй), Category — <b>Chat Bot</b> → <b>Create</b>.</li>
+              <li>Если приложение есть — жми <b>«Manage»</b> → проверь что в <b>OAuth Redirect URLs</b> есть обе строки:</li>
+            </ol>
+            <div style="padding:8px 12px; background:rgba(255,255,255,.06); border-radius:8px; margin:8px 0;">
+              <code style="cursor:pointer" onclick="navigator.clipboard.writeText('http://localhost:8080/auth/callback'); this.style.color='#22c55e'">http://localhost:8080/auth/callback ← для входа бота (клик = копировать)</code><br>
+              <code style="cursor:pointer" onclick="navigator.clipboard.writeText('http://localhost:8080/auth/broadcaster/callback'); this.style.color='#22c55e'">http://localhost:8080/auth/broadcaster/callback ← для входа стримера (клик = копировать)</code>
+            </div>
+            <ol start="4">
+              <li><b>Client ID</b> — копируй и вставь в поле ниже.</li>
+              <li>Рядом жми <b>«New Secret»</b> → появится <b>Client Secret</b> — тоже копируй и вставь.</li>
+              <li>Жми <b>«Сохранить»</b> в этой карточке — потом переходи к «Войти как бот» ниже.</li>
+            </ol>
+          </div>
+        </details>
+
         <div class="form">
           <label>Каналы, где работает бот <span class="hint">— твой канал и любые другие, где боту дали модератора. <u>Не аккаунт самого бота!</u> Добавление/удаление применяется на ходу.</span></label>
           <div class="chips" id="cfg-channels"></div>
@@ -416,6 +437,21 @@
           <a class="act" id="auth-login" href="/auth/bot">Войти как бот</a>
           <button class="act ghost" id="auth-logout">Выйти (сбросить токен)</button>
         </div>
+
+        <details class="guide-box">
+          <summary><b>📖 Как войти под ботом? (нажми — покажу гайд)</b></summary>
+          <div class="guide-body">
+            <ol>
+              <li><b>⚠️ Главное:</b> токен выдаётся тому, кто залогинен в Twitch в этом браузере. Если в обычном окне залогинен ты — открой <b>инкогнито</b> (Chrome: <code>Ctrl+Shift+N</code>).</li>
+              <li>В инкогнито зайди на <a href="https://twitch.tv" target="_blank" style="text-decoration:underline">twitch.tv</a> → залогинься <u>под аккаунтом бота</u> (не своим!).</li>
+              <li>Вернись в панель (обычное окно) → кнопка <b>«Войти как бот»</b> выше.</li>
+              <li>Twitch спросит «Разрешить доступ?» → <b>Authorize</b>. Убедись что в инкогнито залогинен именно бот (ник сверху справа).</li>
+              <li>Готово — панель покажет «Вход выполнен: ник_бота».</li>
+            </ol>
+            <p class="hint">После входа дай боту права модератора в своём чате: <code>/mod ник_бота</code> — без этого не работают шатауты, анонсы и фоллоу-приветствия.</p>
+          </div>
+        </details>
+
         <p class="hint">Бот войдёт под тем аккаунтом, под которым залогинен Twitch в этом браузере. Нужен <u>аккаунт бота</u> — если браузер держит твой стримерский, открой ссылку в инкогнито (сначала залогинься в Twitch как бот).<br>
         Учти: на канале бота нужно сделать модератором — <code>/mod имя_бота</code> в своём чате.</p>
       </div>
@@ -426,15 +462,27 @@
           <a class="act" id="broadcaster-login" href="/auth/broadcaster">Войти как стример</a>
           <button class="act ghost hidden" id="broadcaster-logout">Выйти (сбросить токен стримера)</button>
         </div>
-        <p class="hint" style="padding: 10px; border: 1px solid var(--line); border-radius: 8px; margin: 8px 0;">
-          <b>⚠️ Если «Войти как стример» выдаёт «redirect_uri does not match»</b>:<br>
-          1. Открой <a href="https://dev.twitch.tv/console/apps" target="_blank" style="text-decoration:underline">dev.twitch.tv/console/apps</a> → твоё приложение → <b>Manage</b><br>
-          2. В поле <b>OAuth Redirect URLs</b> нажми «Add URL» и вставь строкой ниже<br>
-          3. Жми <b>Update</b> внизу страницы → попробуй войти снова
-          <br><br>
-          <b>Адрес который нужно вставить</b> (клик — скопировать):<br>
-          <code class="copy" id="redirect-uri-broadcaster" style="display:block; padding:6px 10px; margin-top:4px; background:rgba(255,255,255,.06); border-radius:6px; cursor:pointer; font-size:15px;">http://localhost:8080/auth/broadcaster/callback</code>
-        </p>
+
+        <details class="guide-box">
+          <summary><b>📖 Зачем нужен «Вход как стример» и как его сделать</b></summary>
+          <div class="guide-body">
+            <p><b>Зачем:</b> Twitch отдаёт события списания наград канала <u>только токену владельца канала</u>. Бот с токеном модератора их не видит. Этот вход даёт боту разрешение слушать твои награды — один раз.</p>
+            <ol>
+              <li>Открой <a href="https://dev.twitch.tv/console/apps" target="_blank" style="text-decoration:underline"><b>dev.twitch.tv/console/apps</b></a> → твоё приложение → <b>Manage</b></li>
+              <li>В поле <b>OAuth Redirect URLs</b> нажми «Add URL» и вставь (клик = копировать):</li>
+            </ol>
+            <div style="padding:8px 12px; background:rgba(255,255,255,.06); border-radius:8px; margin:8px 0;">
+              <code style="cursor:pointer; display:block; font-size:14px;" onclick="navigator.clipboard.writeText('http://localhost:8080/auth/broadcaster/callback'); this.style.color='#22c55e'">http://localhost:8080/auth/broadcaster/callback</code>
+            </div>
+            <ol start="3">
+              <li>Жми <b>Update</b> внизу страницы</li>
+              <li>Вернись сюда → кнопка <b>«Войти как стример»</b> выше → Twitch спросит «Разрешить?» → <b>Authorize</b></li>
+              <li><b>⚠️ Важно:</b> логин — под <u>твоим стримерским</u> аккаунтом (тем, где твой канал), НЕ под ботом и НЕ в инкогнито (если браузер уже держит твой аккаунт — просто жми кнопку)</li>
+            </ol>
+            <p class="hint">Если всё равно пишет «redirect_uri does not match» — проверь что адрес скопирован без лишних пробелов и слэшей, совпадает порт (8080), и что ты нажал <b>Update</b> после добавления.</p>
+          </div>
+        </details>
+
         <p class="hint">Второй вход — под <u>твоим стримерским</u> аккаунтом (не бота!): события списания наград канала Twitch отдаёт только токену владельца канала. После входа бот видит каждое списание награды: пишет его в ленту событий и показывает в оверлее.</p>
         <h3>Награды, которые бот показывает</h3>
         <p class="hint">Название должно совпадать с наградой на Twitch (регистр не важен). Замапленные награды всплывают в оверлее (kind <code>redemption</code>) и попадают в ленту; остальные — только в ленту. Кулдаун (сек) ограничивает частоту overlay-алертов одного зрителя. Колонка «действие» — заготовка на будущее: привязка наград к песням/мемам/колесу появится отдельной фазой.</p>

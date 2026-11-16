@@ -159,8 +159,8 @@ node src/index.js
 
 ## ✨ Что умеет
 
-<details open>
-<summary><b>Нажми чтобы посмотреть все функции</b></summary>
+<details>
+<summary><b>✨ Что умеет (нажми чтобы посмотреть все 12 функций)</b></summary>
 
 | | |
 |---|---|
