@@ -124,7 +124,7 @@
         <p class="hint">Полный список: правь тексты, доступ, кулдауны. Режим ответа, таргет, шанс и диапазоны настраиваются в меню команды на вкладке <span class="goto-tab" data-tab="rp" style="text-decoration:underline">🎭 Фан</span>. В чате: <code>!addcmd !имя ответ</code>, <code>!editcmd</code>, <code>!delcmd</code> (мод+). Переменные: <code>{user}</code>, <code>{target}</code>, <code>{args}</code>, <code>{channel}</code>, <code>{uptime}</code>, <code>{game}</code>, <code>{random:1-100}</code>, в рандом-числе <code>{roll}</code>.</p>
         <table class="cmds" id="cmds-table">
           <thead>
-            <tr><th>Команда</th><th>Режим</th><th>Ответ / Варианты</th><th>Доступ</th><th>Кулдаун, сек</th><th>Вкл</th><th></th></tr>
+            <tr><th>Команда</th><th>Режим</th><th>Ответ / Варианты</th><th>Доступ</th><th>Кулдаун, сек</th><th>Цена, баллов</th><th>Вкл</th><th></th></tr>
           </thead>
           <tbody id="cmds-body"></tbody>
         </table>
@@ -138,7 +138,8 @@
             <option value="vip">vip</option>
             <option value="mod">моды</option>
           </select>
-          <input id="add-cooldown" type="number" min="0" max="3600" value="5" style="width:70px" />
+          <input id="add-cooldown" type="number" min="0" max="3600" value="5" style="width:70px" title="кулдаун, сек" />
+          <input id="add-cost" type="number" min="0" max="100000" value="0" style="width:80px" title="цена в баллах, 0 = бесплатно" />
           <button class="act" id="add-btn">Добавить</button>
         </div>
       </div>
@@ -327,6 +328,35 @@
           <tbody id="ms-body"></tbody>
         </table>
         <button class="act ghost" id="ms-add">+ мем</button>
+      </div>
+      <div class="card">
+        <h2>🗣 Говорилка (!сказать)</h2>
+        <p class="hint">Зритель пишет <code>!сказать текст</code> — баллы списываются, фраза всплывает в оверлее и звучит через TTS (если на вкладке «📺 Оверлей» включена озвучка). Чёрный список: фраза, содержащая любое из слов (по подстроке, без учёта регистра), отклоняется без списания. Максимум — 200 символов.</p>
+        <div class="evcard">
+          <label><input type="checkbox" id="say-enabled" /> говорилка включена</label>
+          <label>цена, баллов <input type="number" id="say-price" min="0" max="1000000" style="width:90px" /></label>
+          <label>кулдаун, сек <input type="number" id="say-cd" min="0" max="3600" style="width:70px" /></label>
+          <label>чёрный список слов (через запятую)</label>
+          <input type="text" id="say-blocked" maxlength="2000" placeholder="например: спам, реклама" />
+          <div class="row"><button class="act" id="say-save">Сохранить</button></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>🛎 Заказы (магазин услуг)</h2>
+        <p class="hint">Услуги за баллы с ручным выполнением: зритель пишет <code>!заказ название</code> — баллы списываются, заказ появляется в списке ниже. «✅ Выполнено» убирает заказ (остаётся в истории), «↩ Вернуть баллы» — возвращает баллы и убирает заказ. Запас: <b>0 = бесконечно</b>, число = сколько осталось; распроданные услуги помечаются сами (−1). Моды смотрят ждущих командой <code>!заказы</code>; у одного зрителя — не больше 5 ждущих заказов.</p>
+        <table class="cmds">
+          <thead><tr><th>Услуга</th><th>Описание</th><th>Цена</th><th>Запас</th><th>Вкл</th><th></th></tr></thead>
+          <tbody id="svc-body"></tbody>
+        </table>
+        <div class="row">
+          <button class="act ghost" id="svc-add">+ услуга</button>
+          <button class="act" id="svc-save">💾 Сохранить услуги</button>
+        </div>
+        <h3>Ждут выполнения</h3>
+        <table class="cmds">
+          <thead><tr><th>№</th><th>Услуга</th><th>Зритель</th><th>Когда</th><th></th></tr></thead>
+          <tbody id="svc-orders"></tbody>
+        </table>
       </div>
     </section>
 

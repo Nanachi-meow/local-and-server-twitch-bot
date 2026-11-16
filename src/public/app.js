@@ -295,13 +295,14 @@ async function loadCommands() {
         </select>
       </td>
       <td class="cellcd"><input class="f-cooldown" type="number" min="0" max="3600" value="${c.cooldown ?? 0}" /></td>
+      <td class="cellcd"><input class="f-cost" type="number" min="0" max="100000" value="${c.cost ?? 0}" title="цена в баллах, 0 = бесплатно" /></td>
       <td class="cellon"><input class="f-enabled" type="checkbox" ${c.enabled !== false ? 'checked' : ''} /></td>
       <td>
         <button class="act cmd-save">💾</button>
         <button class="act ghost cmd-del">🗑</button>
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="7" class="hint">Пока нет кастомных команд — добавь первую!</td></tr>';
+  }).join('') || '<tr><td colspan="8" class="hint">Пока нет кастомных команд — добавь первую!</td></tr>';
 
   $('#builtins').innerHTML = builtins.map((b) =>
     `<span class="chip" title="${esc(b.label)}">${esc(b.name)} · ${LEVEL_RU[b.level] ?? b.level} · ${esc(b.label)}</span>`
@@ -437,6 +438,7 @@ $('#cmds-body').addEventListener('click', async (e) => {
       ...orig,
       level: row.querySelector('.f-level').value,
       cooldown: Number(row.querySelector('.f-cooldown').value || 0),
+      cost: Number(row.querySelector('.f-cost').value || 0),
       enabled: row.querySelector('.f-enabled').checked,
     };
     if (mode === 'variants' && row.querySelector('.f-variants')) {
@@ -458,6 +460,7 @@ $('#add-btn').addEventListener('click', async () => {
     response: $('#add-content').value,
     level: $('#add-level').value,
     cooldown: Number($('#add-cooldown').value || 0),
+    cost: Number($('#add-cost').value || 0),
     enabled: true,
   };
   try {
@@ -904,7 +907,7 @@ $('#t-body').addEventListener('click', async (e) => {
 let __mediaList = [];
 
 async function loadPointsTab() {
-  const [pts, st, media] = await Promise.all([api('/api/points'), api('/api/settings'), api('/api/media')]);
+  const [pts, st, media, svc] = await Promise.all([api('/api/points'), api('/api/settings'), api('/api/media'), api('/api/services')]);
   __mediaList = media.files ?? [];
   const p = st.points ?? {};
   $('#pts-enabled').checked = Boolean(p.enabled);
@@ -951,6 +954,36 @@ async function loadPointsTab() {
     const sel = row.querySelector('.ms-sound');
     sel.value = (m.items ?? [])[i]?.sound || '';
   });
+
+  // говорилка (!сказать)
+  const say = st.say ?? {};
+  $('#say-enabled').checked = Boolean(say.enabled);
+  $('#say-price').value = say.price ?? 50;
+  $('#say-cd').value = say.cooldown ?? 60;
+  $('#say-blocked').value = (say.blocked ?? []).join(', ');
+
+  // магазин услуг: редактор + ждущие заказы
+  const svcStock = (n) => (n < 0 ? '−1 (распродано)' : String(n));
+  $('#svc-body').innerHTML = (svc.items ?? []).map((it) => `
+    <tr class="svc-row" data-id="${esc(it.id)}">
+      <td class="cellname"><input class="svc-name" value="${esc(it.name)}" maxlength="32" /></td>
+      <td class="cellresp"><input class="svc-text" value="${esc(it.text || '')}" maxlength="200" placeholder="что получает зритель" /></td>
+      <td class="cellcd"><input class="svc-price" type="number" min="0" max="1000000" value="${it.price ?? 100}" /></td>
+      <td class="cellcd"><input class="svc-stock" type="number" min="-1" max="100000" value="${it.stock ?? 0}" title="0 = бесконечно, число = сколько осталось, −1 = распродано" /></td>
+      <td class="cellon"><input class="svc-enabled" type="checkbox" ${it.enabled !== false ? 'checked' : ''} /></td>
+      <td><button class="act ghost svc-del" title="${svcStock(it.stock)}">🗑</button></td>
+    </tr>`).join('') || '<tr><td colspan="6" class="hint">услуг нет — добавь ниже</td></tr>';
+  $('#svc-orders').innerHTML = (svc.orders ?? []).map((o) => `
+    <tr data-id="${o.id}">
+      <td class="cellname">#${o.id}</td>
+      <td>${esc(o.service)}</td>
+      <td>@${esc(o.login)}</td>
+      <td class="hint">${fmtTime(o.at)} · ${o.price} 💎</td>
+      <td>
+        <button class="act svc-done" title="заказ выполнен — убрать из ждущих">✅ Выполнено</button>
+        <button class="act ghost svc-refund" title="вернуть баллы покупателю">↩ Вернуть баллы</button>
+      </td>
+    </tr>`).join('') || '<tr><td colspan="5" class="hint">заказов нет — зрители покупают командой !заказ название</td></tr>';
 }
 
 $('#pts-refresh').addEventListener('click', () => loadPointsTab().catch(() => {}));
@@ -1037,6 +1070,92 @@ $('#ms-save').addEventListener('click', async () => {
 
 $('#ms-body').addEventListener('click', (e) => {
   if (e.target.classList.contains('ms-del')) e.target.closest('tr')?.remove();
+});
+
+// ---------------- говорилка (!сказать) ----------------
+
+$('#say-save').addEventListener('click', async () => {
+  try {
+    await putSettings({
+      say: {
+        enabled: $('#say-enabled').checked,
+        price: Number($('#say-price').value) || 0,
+        cooldown: Number($('#say-cd').value) || 0,
+        blocked: $('#say-blocked').value.split(',').map((s) => s.trim()).filter(Boolean),
+      },
+    });
+    toast('Говорилка сохранена ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+// ---------------- магазин услуг (заказы) ----------------
+
+function collectServices() {
+  const items = [...document.querySelectorAll('#svc-body .svc-row')].map((row) => ({
+    id: row.dataset.id,
+    name: row.querySelector('.svc-name').value,
+    text: row.querySelector('.svc-text').value,
+    price: Number(row.querySelector('.svc-price').value) || 0,
+    stock: Number(row.querySelector('.svc-stock').value) || 0,
+    enabled: row.querySelector('.svc-enabled').checked,
+  })).filter((it) => it.name.trim());
+  return items;
+}
+
+$('#svc-add').addEventListener('click', () => {
+  $('#svc-body').insertAdjacentHTML('beforeend', `
+    <tr class="svc-row" data-id="svc-new-${Date.now()}">
+      <td class="cellname"><input class="svc-name" placeholder="дуэт" maxlength="32" /></td>
+      <td class="cellresp"><input class="svc-text" placeholder="что получает зритель" maxlength="200" /></td>
+      <td class="cellcd"><input class="svc-price" type="number" min="0" max="1000000" value="100" /></td>
+      <td class="cellcd"><input class="svc-stock" type="number" min="-1" max="100000" value="0" title="0 = бесконечно" /></td>
+      <td class="cellon"><input class="svc-enabled" type="checkbox" checked /></td>
+      <td><button class="act ghost svc-del">🗑</button></td>
+    </tr>`);
+});
+
+$('#svc-save').addEventListener('click', async () => {
+  try {
+    const { items, orders } = await api('/api/services', { method: 'PUT', body: JSON.stringify({ items: collectServices() }) });
+    toast('Услуги сохранены ✅');
+    // перерисуем таблицы из ответа сервера (id новых строк, свежие заказы)
+    $('#svc-body').innerHTML = (items ?? []).map((it) => `
+      <tr class="svc-row" data-id="${esc(it.id)}">
+        <td class="cellname"><input class="svc-name" value="${esc(it.name)}" maxlength="32" /></td>
+        <td class="cellresp"><input class="svc-text" value="${esc(it.text || '')}" maxlength="200" /></td>
+        <td class="cellcd"><input class="svc-price" type="number" min="0" max="1000000" value="${it.price}" /></td>
+        <td class="cellcd"><input class="svc-stock" type="number" min="-1" max="100000" value="${it.stock}" /></td>
+        <td class="cellon"><input class="svc-enabled" type="checkbox" ${it.enabled !== false ? 'checked' : ''} /></td>
+        <td><button class="act ghost svc-del">🗑</button></td>
+      </tr>`).join('');
+    $('#svc-orders').innerHTML = (orders ?? []).map((o) => `
+      <tr data-id="${o.id}">
+        <td class="cellname">#${o.id}</td>
+        <td>${esc(o.service)}</td>
+        <td>@${esc(o.login)}</td>
+        <td class="hint">${fmtTime(o.at)} · ${o.price} 💎</td>
+        <td><button class="act svc-done">✅ Выполнено</button> <button class="act ghost svc-refund">↩ Вернуть баллы</button></td>
+      </tr>`).join('') || '<tr><td colspan="5" class="hint">заказов нет — зрители покупают командой !заказ название</td></tr>';
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#svc-body').addEventListener('click', (e) => {
+  if (e.target.classList.contains('svc-del')) e.target.closest('tr')?.remove();
+});
+
+$('#svc-orders').addEventListener('click', async (e) => {
+  const row = e.target.closest('tr[data-id]');
+  if (!row) return;
+  const op = e.target.classList.contains('svc-done') ? 'done'
+    : e.target.classList.contains('svc-refund') ? 'refund' : null;
+  if (!op) return;
+  const id = Number(row.dataset.id);
+  if (op === 'refund' && !confirm(`Вернуть баллы за заказ #${id} и убрать его?`)) return;
+  try {
+    await api('/api/actions/serviceorder', { method: 'POST', body: JSON.stringify({ id, op }) });
+    toast(op === 'done' ? 'Заказ выполнен ✅' : 'Баллы возвращены ↩');
+    loadPointsTab().catch(() => {});
+  } catch (err) { toast(err.message, true); }
 });
 
 // ---------------- оверлей (алерты для OBS) ----------------
