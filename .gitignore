@@ -5,3 +5,8 @@ overlay-media/
 node_modules/
 *.log
 *.tmp
+
+# мусор ОС
+Thumbs.db
+desktop.ini
+.DS_Store
