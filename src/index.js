@@ -2,7 +2,7 @@ import { AuthManager, SCOPES } from './twitch/auth.js';
 import { BroadcasterAuth, BROADCASTER_SCOPES } from './twitch/broadcaster-auth.js';
 import { Helix, HelixError } from './twitch/helix.js';
 import { EventSocket } from './twitch/eventsub.js';
-import { CommandEngine, loadSettings, mergeTts, mergeEventList } from './bot/commands.js';
+import { CommandEngine, LEVELS, loadSettings, mergeTts, mergeEventList } from './bot/commands.js';
 import { EventProcessor } from './bot/events.js';
 import { TimerRunner } from './bot/timers.js';
 import { ModuleManager } from './bot/modules.js';
@@ -340,13 +340,34 @@ const app = {
 
   saveSettings(patch = {}) {
     // встроенные команды: вкл/выкл (панель шлёт полный список выключенных имён)
-    if (patch.builtins && typeof patch.builtins === 'object' && Array.isArray(patch.builtins.disabled)) {
+    if (patch.builtins && typeof patch.builtins === 'object') {
       const known = new Set(Object.keys(commands.builtins));
       settings.builtins ??= { disabled: [] };
       settings.builtins.disabled ??= [];
-      settings.builtins.disabled = patch.builtins.disabled
-        .map((n) => String(n || '').toLowerCase().replace(/^!/, ''))
-        .filter((n) => known.has(n));
+      settings.builtins.access ??= {};
+      if (Array.isArray(patch.builtins.disabled)) {
+        settings.builtins.disabled = patch.builtins.disabled
+          .map((n) => String(n || '').toLowerCase().replace(/^!/, ''))
+          .filter((n) => known.has(n));
+      }
+      // доступ встроенных: { [имя]: { level?, allow: [роли] } } — мержим по одной команде
+      if (patch.builtins.access && typeof patch.builtins.access === 'object') {
+        for (const [rawName, cfg] of Object.entries(patch.builtins.access)) {
+          const key = String(rawName).toLowerCase().replace(/^!/, '');
+          if (!known.has(key) || !cfg || typeof cfg !== 'object') continue;
+          const next = { ...(settings.builtins.access[key] ?? {}) };
+          if (cfg.level !== undefined) {
+            if (LEVELS[cfg.level] !== undefined) next.level = cfg.level;
+            else if (cfg.level === null || cfg.level === '') delete next.level;
+          }
+          if (Array.isArray(cfg.allow)) {
+            next.allow = [...new Set(cfg.allow
+              .map((r) => String(r).toLowerCase())
+              .filter((r) => LEVELS[r] !== undefined && r !== 'broadcaster'))]; // стример может всегда — в список не пишем
+          }
+          settings.builtins.access[key] = next;
+        }
+      }
     }
     // события
     if (patch.events && typeof patch.events === 'object') {

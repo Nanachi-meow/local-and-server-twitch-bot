@@ -103,6 +103,9 @@ export class CommandEngine {
     return {
       name: String(cmd?.name || ''),
       mode,
+      allow: [...new Set((Array.isArray(cmd?.allow) ? cmd.allow : [])
+        .map((r) => String(r).toLowerCase())
+        .filter((r) => LEVELS[r] !== undefined && r !== 'broadcaster'))], // строгий набор ролей; пустой = старое правило «уровень и выше»
       // ответ-одиночка (и заглушка для рандом-числа); старое РП-«действие» переезжает сюда
       response: String(cmd?.response || cmd?.action || '').trim().slice(0, 480),
       variants: (Array.isArray(cmd?.variants) ? cmd.variants : [])
@@ -187,6 +190,25 @@ export class CommandEngine {
     for (const [k, ts] of this._cool) if (ts < cut) this._cool.delete(k);
   }
 
+  /** Эффективный доступ команды: allow (набор ролей) сильнее level (иерархия).
+   *  Владелец канала может всё. Пустой allow = действует level. */
+  canUse(cmd, userRole, { builtinName = null } = {}) {
+    if (userRole === 'broadcaster') return true;
+    let level;
+    let allow = null;
+    if (builtinName) {
+      const b = this.builtins[builtinName] ?? {};
+      const ov = this.settings?.builtins?.access?.[builtinName] ?? {};
+      level = (LEVELS[ov.level] !== undefined && ov.level) ? ov.level : (b.level ?? 'everyone');
+      allow = Array.isArray(ov.allow) ? ov.allow : null;
+    } else {
+      level = cmd?.level ?? 'everyone';
+      allow = Array.isArray(cmd?.allow) ? cmd.allow : null;
+    }
+    if (allow?.length) return allow.map(String).includes(userRole);
+    return levelValue(userRole) >= levelValue(level);
+  }
+
   // ---------------- обработка сообщений чата ----------------
 
   /** Обработка сообщения чата. */
@@ -218,8 +240,7 @@ export class CommandEngine {
       displayName: displayName || login,
       level: userLevelName, // уровень вызвавшего — для субкоманд со своей проверкой прав (!цитата добавить, !ставка открыть)
     };
-    const needLevel = custom ? custom.level : (builtin ? builtin.level : modCmd.level);
-    if (levelValue(userLevelName) < levelValue(needLevel)) {
+    if (!this.canUse(cmd, userLevelName, { builtinName: builtin ? name : null })) {
       return false; // молча игнорируем тех, кому нельзя
     }
 
@@ -812,14 +833,18 @@ export class CommandEngine {
   }
 
   builtinInfo() {
-    return Object.entries(this.builtins).map(([name, b]) => ({
-      name: `!${name}`,
-      level: b.level,
-      label: b.label,
-      desc: b.desc || b.label,
-      enabled: this.builtinEnabled(name),
-      builtin: true,
-    }));
+    return Object.entries(this.builtins).map(([name, b]) => {
+      const ov = this.settings?.builtins?.access?.[name] ?? {};
+      return {
+        name: `!${name}`,
+        level: (LEVELS[ov.level] !== undefined && ov.level) ? ov.level : b.level,
+        allow: Array.isArray(ov.allow) ? ov.allow : [],
+        label: b.label,
+        desc: b.desc || b.label,
+        enabled: this.builtinEnabled(name),
+        builtin: true,
+      };
+    });
   }
 }
 
@@ -968,6 +993,7 @@ export function loadSettings() {
     },
     builtins: {
       disabled: [], // имена выключенных встроенных команд (панель: вкладка «Команды → Встроенные»)
+      access: {}, // доступ встроенных: { [имя]: { level?, allow: [роли] } } — сильнее дефолтного level
       ...(stored.builtins ?? {}),
     },
     songs: {

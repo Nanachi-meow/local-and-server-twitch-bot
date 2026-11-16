@@ -295,6 +295,104 @@ async function poll() {
 // ---------------- команды ----------------
 
 const LEVEL_RU = { everyone: 'все', sub: 'сабы', vip: 'vip', mod: 'моды', broadcaster: 'стример' };
+
+// ---------------- доступ: набор ролей (контекстное меню) ----------------
+
+const ACCESS_ROLES = [
+  ['everyone', '🎭 все'],
+  ['sub', '💜 сабы'],
+  ['vip', '💎 випы'],
+  ['mod', '🛡 моды'],
+];
+const ACCESS_ORDER = { everyone: 0, sub: 1, vip: 2, mod: 3, broadcaster: 4 };
+
+function accessSummary(allow, level) {
+  const a = (Array.isArray(allow) ? allow : []).filter(Boolean);
+  if (a.length) {
+    return [...a].sort((x, y) => (ACCESS_ORDER[x] ?? 9) - (ACCESS_ORDER[y] ?? 9))
+      .map((r) => LEVEL_RU[r] ?? r).join(' + ');
+  }
+  const l = level || 'everyone';
+  return l === 'everyone' ? 'все' : `${LEVEL_RU[l] ?? l}+`;
+}
+
+/** HTML кнопки выбора доступа. kind: 'custom' (сохранение через 💾) или 'builtin' (применяется сразу). */
+function accessBtnHTML(kind, cmdOrName, level, allow) {
+  const allowStr = (Array.isArray(allow) ? allow : []).filter(Boolean).join(',');
+  const attrs = kind === 'builtin'
+    ? `data-kind="builtin" data-cmd="${esc(String(cmdOrName).replace(/^!/, ''))}"`
+    : 'data-kind="custom"';
+  return `<button class="act ghost apicker-btn" ${attrs} data-level="${esc(level || 'everyone')}" data-allow="${esc(allowStr)}" title="кому можно использовать — ткни чтобы выбрать">${esc(accessSummary(allow, level))}</button>`;
+}
+
+// одно меню на всю панель: открывается у кнопки, живёт пока не ткнешь мимо
+const apickerMenu = $('#apicker-menu');
+let apickerTarget = null;
+
+function openAccessMenu(btn) {
+  apickerTarget = btn;
+  const level = btn.dataset.level || 'everyone';
+  const allow = (btn.dataset.allow || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const checked = allow.length ? allow : [level];
+  apickerMenu.innerHTML = `
+    ${ACCESS_ROLES.map(([r, label]) => `
+      <label><input type="checkbox" data-role="${r}" ${checked.includes(r) ? 'checked' : ''} /> ${label}</label>
+    `).join('')}
+    <div class="ap-note hint">👑 Владелец канала может всегда. Пусто — действует уровень «${esc(LEVEL_RU[level] ?? level)} и выше».</div>
+  `;
+  apickerMenu.classList.remove('hidden');
+  const rect = btn.getBoundingClientRect();
+  const menuRect = apickerMenu.getBoundingClientRect();
+  let top = rect.bottom + 6;
+  if (top + menuRect.height > window.innerHeight - 8) top = Math.max(8, rect.top - menuRect.height - 6);
+  apickerMenu.style.top = `${top}px`;
+  apickerMenu.style.left = `${Math.min(rect.left, window.innerWidth - menuRect.width - 8)}px`;
+}
+
+function closeAccessMenu() {
+  apickerMenu.classList.add('hidden');
+  apickerTarget = null;
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.apicker-btn');
+  if (btn) {
+    e.preventDefault();
+    if (apickerTarget === btn) { closeAccessMenu(); return; }
+    openAccessMenu(btn);
+    return;
+  }
+  if (!e.target.closest('#apicker-menu')) closeAccessMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAccessMenu(); });
+
+apickerMenu.addEventListener('change', async (e) => {
+  if (!e.target.dataset?.role || !apickerTarget) return;
+  const btn = apickerTarget;
+  const role = e.target.dataset.role;
+  let roles = [...apickerMenu.querySelectorAll('input[data-role]:checked')].map((i) => i.dataset.role);
+  if (role === 'everyone' && e.target.checked) roles = ['everyone']; // «все» включает остальных
+  else if (e.target.checked && roles.includes('everyone') && role !== 'everyone') {
+    roles = roles.filter((r) => r !== 'everyone'); // выбрали конкретную роль — «все» снимается
+  }
+  // перерисовать галочки согласно логике выше
+  apickerMenu.querySelectorAll('input[data-role]').forEach((i) => { i.checked = roles.includes(i.dataset.role); });
+  btn.dataset.allow = roles.join(',');
+  btn.textContent = roles.length ? accessSummary(roles) : accessSummary([], btn.dataset.level);
+
+  if (btn.dataset.kind === 'builtin' && btn.dataset.cmd) {
+    try {
+      await api('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ builtins: { access: { [btn.dataset.cmd]: { allow: roles } } } }),
+      });
+      toast(`!${btn.dataset.cmd}: доступ — ${roles.length ? accessSummary(roles) : 'по умолчанию'}`);
+    } catch (err) {
+      toast(err.message, true);
+    }
+  }
+  // кастомные: сохраняется кнопкой 💾 строки (как остальные поля)
+});
 const MODE_RU = { text: 'один ответ', variants: 'несколько вариантов', roll: 'рандом-число' };
 const MODE_ICON = { text: '💬', variants: '🎲', roll: '#️⃣' };
 const cmdMode = (c) => c.mode || (c.type === 'random' ? 'variants' : 'text');
@@ -303,6 +401,7 @@ let __cmdCache = [];
 
 async function loadCommands() {
   const { custom, builtins } = await api('/api/commands');
+  closeAccessMenu(); // таблица перерисовалась — старая кнопка могла исчезнуть
   __cmdCache = custom;
   const body = $('#cmds-body');
   body.innerHTML = custom.map((c) => {
@@ -316,11 +415,7 @@ async function loadCommands() {
       <td class="cellname"><code>!${esc(c.name)}</code> <span class="hint">${c.count || 0}×</span></td>
       <td class="celltype"><span class="chip" title="${esc(MODE_RU[mode])}">${MODE_ICON[mode]} ${MODE_RU[mode]}</span>${c.needsTarget ? '<span class="chip">🎯 @ник</span>' : ''}</td>
       <td class="cellresp">${contentCell}${mode === 'roll' ? `<div class="hint">от ${c.rollMin ?? 0} до ${c.rollMax ?? 100}, диапазонов: ${(c.ranges || []).length} — настраивается во вкладке 🎭 Фан</div>` : ''}</td>
-      <td class="celllevel">
-        <select class="f-level">
-          ${['everyone', 'sub', 'vip', 'mod'].map((l) => `<option value="${l}" ${c.level === l ? 'selected' : ''}>${LEVEL_RU[l]}</option>`).join('')}
-        </select>
-      </td>
+      <td class="celllevel">${accessBtnHTML('custom', c.name, c.level, c.allow)}</td>
       <td class="cellcd"><input class="f-cooldown" type="number" min="0" max="3600" value="${c.cooldown ?? 0}" /></td>
       <td class="cellon"><input class="f-enabled" type="checkbox" ${c.enabled !== false ? 'checked' : ''} /></td>
       <td>
@@ -334,7 +429,7 @@ async function loadCommands() {
     <tr data-name="${esc(String(b.name).replace(/^!/, ''))}" class="${b.enabled ? '' : 'off'}">
       <td class="cellname"><code>${esc(b.name)}</code></td>
       <td class="cellresp"><span title="${esc(b.label)}">${esc(b.desc || b.label)}</span></td>
-      <td class="celllevel">${LEVEL_RU[b.level] ?? b.level}</td>
+      <td class="celllevel">${accessBtnHTML('builtin', b.name, b.level, b.allow)}</td>
       <td class="cellon"><input class="b-enabled" type="checkbox" ${b.enabled ? 'checked' : ''} /></td>
     </tr>`).join('') || '<tr><td colspan="4" class="hint">Встроенных команд нет 🤷</td></tr>';
 
@@ -489,9 +584,7 @@ function fanItemHTML(c) {
         <label class="hint"><input class="f-target" type="checkbox" ${c.needsTarget ? 'checked' : ''} /> 🎯 нужен @ник</label>
         <label class="hint">шанс % <input class="f-chance" type="number" min="0" max="100" value="${c.chance ?? 100}" title="0 — молчит всегда, 100 — отвечает всегда" /></label>
         <label class="hint">кулдаун, сек <input class="f-cooldown" type="number" min="0" max="3600" value="${c.cooldown ?? 0}" /></label>
-        <label class="hint">доступ
-          <select class="f-level">${['everyone', 'sub', 'vip', 'mod'].map((l) => `<option value="${l}" ${c.level === l ? 'selected' : ''}>${LEVEL_RU[l]}</option>`).join('')}</select>
-        </label>
+        <label class="hint">доступ ${accessBtnHTML('custom', c.name, c.level, c.allow)}</label>
         <label class="hint"><input class="f-enabled" type="checkbox" ${c.enabled !== false ? 'checked' : ''} /> вкл</label>
       </div>
       <div class="f-mode-fields">${fanModeFieldsHTML(c, mode)}</div>
@@ -528,9 +621,11 @@ $('#cmds-body').addEventListener('click', async (e) => {
     const orig = __cmdCache.find((c) => c.name === name) ?? { name };
     const mode = cmdMode(orig);
     // сохраняем поверх исходника: режимы/диапазоны/таргет не теряются
+    const accessBtn = row.querySelector('.apicker-btn');
     const body = {
       ...orig,
-      level: row.querySelector('.f-level').value,
+      level: accessBtn?.dataset.level || orig.level || 'everyone',
+      allow: (accessBtn?.dataset.allow || '').split(',').map((s) => s.trim()).filter(Boolean),
       cooldown: Number(row.querySelector('.f-cooldown').value || 0),
       enabled: row.querySelector('.f-enabled').checked,
     };
@@ -606,6 +701,7 @@ $('#fan-list').addEventListener('click', async (e) => {
   }
   if (e.target.classList.contains('f-save')) {
     const mode = item.querySelector('.f-mode')?.value || cmdMode(orig);
+    const accessBtn = item.querySelector('.apicker-btn');
     const body = {
       ...orig,
       name,
@@ -613,7 +709,8 @@ $('#fan-list').addEventListener('click', async (e) => {
       needsTarget: item.querySelector('.f-target').checked,
       chance: Number(item.querySelector('.f-chance').value ?? 100),
       cooldown: Number(item.querySelector('.f-cooldown').value || 0),
-      level: item.querySelector('.f-level').value,
+      level: accessBtn?.dataset.level || orig.level || 'everyone',
+      allow: (accessBtn?.dataset.allow || '').split(',').map((s) => s.trim()).filter(Boolean),
       enabled: item.querySelector('.f-enabled').checked,
     };
     if (mode === 'variants') {

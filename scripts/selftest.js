@@ -109,6 +109,32 @@ ok('встроенные: builtinInfo с enabled', info.find((b) => b.name === '
   && info.find((b) => b.name === '!game')?.enabled === true);
 settings.builtins = { disabled: [] }; // возвращаем как было — настройка общая для других движков
 
+// ---------- доступ: набор ролей (allow) вместо одного уровня ----------
+engine.upsert({ name: 'танцы', response: '{user} танцует 💃', allow: ['mod', 'vip'], cooldown: 0 });
+const tryRole = async (badges, userId) =>
+  await engine.handleChatMessage({ userId, login: `u${userId}`, displayName: `U${userId}`, text: '!танцы', badges });
+ok('доступ: вип из набора может', await tryRole([{ set_id: 'vip' }], '50') === true);
+ok('доступ: мод из набора может', await tryRole([{ set_id: 'moderator' }], '51') === true);
+ok('доступ: саб НЕ из набора — нельзя', await tryRole([{ set_id: 'subscriber' }], '52') === false);
+ok('доступ: зритель НЕ из набора — нельзя', await tryRole([], '53') === false);
+ok('доступ: стример может всегда', await tryRole([], '100') === true);
+
+// legacy level не сломался: иерархия «уровень и выше»
+const secRan = await engine.handleChatMessage({ userId: '54', login: 'viewer2', displayName: 'V2', text: '!секрет', badges: [] });
+ok('доступ: старый level (моды+) — зрителю нельзя', secRan === false);
+
+// переопределение доступа встроенной (settings.builtins.access)
+settings.builtins.access = { so: { allow: ['vip'] } };
+const soVip = await engine.handleChatMessage({ userId: '55', login: 'vipguy', displayName: 'VipGuy', text: '!so @target', badges: [{ set_id: 'vip' }] });
+ok('доступ: встроенная переопределена — вип может', soVip === true);
+const soMod = await engine.handleChatMessage({ userId: '56', login: 'modguy2', displayName: 'ModGuy2', text: '!so @target', badges: [{ set_id: 'moderator' }] });
+ok('доступ: встроенная переопределена — мод больше не может', soMod === false);
+const soInfo = engine.builtinInfo().find((b) => b.name === '!so');
+ok('доступ: builtinInfo отдаёт allow', Array.isArray(soInfo.allow) && soInfo.allow.includes('vip'));
+settings.builtins.access = {}; // откат — дефолтные права встроенных
+const soModBack = await engine.handleChatMessage({ userId: '56', login: 'modguy2', displayName: 'ModGuy2', text: '!so @target', badges: [{ set_id: 'moderator' }] });
+ok('доступ: после отката мод снова может', soModBack === true);
+
 // ---------- типы команд: РП и рандом ----------
 engine.upsert({ name: 'обнять', type: 'rp', action: '{user} крепко обнимает {target} 🤗', level: 'everyone', cooldown: 0 });
 await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!обнять @petya', badges: [] });
