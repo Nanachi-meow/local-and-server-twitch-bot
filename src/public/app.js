@@ -647,6 +647,7 @@ async function loadSettings() {
   renderAso();
   renderAutoPin();
   renderTimers();
+  renderObs();
 }
 
 $('#events-list').addEventListener('click', async (e) => {
@@ -688,6 +689,50 @@ $('#so-save').addEventListener('click', async () => {
     });
     toast('Шаблон шатаута сохранён ✅');
   } catch (e) { toast(e.message, true); }
+});
+
+// ---------------- OBS (obs-websocket 5) ----------------
+
+function renderObs() {
+  const o = window.__settings?.obs;
+  if (!o) return;
+  $('#obs-enabled').checked = Boolean(o.enabled);
+  $('#obs-host').value = o.host ?? '127.0.0.1';
+  $('#obs-port').value = o.port ?? 4455;
+  $('#obs-password').value = '';
+  $('#obs-result').textContent = '';
+}
+
+$('#obs-save').addEventListener('click', async () => {
+  const host = String($('#obs-host').value).trim();
+  const port = Number($('#obs-port').value);
+  if (!host) { toast('Укажи хост OBS (обычно 127.0.0.1)', true); return; }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) { toast('Порт OBS — целое число 1–65535', true); return; }
+  const obs = { enabled: $('#obs-enabled').checked, host, port };
+  if ($('#obs-password').value) obs.password = $('#obs-password').value; // пустое поле — не затираем сохранённый пароль
+  try {
+    await putSettings({ obs });
+    renderObs();
+    toast('Настройки OBS сохранены ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#obs-test').addEventListener('click', async () => {
+  const btn = $('#obs-test');
+  const out = $('#obs-result');
+  btn.disabled = true;
+  out.textContent = 'Проверяю связь с OBS…';
+  try {
+    const body = { host: String($('#obs-host').value).trim(), port: Number($('#obs-port').value) || 4455 };
+    if ($('#obs-password').value) body.password = $('#obs-password').value;
+    const r = await api('/api/actions/obstest', { method: 'POST', body: JSON.stringify(body) });
+    const scenes = Array.isArray(r.scenes) ? r.scenes.join(', ') : '—';
+    out.textContent = `✅ OBS на связи${r.current ? ` — сейчас сцена: ${r.current}` : ''}. Сцены: ${scenes}`;
+  } catch (e) {
+    out.textContent = `❌ ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 // ---------------- автошатауты ----------------

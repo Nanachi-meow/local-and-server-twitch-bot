@@ -8,6 +8,7 @@ import { ModuleManager } from './bot/modules.js';
 import { PointsManager } from './bot/points.js';
 import { QuotesManager } from './bot/quotes.js';
 import { BetsManager } from './bot/bets.js';
+import { ObsClient } from './bot/obs.js';
 import { overlay } from './bot/alerts.js';
 import { createHttpServer } from './server.js';
 import { logs } from './logs.js';
@@ -75,6 +76,10 @@ const bets = new BetsManager({ logs, settings });
 commands.setBets(bets);
 bets.setPoints(points); // для авто-возвратов по таймауту
 bets.start(); // раз в 5 сек закрывает просроченные ставки/дуэли с возвратом баллов
+
+const obs = new ObsClient({ logs, settings });
+commands.setObs(obs);
+if (settings.obs?.enabled) obs.start(); // подключение к OBS при настроенном включении
 
 const socket = new EventSocket({
   helix,
@@ -210,6 +215,7 @@ const app = {
   points,
   quotes,
   bets,
+  obs,
   socket,
   logs,
   settings,
@@ -388,6 +394,16 @@ const app = {
       if (a.maxBet !== undefined) cur.maxBet = Math.max(cur.minBet, Math.min(1_000_000, Number(a.maxBet) || 1000));
       if (a.duelCooldown !== undefined) cur.duelCooldown = Math.max(0, Math.min(3600, Number(a.duelCooldown) || 60));
     }
+    // OBS (obs-websocket 5)
+    if (patch.obs && typeof patch.obs === 'object') {
+      const a = patch.obs;
+      const cur = settings.obs;
+      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (a.host !== undefined) cur.host = String(a.host).trim().slice(0, 100) || '127.0.0.1';
+      if (a.port !== undefined) cur.port = Math.max(1, Math.min(65535, Math.round(Number(a.port) || 4455)));
+      if (a.password !== undefined) cur.password = String(a.password ?? '').slice(0, 200);
+      obs.reconfigure(); // вкл/выкл/смена адреса применяется сразу, без перезапуска
+    }
     saveJson(SETTINGS_FILE, settings);
   },
 
@@ -511,6 +527,21 @@ const app = {
         });
         return { tested: body.kind || 'follow' };
       }
+      case 'obstest': {
+        // значения из формы (если юзер ещё не сохранил) поверх сохранённых
+        const cur = settings.obs;
+        const host = String(body.host || cur.host || '127.0.0.1').trim() || '127.0.0.1';
+        const port = Math.max(1, Math.min(65535, Math.round(Number(body.port) || Number(cur.port) || 4455)));
+        const password = String(body.password ?? '') !== '' ? String(body.password) : String(cur.password ?? '');
+        // если основной клиент уже подключён этими настройками — просто спросить сцены
+        if (obs.status === 'connected' && obs.sameConfig(host, port, password)) {
+          const list = await obs.getSceneList();
+          return { scenes: list.scenes, current: list.current };
+        }
+        const probe = new ObsClient({ logs, settings: { obs: { enabled: true, host, port, password } } });
+        const list = await probe.test();
+        return { scenes: list.scenes, current: list.current };
+      }
       case 'modulesreload': {
         await modules.reload();
         return { modules: modules.list().length };
@@ -604,6 +635,7 @@ const shutdown = async () => {
   bets.stop();
   points.stop();
   quotes.stop();
+  obs.stop();
   await socket.stop();
   server.close();
   process.exit(0);

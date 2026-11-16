@@ -418,6 +418,22 @@
         <p class="hint">Бот войдёт под тем аккаунтом, под которым залогинен Twitch в этом браузере. Нужен <u>аккаунт бота</u> — если браузер держит твой стримерский, открой ссылку в инкогнито (сначала залогинься в Twitch как бот).<br>
         Учти: на канале бота нужно сделать модератором — <code>/mod имя_бота</code> в своём чате.</p>
       </div>
+      <div class="card">
+        <h2>🎬 OBS (obs-websocket 5)</h2>
+        <p class="hint">Управление OBS из чата: <code>!сцена &lt;имя&gt;</code> и <code>!сцены</code> (мод+). Сначала включи WebSocket-сервер в самом OBS: <b>Инструменты → Настройки WebSocket-сервера</b> — галочка «Включить», там же пароль (порт по умолчанию 4455). Пароль хранится локально, как Client Secret. Смена адреса применяется на ходу.</p>
+        <div class="form">
+          <label><input type="checkbox" id="obs-enabled" /> интеграция включена</label>
+          <label>Хост <span class="hint">— где стоит OBS (обычно 127.0.0.1)</span></label>
+          <input id="obs-host" placeholder="127.0.0.1" maxlength="100" />
+          <label>Порт WebSocket-сервера</label>
+          <input id="obs-port" type="number" min="1" max="65535" />
+          <label>Пароль <span class="hint" id="obs-password-hint">— из настроек WebSocket-сервера OBS</span></label>
+          <input id="obs-password" type="password" placeholder="оставь пустым, если уже задан" maxlength="200" />
+          <button class="act" id="obs-save">Сохранить</button>
+          <button class="act ghost" id="obs-test">Проверить связь</button>
+        </div>
+        <p class="hint" id="obs-result"></p>
+      </div>
     </section>
   </main>
 

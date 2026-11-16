@@ -882,6 +882,116 @@ ok('ставки: stop возвращает баллы живых ставок �
   && pts2.balance('petya') === 893 && pts2.balance('vova') === 350
   && bets.active('777') === null && bets.pendingDuel('300') === null);
 
+// ---------- OBS-клиент (obs-websocket 5): чистые функции протокола ----------
+const {
+  ObsClient, buildIdentifyAuth, buildIdentify, parseMessage, parseRequestResponse,
+  buildRequest, reconnectDelay,
+} = await import('../src/bot/obs.js');
+
+// эталон посчитан руками по формуле v5: base64(sha256(base64(sha256(pw+salt))+challenge))
+ok('obs: auth-строка по формуле v5 совпадает с эталоном',
+  buildIdentifyAuth('секретныйПароль', 'ПлоВаяСоль', 'СамоИспытание') === '/SIFubuKS1yYHief6BjnaYgWx01PnV1TzcskWu1xMOc=');
+ok('obs: Identify при challenge+пароле несёт ту же auth-строку, rpcVersion 1',
+  buildIdentify({ password: 'секретныйПароль', authentication: { challenge: 'СамоИспытание', salt: 'ПлоВаяСоль' } }).d.authentication === '/SIFubuKS1yYHief6BjnaYgWx01PnV1TzcskWu1xMOc='
+  && buildIdentify({ password: 'секретныйПароль', authentication: { challenge: 'СамоИспытание', salt: 'ПлоВаяСоль' } }).d.rpcVersion === 1);
+ok('obs: без challenge (аутентификация на сервере выключена) Identify без authentication',
+  buildIdentify({ password: 'секретныйПароль', authentication: null }).d.authentication === undefined);
+ok('obs: challenge есть, пароль пуст — authentication не отправляем',
+  buildIdentify({ password: '', authentication: { challenge: 'c', salt: 's' } }).d.authentication === undefined);
+
+const helloMsg = parseMessage('{"op":"Hello","d":{"rpcVersion":1,"authentication":{"challenge":"c","salt":"s"}}}');
+ok('obs: parseMessage разбирает Hello', helloMsg?.op === 'Hello' && helloMsg.d.authentication.salt === 's');
+ok('obs: parseMessage мусор и не-объекты → null', parseMessage('не json') === null && parseMessage('{}') === null && parseMessage(null) === null);
+
+const okR = parseRequestResponse({ op: 'RequestResponse', d: { requestType: 'GetSceneList', requestId: 'r1', requestStatus: { result: true, code: 100 }, responseData: { scenes: [{ sceneName: 'Стрим' }] } } });
+const errR = parseRequestResponse({ op: 'RequestResponse', d: { requestType: 'SetCurrentProgramScene', requestId: 'r2', requestStatus: { result: false, code: 'SceneNotFound', comment: 'No scene was found' } } });
+ok('obs: parseRequestResponse успех и провал', okR.ok === true && okR.id === 'r1' && okR.data.scenes[0].sceneName === 'Стрим'
+  && errR.ok === false && errR.code === 'SceneNotFound' && errR.comment === 'No scene was found');
+ok('obs: parseRequestResponse чужой op → null', parseRequestResponse({ op: 'Event', d: {} }) === null);
+
+const reqF = buildRequest('GetVersion', undefined, 'req-42');
+const reqD = buildRequest('SetCurrentProgramScene', { sceneName: 'БРБ' }, 'req-43');
+ok('obs: buildRequest строит фрейм (requestData нет — поля нет)',
+  reqF.op === 'Request' && reqF.d.requestType === 'GetVersion' && reqF.d.requestId === 'req-42' && !('requestData' in reqF.d)
+  && reqD.d.requestData.sceneName === 'БРБ');
+ok('obs: бэкофф реконнекта 5→10→20, кэп 60 с',
+  reconnectDelay(0) === 5000 && reconnectDelay(1) === 10000 && reconnectDelay(2) === 20000 && reconnectDelay(20) === 60000);
+
+ok('obs: дефолты в loadSettings', loadSettings().obs.enabled === false
+  && loadSettings().obs.host === '127.0.0.1' && loadSettings().obs.port === 4455 && loadSettings().obs.password === '');
+
+// ---------- OBS: диспетчер сообщений и запросы (фейковый ws, без сети) ----------
+const obsUnit = new ObsClient({ logs, settings: { obs: { password: 'секретныйПароль' } } });
+obsUnit._ws = { readyState: 1, sent: [], send(x) { this.sent.push(String(x)); } };
+
+obsUnit._onRaw(JSON.stringify({
+  op: 'Hello',
+  d: { obsWebSocketVersion: '5.4.2', rpcVersion: 1, authentication: { challenge: 'СамоИспытание', salt: 'ПлоВаяСоль' } },
+}));
+ok('obs: на Hello отвечаем Identify с эталонной авторизацией', (() => {
+  const m = JSON.parse(obsUnit._ws.sent.at(-1));
+  return m.op === 'Identify' && m.d.authentication === '/SIFubuKS1yYHief6BjnaYgWx01PnV1TzcskWu1xMOc=';
+})());
+
+obsUnit._onRaw(JSON.stringify({ op: 'Identified', d: { negotiatedRpcVersion: 1 } }));
+ok('obs: Identified → статус connected', obsUnit.status === 'connected');
+
+const listPromise = obsUnit.getSceneList();
+const sentReq = JSON.parse(obsUnit._ws.sent.at(-1));
+ok('obs: getSceneList шлёт Request с requestType и requestId',
+  sentReq.op === 'Request' && sentReq.d.requestType === 'GetSceneList' && sentReq.d.requestId);
+obsUnit._onRaw(JSON.stringify({
+  op: 'RequestResponse',
+  d: {
+    requestType: 'GetSceneList', requestId: sentReq.d.requestId,
+    requestStatus: { result: true, code: 100 },
+    responseData: { currentProgramSceneName: 'Стрим', scenes: [{ sceneName: 'Стрим' }, { sceneName: 'БРБ' }] },
+  },
+}));
+const sceneList = await listPromise;
+ok('obs: ответ сопоставлен по requestId и распарсен', sceneList.current === 'Стрим' && sceneList.scenes.join(',') === 'Стрим,БРБ');
+
+const obsTout = new ObsClient({ logs, settings: { obs: {} } });
+obsTout._ws = { readyState: 1, send() {} };
+let timeoutErr = '';
+try { await obsTout._request('GetSceneList', undefined, 20); } catch (e) { timeoutErr = e.message; }
+ok('obs: запрос без ответа отваливается по таймауту, pending чист', timeoutErr.includes('таймаут') && obsTout._pending.size === 0);
+
+let noWsErr = '';
+try { await new ObsClient({ logs, settings: { obs: {} } })._request('GetSceneList'); } catch (e) { noWsErr = e.message; }
+ok('obs: запрос без соединения — понятная ошибка', noWsErr.includes('OBS не подключён'));
+let offErr = '';
+try { await new ObsClient({ logs, settings: { obs: {} } }).getSceneList(); } catch (e) { offErr = e.message; }
+ok('obs: getSceneList без соединения ругается по-русски', offErr.includes('OBS не подключён'));
+
+// ---------- OBS: встроенные команды !сцена / !сцены ----------
+const obsCalls = [];
+const fakeObs = {
+  async getSceneList() { return { scenes: ['Стрим', 'БРБ', 'Конец'], current: 'Стрим' }; },
+  async setCurrentProgramScene(name) { obsCalls.push(name); },
+};
+engine.setObs(fakeObs);
+
+let obsReservedThrew = false;
+try { engine.upsert({ name: 'сцена', response: 'хак' }); } catch { obsReservedThrew = true; }
+ok('obs: !сцена зарезервирована за встроенной', obsReservedThrew && RESERVED.has('сцена') && RESERVED.has('сцены'));
+
+await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!сцены', badges: [{ set_id: 'moderator' }] });
+ok('obs: !сцены перечисляет сцены и текущую', sent.at(-1).includes('Сцены OBS') && sent.at(-1).includes('БРБ') && sent.at(-1).includes('сейчас: Стрим'));
+
+await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!сцена БРБ', badges: [] });
+ok('obs: !сцена доступна только модам', obsCalls.length === 0);
+
+await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!сцена БРБ', badges: [{ set_id: 'moderator' }] });
+ok('obs: !сцена переключает сцену OBS', obsCalls[0] === 'БРБ' && sent.at(-1).includes('Сцена переключена'));
+
+await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!сцена', badges: [{ set_id: 'moderator' }] });
+ok('obs: !сцена без имени подсказывает и перечисляет сцены', sent.at(-1).includes('Использование') && sent.at(-1).includes('Стрим'));
+
+fakeObs.setCurrentProgramScene = async () => { throw new Error('SceneNotFound: нет такой сцены'); };
+await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!сцена Кухня', badges: [{ set_id: 'moderator' }] });
+ok('obs: ошибка переключения подсказывает доступные сцены', sent.at(-1).includes('не вышло') && sent.at(-1).includes('есть сцены'));
+
 console.log(`\nВсе ${passed} тестов прошли ✅`);
 fs.rmSync(process.env.BOT_DATA_DIR, { recursive: true, force: true });
 process.exit(0);

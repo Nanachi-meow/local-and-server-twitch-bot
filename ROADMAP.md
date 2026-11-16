@@ -63,11 +63,15 @@
 - [x] speechSynthesis в overlay.html: озвучка событий/текстов
 - [x] Голос/скорость/громкость в панели; очередь фраз
 
-## Фаза 8 — OBS WebSocket (клиент) [ ] (аналог Streamer.bot OBS-контроля)
+## Фаза 8 — OBS WebSocket (клиент) [x] (аналог Streamer.bot OBS-контроля)
 
-- [ ] Клиент obs-websocket 5 (handshake+auth sha256 на чистом ws… нужен ws-клиент:
-      либо свой мини-ws, либо один файл-зависимость)
-- [ ] Действия: смена сцены по команде/событию, source-тумблеры
+- [x] Клиент obs-websocket 5 на встроенном WebSocket Node 22: hello → identify
+      (sha256-base64 пароль+salt+challenge, node:crypto) → identified, автопереподключение
+      (5 с, бэкофф до 60 с), keepalive-пинг протокольным запросом
+- [x] Методы: SetCurrentProgramScene (по имени), GetSceneList, SetSceneItemEnabled
+      (тумблер источника по имя сцены+источника), _request с request-id и таймаутом
+- [x] Действия: смена сцены по команде (!сцена/!сцены, мод+)
+- [x] Панель: карточка «🎬 OBS» на «Настройках», действие obstest («Проверить связь»)
 
 ## Волна 2 — бэклог из исследований (полные разборы: docs/research/*.md)
 

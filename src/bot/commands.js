@@ -9,7 +9,7 @@ export const RESERVED = new Set([
   'commands', 'help', 'so', 'pin', 'unpin', 'announce', 'uptime', 'game', 'title',
   'followage', 'addcmd', 'editcmd', 'delcmd', 'bot',
   'баллы', 'топ', 'дать', 'перевести', 'колесо', 'мем', 'цитата',
-  'ставка', 'ставить', 'итог', 'дуэль',
+  'ставка', 'ставить', 'итог', 'дуэль', 'сцена', 'сцены',
 ]);
 
 const NAME_RE = /^!?[A-Za-zА-Яа-яЁё0-9_\-]{1,32}$/;
@@ -81,6 +81,10 @@ export class CommandEngine {
 
   setBets(bets) {
     this.bets = bets;
+  }
+
+  setObs(obs) {
+    this.obs = obs;
   }
 
   // ---------------- хранилище ----------------
@@ -751,6 +755,47 @@ export class CommandEngine {
           await engine.say(session, `⚔️ ${session.displayName || session.login} вызывает @${r.to} на дуэль на ${r.amount} ${plural(r.amount, ['балл', 'балла', 'баллов'])}! @${r.to}, принимай: !дуэль @${session.login} ${r.amount}`);
         },
       },
+      // ---------- OBS: сцены и источники ----------
+      сцена: {
+        level: 'mod', label: 'сменить сцену OBS: !сцена <имя> (мод+)',
+        async run(session, args) {
+          if (!engine.obs) { await engine.say(session, 'OBS-интеграция не настроена'); return; }
+          const name = args.join(' ').trim();
+          if (!name) {
+            let hint = 'Использование: !сцена <имя сцены>';
+            try {
+              const list = await engine.obs.getSceneList();
+              if (list.scenes.length) hint += ` — доступные: ${list.scenes.join(', ')}`;
+            } catch { /* OBS недоступен — подсказка и так понятна */ }
+            await engine.say(session, hint.slice(0, 480));
+            return;
+          }
+          try {
+            await engine.obs.setCurrentProgramScene(name);
+            await engine.say(session, `🎬 Сцена переключена: ${name}`);
+          } catch (e) {
+            let hint = `@${session.login}, не вышло: ${e.message}`;
+            try {
+              const list = await engine.obs.getSceneList();
+              if (list.scenes.length) hint += ` — есть сцены: ${list.scenes.join(', ')}`;
+            } catch { /* второй отказ OBS не должен глушить первый ответ */ }
+            await engine.say(session, hint.slice(0, 480));
+          }
+        },
+      },
+      сцены: {
+        level: 'mod', label: 'список сцен OBS (мод+)',
+        async run(session) {
+          if (!engine.obs) { await engine.say(session, 'OBS-интеграция не настроена'); return; }
+          try {
+            const list = await engine.obs.getSceneList();
+            if (!list.scenes.length) { await engine.say(session, 'В OBS нет ни одной сцены 🤷'); return; }
+            await engine.say(session, `🎬 Сцены OBS: ${list.scenes.join(', ')}${list.current ? ` — сейчас: ${list.current}` : ''}`.slice(0, 480));
+          } catch (e) {
+            await engine.say(session, `@${session.login}, не вышло: ${e.message}`);
+          }
+        },
+      },
       addcmd: {
         level: 'mod', label: 'добавить: !addcmd !имя <ответ> (мод+)',
         async run(session, args) {
@@ -930,6 +975,13 @@ export function loadSettings() {
       maxBet: 1000,
       duelCooldown: 60, // сек между дуэлями одного юзера
       ...(stored.bets ?? {}),
+    },
+    obs: {
+      enabled: false,     // OBS-интеграция (obs-websocket 5)
+      host: '127.0.0.1',  // где стоит OBS (почти всегда локально)
+      port: 4455,         // порт WebSocket-сервера OBS
+      password: '',       // пароль из «Настройки WebSocket-сервера» OBS (хранится локально)
+      ...(stored.obs ?? {}),
     },
   };
 }
