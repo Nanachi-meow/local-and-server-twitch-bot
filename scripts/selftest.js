@@ -96,6 +96,19 @@ ok('RESERVED содержит pin', RESERVED.has('pin'));
 await engine.handleChatMessage({ userId: '11', login: 'x', displayName: 'X', text: '!uptime', badges: [] });
 ok('uptime при оффлайне', sent.at(-1).includes('оффлайн'));
 
+// ---------- встроенные команды: вкл/выкл (панель → settings.builtins.disabled) ----------
+ok('встроенные: по умолчанию включены', engine.builtinEnabled('uptime'));
+settings.builtins = { disabled: ['uptime'] };
+const uptRan = await engine.handleChatMessage({ userId: '11', login: 'x', displayName: 'X', text: '!uptime', badges: [] });
+ok('встроенные: выключенная не отвечает', uptRan === false);
+const gmRan = await engine.handleChatMessage({ userId: '11', login: 'x', displayName: 'X', text: '!game', badges: [] });
+ok('встроенные: соседняя работает', gmRan === true);
+const info = engine.builtinInfo();
+ok('встроенные: builtinInfo с desc', info.every((b) => b.desc));
+ok('встроенные: builtinInfo с enabled', info.find((b) => b.name === '!uptime')?.enabled === false
+  && info.find((b) => b.name === '!game')?.enabled === true);
+settings.builtins = { disabled: [] }; // возвращаем как было — настройка общая для других движков
+
 // ---------- типы команд: РП и рандом ----------
 engine.upsert({ name: 'обнять', type: 'rp', action: '{user} крепко обнимает {target} 🤗', level: 'everyone', cooldown: 0 });
 await engine.handleChatMessage({ userId: '7', login: 'vasya', displayName: 'Vasya', text: '!обнять @petya', badges: [] });

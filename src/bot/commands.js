@@ -203,7 +203,7 @@ export class CommandEngine {
     if (!name) return false;
 
     const custom = this.custom.find((c) => c.name === name && c.enabled !== false);
-    const builtin = this.builtins[name];
+    const builtin = this.builtinEnabled(name) ? this.builtins[name] : null;
     // команда от модуля — если ни кастомной, ни встроенной нет; кастомная всегда сильнее
     const modCmd = (!custom && !builtin && this.modules) ? this.modules.findCommand(name) : null;
     const cmd = custom ?? builtin ?? modCmd;
@@ -346,25 +346,34 @@ export class CommandEngine {
 
   // ---------------- встроенные команды ----------------
 
+  /** Встроенная команда включена? (settings.builtins.disabled — список выключенных имён) */
+  builtinEnabled(name) {
+    const list = this.settings?.builtins?.disabled;
+    if (!Array.isArray(list)) return true;
+    return !list.map(String).includes(String(name));
+  }
+
   get builtins() {
     const engine = this;
     return {
       commands: {
-        level: 'everyone', label: 'список команд',
+        level: 'everyone', label: 'список команд', desc: 'все команды списком',
         async run(session) {
           const names = engine.custom.filter((c) => c.enabled !== false).map((c) => `!${c.name}`);
           const modNames = (engine.modules?.commandNames() ?? []).map((n) => `!${n}`);
-          const base = ['!so', '!uptime', '!game', '!followage'];
+          const base = ['so', 'uptime', 'game', 'followage']
+            .filter((n) => engine.builtinEnabled(n))
+            .map((n) => `!${n}`);
           const all = [...base, ...names, ...modNames].join(', ');
           await engine.say(session, `Команды: ${all}`.slice(0, 480));
         },
       },
       help: {
-        level: 'everyone', label: 'список команд',
+        level: 'everyone', label: 'список команд', desc: 'то же, что !commands',
         async run(session, args) { return engine.builtins.commands.run(session, args); },
       },
       uptime: {
-        level: 'everyone', label: 'сколько стрим идёт',
+        level: 'everyone', label: 'сколько стрим идёт', desc: 'сколько идёт стрим',
         async run(session, args) {
           const vars = await engine.templateVars({ session, args });
           await engine.say(session, vars.uptime === 'оффлайн'
@@ -373,21 +382,21 @@ export class CommandEngine {
         },
       },
       game: {
-        level: 'everyone', label: 'что стримится',
+        level: 'everyone', label: 'что стримится', desc: 'что сейчас стримится',
         async run(session, args) {
           const vars = await engine.templateVars({ session, args });
           await engine.say(session, `Сейчас стримится: ${vars.game} | ${vars.title}`);
         },
       },
       title: {
-        level: 'everyone', label: 'название стрима',
+        level: 'everyone', label: 'название стрима', desc: 'название стрима',
         async run(session, args) {
           const vars = await engine.templateVars({ session, args });
           await engine.say(session, `Название стрима: ${vars.title}`);
         },
       },
       so: {
-        level: 'mod', label: 'шатаут: !so <ник> (мод+)',
+        level: 'mod', label: 'шатаут: !so <ник> (мод+)', desc: 'шатаут стримера',
         async run(session, args) {
           const target = (args[0] || '').replace(/^@/, '');
           if (!target) { await engine.say(session, 'Использование: !so <ник стримера>'); return; }
@@ -411,7 +420,7 @@ export class CommandEngine {
         },
       },
       pin: {
-        level: 'mod', label: 'закрепить: !pin <текст> (мод+)',
+        level: 'mod', label: 'закрепить: !pin <текст> (мод+)', desc: 'закрепить текст',
         async run(session, args) {
           const text = args.join(' ').trim();
           if (!text) { await engine.say(session, 'Использование: !pin <текст> — закреплю на 20 минут'); return; }
@@ -423,7 +432,7 @@ export class CommandEngine {
         },
       },
       unpin: {
-        level: 'mod', label: 'снять закреп (мод+)',
+        level: 'mod', label: 'снять закреп (мод+)', desc: 'снять закреп',
         async run(session) {
           try {
             const pinned = await engine.helix.getPinned({
@@ -443,7 +452,7 @@ export class CommandEngine {
         },
       },
       announce: {
-        level: 'mod', label: 'анонс: !announce <цвет> <текст> (мод+)',
+        level: 'mod', label: 'анонс: !announce <цвет> <текст> (мод+)', desc: 'цветной анонс',
         async run(session, args) {
           const colors = ['blue', 'green', 'orange', 'purple', 'primary'];
           let color = engine.settings.announceColor || 'purple';
@@ -465,7 +474,7 @@ export class CommandEngine {
         },
       },
       followage: {
-        level: 'everyone', label: 'сколько ты с нами: !followage [ник]',
+        level: 'everyone', label: 'сколько ты с нами: !followage [ник]', desc: 'сколько ты с нами',
         async run(session, args) {
           const targetLogin = (args[0] || session.login).replace(/^@/, '');
           const user = await engine.helix.getUserByLogin(targetLogin);
@@ -485,7 +494,7 @@ export class CommandEngine {
       // ---------- баллы канала removed: награды Twitch не позволяют перекидывать очки программно ----------
       // ---------- колесо (бесплатное: просто случайный исход в оверлей) ----------
       колесо: {
-        level: 'everyone', label: 'колесо: !колесо — случайный исход',
+        level: 'everyone', label: 'колесо: !колесо — случайный исход', desc: 'крутить колесо',
         async run(session) {
           const cfg = engine.settings?.wheel ?? {};
           if (cfg.enabled === false) { await engine.say(session, 'Колесо сейчас выключено 🙅'); return; }
@@ -516,7 +525,7 @@ export class CommandEngine {
 
       // ---------- мем-алерты (бесплатные) ----------
       мем: {
-        level: 'everyone', label: 'мем-алерт: !мем [название]',
+        level: 'everyone', label: 'мем-алерт: !мем [название]', desc: 'показать мем',
         async run(session, args) {
           const cfg = engine.settings?.memShop ?? {};
           if (cfg.enabled === false) { await engine.say(session, 'Мем-алерты сейчас выключены 🙅'); return; }
@@ -553,7 +562,7 @@ export class CommandEngine {
 
       // ---------- говорилка: TTS-фраза в оверлей (бесплатно) ----------
       сказать: {
-        level: 'everyone', label: 'TTS-озвучка: !сказать <текст>',
+        level: 'everyone', label: 'TTS-озвучка: !сказать <текст>', desc: 'озвучить текст',
         async run(session, args) {
           const cfg = {
             enabled: true,
@@ -591,7 +600,7 @@ export class CommandEngine {
 
       // ---------- музыка: заказы YouTube (бесплатные; за баллы канала — отдельной фазой) ----------
       ср: {
-        level: 'everyone', label: 'заказ музыки: !ср <ссылка>',
+        level: 'everyone', label: 'заказ музыки: !ср <ссылка>', desc: 'заказать песню',
         async run(session, args) {
           if (!engine.songs) { await engine.say(session, 'Плеер не настроен'); return; }
           const cfg = engine.songs.cfg();
@@ -619,11 +628,11 @@ export class CommandEngine {
         },
       },
       песня: {
-        level: 'everyone', label: 'то же, что !ср',
+        level: 'everyone', label: 'то же, что !ср', desc: 'то же, что !ср',
         async run(session, args) { return engine.builtins['ср'].run(session, args); },
       },
       очередь: {
-        level: 'everyone', label: 'очередь музыки',
+        level: 'everyone', label: 'очередь музыки', desc: 'очередь заказов',
         async run(session) {
           if (!engine.songs) { await engine.say(session, 'Плеер не настроен'); return; }
           const st = engine.songs.state();
@@ -633,7 +642,7 @@ export class CommandEngine {
         },
       },
       скип: {
-        level: 'mod', label: 'пропустить трек (мод+)',
+        level: 'mod', label: 'пропустить трек (мод+)', desc: 'скипнуть трек',
         async run(session) {
           if (!engine.songs) { await engine.say(session, 'Плеер не настроен'); return; }
           const r = engine.songs.skip();
@@ -643,7 +652,7 @@ export class CommandEngine {
         },
       },
       музыка: {
-        level: 'everyone', label: 'управление: !музыка пауза|прод|стоп (мод+)',
+        level: 'everyone', label: 'управление: !музыка пауза|прод|стоп (мод+)', desc: 'пауза/стоп музыки',
         async run(session, args) {
           if (!engine.songs) { await engine.say(session, 'Плеер не настроен'); return; }
           const sub = String(args[0] || '').toLowerCase();
@@ -660,7 +669,7 @@ export class CommandEngine {
 
       // ---------- цитаты канала ----------
       цитата: {
-        level: 'everyone', label: 'цитата: !цитата [N] · поиск · добавить (мод+) · удалить (мод+)',
+        level: 'everyone', label: 'цитата: !цитата [N] · поиск · добавить (мод+) · удалить (мод+)', desc: 'цитаты канала',
         async run(session, args) {
           if (!engine.quotes) { await engine.say(session, 'Цитаты не настроены'); return; }
           const q = engine.quotes;
@@ -711,7 +720,7 @@ export class CommandEngine {
 
       // ---------- OBS: сцены и источники ----------
       сцена: {
-        level: 'mod', label: 'сменить сцену OBS: !сцена <имя> (мод+)',
+        level: 'mod', label: 'сменить сцену OBS: !сцена <имя> (мод+)', desc: 'сменить сцену OBS',
         async run(session, args) {
           if (!engine.obs) { await engine.say(session, 'OBS-интеграция не настроена'); return; }
           const name = args.join(' ').trim();
@@ -738,7 +747,7 @@ export class CommandEngine {
         },
       },
       сцены: {
-        level: 'mod', label: 'список сцен OBS (мод+)',
+        level: 'mod', label: 'список сцен OBS (мод+)', desc: 'сцены OBS списком',
         async run(session) {
           if (!engine.obs) { await engine.say(session, 'OBS-интеграция не настроена'); return; }
           try {
@@ -751,7 +760,7 @@ export class CommandEngine {
         },
       },
       addcmd: {
-        level: 'mod', label: 'добавить: !addcmd !имя <ответ> (мод+)',
+        level: 'mod', label: 'добавить: !addcmd !имя <ответ> (мод+)', desc: 'создать команду',
         async run(session, args) {
           const name = (args[0] || '').toLowerCase();
           const response = args.slice(1).join(' ').trim();
@@ -765,7 +774,7 @@ export class CommandEngine {
         },
       },
       editcmd: {
-        level: 'mod', label: 'изменить: !editcmd !имя <новый ответ> (мод+)',
+        level: 'mod', label: 'изменить: !editcmd !имя <новый ответ> (мод+)', desc: 'изменить команду',
         async run(session, args) {
           const name = (args[0] || '').toLowerCase();
           const response = args.slice(1).join(' ').trim();
@@ -781,7 +790,7 @@ export class CommandEngine {
         },
       },
       delcmd: {
-        level: 'mod', label: 'удалить: !delcmd !имя (мод+)',
+        level: 'mod', label: 'удалить: !delcmd !имя (мод+)', desc: 'удалить команду',
         async run(session, args) {
           const name = (args[0] || '').toLowerCase();
           if (!name) { await engine.say(session, 'Использование: !delcmd !имя'); return; }
@@ -794,7 +803,7 @@ export class CommandEngine {
         },
       },
       bot: {
-        level: 'everyone', label: 'кто я',
+        level: 'everyone', label: 'кто я', desc: 'кто такой бот',
         async run(session) {
           await engine.say(session, 'Я локальный бот, живу на компе стримера. Настройки на её стороне 😎 Никаких облаков!');
         },
@@ -807,6 +816,8 @@ export class CommandEngine {
       name: `!${name}`,
       level: b.level,
       label: b.label,
+      desc: b.desc || b.label,
+      enabled: this.builtinEnabled(name),
       builtin: true,
     }));
   }
@@ -954,6 +965,10 @@ export function loadSettings() {
       cooldown: 60,   // сек между фразами одного зрителя
       blocked: ['спам', 'реклама'], // запрещённые слова (подстрока) — заполняет стример
       ...(stored.say ?? {}),
+    },
+    builtins: {
+      disabled: [], // имена выключенных встроенных команд (панель: вкладка «Команды → Встроенные»)
+      ...(stored.builtins ?? {}),
     },
     songs: {
       enabled: true,

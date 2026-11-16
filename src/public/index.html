@@ -22,7 +22,6 @@
   <nav>
     <button class="tab active" data-tab="dashboard">Дашборд</button>
     <button class="tab" data-tab="commands">Команды</button>
-    <button class="tab" data-tab="rp">🎭 Фан</button>
     <button class="tab" data-tab="events">События</button>
     <button class="tab" data-tab="autoso">Автошатауты</button>
     <button class="tab" data-tab="timers">Таймеры</button>
@@ -119,78 +118,90 @@
 
     <!-- ============ КОМАНДЫ ============ -->
     <section id="tab-commands" class="tabpane">
-      <div class="card">
-        <h2>🧩 Кастомные команды</h2>
-        <p class="hint">Полный список: правь тексты, доступ, кулдауны. Режим ответа, таргет, шанс и диапазоны настраиваются в меню команды на вкладке <span class="goto-tab" data-tab="rp" style="text-decoration:underline">🎭 Фан</span>. В чате: <code>!addcmd !имя ответ</code>, <code>!editcmd</code>, <code>!delcmd</code> (мод+). Переменные: <code>{user}</code>, <code>{target}</code>, <code>{args}</code>, <code>{channel}</code>, <code>{uptime}</code>, <code>{game}</code>, <code>{random:1-100}</code>, в рандом-числе <code>{roll}</code>.</p>
-        <table class="cmds" id="cmds-table">
-          <thead>
-            <tr><th>Команда</th><th>Режим</th><th>Ответ / Варианты</th><th>Доступ</th><th>Кулдаун, сек</th><th>Вкл</th><th></th></tr>
-          </thead>
-          <tbody id="cmds-body"></tbody>
-        </table>
-        <h3>Добавить</h3>
-        <div class="addrow">
-          <input id="add-name" placeholder="!команда" maxlength="34" />
-          <input id="add-content" placeholder="текст ответа…" maxlength="480" class="wide" />
-          <select id="add-level">
-            <option value="everyone">все</option>
-            <option value="sub">сабы</option>
-            <option value="vip">vip</option>
-            <option value="mod">моды</option>
-          </select>
-          <input id="add-cooldown" type="number" min="0" max="3600" value="5" style="width:70px" title="кулдаун, сек" />
-          <button class="act" id="add-btn">Добавить</button>
-        </div>
+      <div class="subtabs">
+        <button class="subtab active" data-subtab="cmds-custom">🧩 Кастомные</button>
+        <button class="subtab" data-subtab="cmds-builtin">🔧 Встроенные</button>
       </div>
-      <div class="card">
-        <h2>🔧 Встроенные</h2>
-        <div id="builtins" class="chips"></div>
-      </div>
-      <div class="card">
-        <h2>📖 Цитаты</h2>
-        <p class="hint">Лучшие высказывания чата — те же, что живут в <code>data/quotes.json</code> и выпадают по <code>!цитата</code>. Добавленные отсюда помечаются автором «Панель»; номера не переиспользуются после удаления. В чате: <code>!цитата добавить текст</code> (мод+), <code>!цитата удалить N</code> (мод+).</p>
-        <table class="cmds">
-          <thead><tr><th style="width:60px">№</th><th>Цитата</th><th style="width:130px">Автор</th><th></th></tr></thead>
-          <tbody id="quotes-body"></tbody>
-        </table>
-        <h3>Добавить</h3>
-        <div class="addrow">
-          <textarea id="quote-add-text" rows="2" maxlength="300" placeholder="текст цитаты (до 300 символов)…" style="flex:1;min-width:240px;resize:vertical"></textarea>
-          <button class="act" id="quote-add-btn">Добавить</button>
-          <button class="act ghost" id="quotes-refresh">Обновить</button>
-        </div>
-      </div>
-    </section>
 
-    <!-- ============ ФАН-КОМАНДЫ ============ -->
-    <section id="tab-rp" class="tabpane">
-      <div class="card">
-        <h2>➕ Создать фан-команду</h2>
-        <p class="hint">Сначала имя и условие активации: если включить «🎯 нужен @ник», команда без <code>@ник</code> ответит подсказкой. Дальше режим ответа — остальное донастраивается в меню команды (ткни её в списке ниже, чтобы раскрыть).</p>
-        <div class="addrow">
-          <input id="fan-add-name" placeholder="!команда" maxlength="34" />
-          <label class="lbl"><input id="fan-add-target" type="checkbox" /> 🎯 нужен @ник</label>
-          <select id="fan-add-mode">
-            <option value="text">один ответ</option>
-            <option value="variants">несколько вариантов</option>
-            <option value="roll">рандом-число</option>
-          </select>
-          <input id="fan-add-text" class="wide" maxlength="480" placeholder="текст ответа — например: {user} обнимает {target} 🤗" />
-          <input id="fan-add-min" type="number" min="0" max="1000000" value="0" style="width:64px" title="число от" />
-          <input id="fan-add-max" type="number" min="0" max="1000000" value="100" style="width:64px" title="число до" />
-          <button class="act" id="fan-add-btn">Создать</button>
+      <div id="sub-cmds-custom">
+        <div class="card">
+          <h2>🧩 Кастомные команды</h2>
+          <p class="hint">Полный список: правь тексты, доступ, кулдауны. Режим ответа, таргет, шанс и диапазоны — в меню команды в карточке «🎭 Фан-команды» ниже. В чате: <code>!addcmd !имя ответ</code>, <code>!editcmd</code>, <code>!delcmd</code> (мод+). Переменные: <code>{user}</code>, <code>{target}</code>, <code>{args}</code>, <code>{channel}</code>, <code>{uptime}</code>, <code>{game}</code>, <code>{random:1-100}</code>, в рандом-числе <code>{roll}</code>.</p>
+          <table class="cmds" id="cmds-table">
+            <thead>
+              <tr><th>Команда</th><th>Режим</th><th>Ответ / Варианты</th><th>Доступ</th><th>Кулдаун, сек</th><th>Вкл</th><th></th></tr>
+            </thead>
+            <tbody id="cmds-body"></tbody>
+          </table>
+          <h3>Добавить</h3>
+          <div class="addrow">
+            <input id="add-name" placeholder="!команда" maxlength="34" />
+            <input id="add-content" placeholder="текст ответа…" maxlength="480" class="wide" />
+            <select id="add-level">
+              <option value="everyone">все</option>
+              <option value="sub">сабы</option>
+              <option value="vip">vip</option>
+              <option value="mod">моды</option>
+            </select>
+            <input id="add-cooldown" type="number" min="0" max="3600" value="5" style="width:70px" title="кулдаун, сек" />
+            <button class="act" id="add-btn">Добавить</button>
+          </div>
         </div>
-        <p class="hint" id="fan-add-hint">Переменные везде: <code>{user}</code>, <code>{target}</code>, <code>{channel}</code>, <code>{uptime}</code>, <code>{game}</code>, <code>{random:1-100}</code>. В «рандом-числе»: <code>{roll}</code> = выпавшее число.</p>
+        <div class="card">
+          <h2>➕ Создать фан-команду</h2>
+          <p class="hint">Сначала имя и условие активации: если включить «🎯 нужен @ник», команда без <code>@ник</code> ответит подсказкой. Дальше режим ответа — остальное донастраивается в меню команды (ткни её в списке ниже, чтобы раскрыть).</p>
+          <div class="addrow">
+            <input id="fan-add-name" placeholder="!команда" maxlength="34" />
+            <label class="lbl"><input id="fan-add-target" type="checkbox" /> 🎯 нужен @ник</label>
+            <select id="fan-add-mode">
+              <option value="text">один ответ</option>
+              <option value="variants">несколько вариантов</option>
+              <option value="roll">рандом-число</option>
+            </select>
+            <input id="fan-add-text" class="wide" maxlength="480" placeholder="текст ответа — например: {user} обнимает {target} 🤗" />
+            <input id="fan-add-min" type="number" min="0" max="1000000" value="0" style="width:64px" title="число от" />
+            <input id="fan-add-max" type="number" min="0" max="1000000" value="100" style="width:64px" title="число до" />
+            <button class="act" id="fan-add-btn">Создать</button>
+          </div>
+          <p class="hint" id="fan-add-hint">Переменные везде: <code>{user}</code>, <code>{target}</code>, <code>{channel}</code>, <code>{uptime}</code>, <code>{game}</code>, <code>{random:1-100}</code>. В «рандом-числе»: <code>{roll}</code> = выпавшее число.</p>
+        </div>
+        <div class="card">
+          <h2>🎭 Фан-команды</h2>
+          <p class="hint">Ткни команду, чтобы раскрыть меню настроек: режим, таргет, шанс, диапазоны. Это те же кастомные команды — они также видны в таблице выше.</p>
+          <div id="fan-list"></div>
+        </div>
+        <div class="card">
+          <h2>⚡ Готовые шаблоны</h2>
+          <p class="hint">Ткни чип — команда создастся сразу (и уже настроена). Существующее имя не перезапишется: правь его в списке выше.</p>
+          <div id="fan-presets" class="chips"></div>
+        </div>
       </div>
-      <div class="card">
-        <h2>🎭 Фан-команды</h2>
-        <p class="hint">Ткни команду, чтобы раскрыть меню настроек: режим, таргет, шанс, диапазоны. Это те же кастомные команды — они также видны на вкладке «Команды».</p>
-        <div id="fan-list"></div>
-      </div>
-      <div class="card">
-        <h2>⚡ Готовые шаблоны</h2>
-        <p class="hint">Ткни чип — команда создастся сразу (и уже настроена). Существующее имя не перезапишется: правь его в списке выше.</p>
-        <div id="fan-presets" class="chips"></div>
+
+      <div id="sub-cmds-builtin" class="hidden">
+        <div class="card">
+          <h2>🔧 Встроенные команды</h2>
+          <p class="hint">Работают из коробки. Сними галочку — команда замолчит и перестанет отвечать в чате (имя остаётся за ней зарезервированным, чтобы не путаться с кастомными). Включить обратно — той же галочкой.</p>
+          <table class="cmds" id="builtins-table">
+            <thead>
+              <tr><th>Команда</th><th>Описание</th><th>Доступ</th><th>Вкл</th></tr>
+            </thead>
+            <tbody id="builtins-body"></tbody>
+          </table>
+        </div>
+        <div class="card">
+          <h2>📖 Цитаты</h2>
+          <p class="hint">Лучшие высказывания чата — те же, что живут в <code>data/quotes.json</code> и выпадают по <code>!цитата</code>. Добавленные отсюда помечаются автором «Панель»; номера не переиспользуются после удаления. В чате: <code>!цитата добавить текст</code> (мод+), <code>!цитата удалить N</code> (мод+).</p>
+          <table class="cmds">
+            <thead><tr><th style="width:60px">№</th><th>Цитата</th><th style="width:130px">Автор</th><th></th></tr></thead>
+            <tbody id="quotes-body"></tbody>
+          </table>
+          <h3>Добавить</h3>
+          <div class="addrow">
+            <textarea id="quote-add-text" rows="2" maxlength="300" placeholder="текст цитаты (до 300 символов)…" style="flex:1;min-width:240px;resize:vertical"></textarea>
+            <button class="act" id="quote-add-btn">Добавить</button>
+            <button class="act ghost" id="quotes-refresh">Обновить</button>
+          </div>
+        </div>
       </div>
     </section>
 

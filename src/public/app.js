@@ -58,6 +58,19 @@ $$('.tab').forEach((btn) => {
     $(`#tab-${btn.dataset.tab}`).classList.add('active');
   });
 });
+
+// подвкладки внутри вкладки (Команды → Кастомные / Встроенные)
+$$('.subtab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const pane = btn.closest('.tabpane');
+    if (!pane) return;
+    pane.querySelectorAll('.subtab').forEach((b) => b.classList.remove('active'));
+    pane.querySelectorAll('[id^="sub-"]').forEach((d) => d.classList.add('hidden'));
+    btn.classList.add('active');
+    const target = pane.querySelector(`#sub-${btn.dataset.subtab}`);
+    if (target) target.classList.remove('hidden');
+  });
+});
 document.addEventListener('click', (e) => {
   const link = e.target.closest('.goto-tab');
   if (!link) return;
@@ -317,12 +330,38 @@ async function loadCommands() {
     </tr>`;
   }).join('') || '<tr><td colspan="7" class="hint">Пока нет кастомных команд — добавь первую!</td></tr>';
 
-  $('#builtins').innerHTML = builtins.map((b) =>
-    `<span class="chip" title="${esc(b.label)}">${esc(b.name)} · ${LEVEL_RU[b.level] ?? b.level} · ${esc(b.label)}</span>`
-  ).join('');
+  $('#builtins-body').innerHTML = builtins.map((b) => `
+    <tr data-name="${esc(String(b.name).replace(/^!/, ''))}" class="${b.enabled ? '' : 'off'}">
+      <td class="cellname"><code>${esc(b.name)}</code></td>
+      <td class="cellresp"><span title="${esc(b.label)}">${esc(b.desc || b.label)}</span></td>
+      <td class="celllevel">${LEVEL_RU[b.level] ?? b.level}</td>
+      <td class="cellon"><input class="b-enabled" type="checkbox" ${b.enabled ? 'checked' : ''} /></td>
+    </tr>`).join('') || '<tr><td colspan="4" class="hint">Встроенных команд нет 🤷</td></tr>';
 
   renderFanCommands(custom);
 }
+
+// выключение/включение встроенной команды: панель шлёт полный список выключенных имён
+$('#builtins-body').addEventListener('change', async (e) => {
+  if (!e.target.classList.contains('b-enabled')) return;
+  const row = e.target.closest('tr');
+  const name = row?.dataset.name || '';
+  const checkbox = e.target;
+  checkbox.disabled = true;
+  try {
+    const disabled = $$('#builtins-body tr[data-name]')
+      .filter((r) => !r.querySelector('.b-enabled')?.checked)
+      .map((r) => r.dataset.name);
+    await api('/api/settings', { method: 'PUT', body: JSON.stringify({ builtins: { disabled } }) });
+    row.classList.toggle('off', !checkbox.checked);
+    toast(`!${name} ${checkbox.checked ? 'включена' : 'выключена'}`);
+  } catch (err) {
+    toast(err.message, true);
+    checkbox.checked = !checkbox.checked; // откат
+  } finally {
+    checkbox.disabled = false;
+  }
+});
 
 // ---------------- цитаты (карточка на вкладке «Команды») ----------------
 

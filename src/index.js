@@ -339,6 +339,15 @@ const app = {
   },
 
   saveSettings(patch = {}) {
+    // встроенные команды: вкл/выкл (панель шлёт полный список выключенных имён)
+    if (patch.builtins && typeof patch.builtins === 'object' && Array.isArray(patch.builtins.disabled)) {
+      const known = new Set(Object.keys(commands.builtins));
+      settings.builtins ??= { disabled: [] };
+      settings.builtins.disabled ??= [];
+      settings.builtins.disabled = patch.builtins.disabled
+        .map((n) => String(n || '').toLowerCase().replace(/^!/, ''))
+        .filter((n) => known.has(n));
+    }
     // события
     if (patch.events && typeof patch.events === 'object') {
       for (const [kind, cfg] of Object.entries(patch.events)) {

@@ -73,6 +73,23 @@ nav {
 .tab.active { background: var(--card); color: var(--text); border-color: var(--line); font-weight: 600; }
 .tab:hover { color: var(--text); }
 
+/* подвкладки внутри вкладки (Команды → Кастомные/Встроенные) */
+.subtabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.subtab {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  padding: 7px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.subtab.active { background: var(--card); color: var(--text); border-color: var(--text); font-weight: 600; }
+.subtab:hover { color: var(--text); }
+
+/* выключенная встроенная команда — приглушена */
+tr.off td { opacity: .45; }
+
 main { padding: 16px 22px 60px; max-width: 1280px; margin: 0 auto; }
 .tabpane { display: none; }
 .tabpane.active { display: block; }
