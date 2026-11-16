@@ -803,6 +803,19 @@ export function normalizeTts(t = {}) {
   };
 }
 
+/**
+ * Слияние TTS-патча из панели с текущим значением и нормализация.
+ * Частичный патч (только volume) не затирает остальные поля — в т.ч. voiceName
+ * («фантомный» голос, которого нет в списке браузера, должен переживать сохранение).
+ * Мусорный патч (не объект) не меняет текущее значение.
+ */
+export function mergeTts(cur = {}, patch = {}) {
+  const merged = patch && typeof patch === 'object'
+    ? { ...(cur ?? {}), ...patch }
+    : { ...(cur ?? {}) };
+  return normalizeTts(merged);
+}
+
 export function loadSettings() {
   const stored = loadJson(SETTINGS_FILE, {}) ?? {};
   const events = {};
