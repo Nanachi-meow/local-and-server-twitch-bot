@@ -11,6 +11,7 @@ export const RESERVED = new Set([
   'баллы', 'топ', 'дать', 'перевести', 'колесо', 'мем', 'цитата',
   'ставка', 'ставить', 'итог', 'дуэль', 'сцена', 'сцены',
   'сказать', 'заказ', 'заказы',
+  'ср', 'песня', 'очередь', 'скип', 'музыка',
 ]);
 
 const NAME_RE = /^!?[A-Za-zА-Яа-яЁё0-9_\-]{1,32}$/;
@@ -90,6 +91,10 @@ export class CommandEngine {
 
   setServices(services) {
     this.services = services;
+  }
+
+  setSongs(songs) {
+    this.songs = songs;
   }
 
   // ---------------- хранилище ----------------
@@ -642,6 +647,82 @@ export class CommandEngine {
         },
       },
 
+      // ---------- музыка: заказы YouTube за баллы ----------
+      ср: {
+        level: 'everyone', label: 'заказ музыки: !ср <ссылка> (баллы)',
+        async run(session, args) {
+          if (!engine.songs) { await engine.say(session, 'Плеер не настроен'); return; }
+          const cfg = engine.songs.cfg();
+          if (!cfg.enabled) { await engine.say(session, 'Музыка сейчас выключена 🎵❌'); return; }
+          if (!args[0]) {
+            const st = engine.songs.state();
+            if (!st.current) { await engine.say(session, 'Сейчас ничего не играет. Заказ: !ср <ссылка на YouTube> 🎵'); return; }
+            const q = st.queue.length;
+            let line = `🎵 Сейчас: ${st.current.title}`;
+            line += q ? ` · в очереди: ${q}` : ' · очередь пустая';
+            line += st.paused ? ' · на паузе' : '';
+            await engine.say(session, line.slice(0, 480));
+            return;
+          }
+          const { parseVideoId } = await import('./songs.js');
+          const videoId = parseVideoId(args[0]);
+          if (!videoId) { await engine.say(session, `@${session.login}, это не похоже на ссылку YouTube. Пример: !ср https://youtu.be/dQw4w9WgXcQ`); return; }
+          const price = Math.max(0, Number(cfg.price ?? 100));
+          if (engine.points && price > 0 && !engine.points.spend(session.login, price)) {
+            await engine.say(session, `@${session.login}, заказ стоит ${price} ${plural(price, ['балл', 'балла', 'баллов'])} — не хватает 💎`);
+            return;
+          }
+          const r = await engine.songs.add({ videoId, by: session.login, byName: session.displayName });
+          if (r.error) {
+            if (engine.points && price > 0) engine.points.add(session.login, price); // отказ — возврат баллов
+            await engine.say(session, `@${session.login}, ${r.error}`);
+            return;
+          }
+          const pos = r.position === 0 ? 'включаю сейчас! 🎵' : `в очереди на ${r.position}-м месте`;
+          const priceLine = price > 0 ? ` (−${price} ${plural(price, ['балл', 'балла', 'баллов'])})` : '';
+          await engine.say(session, `🎵 ${r.song.title} — ${pos}${priceLine}`.slice(0, 480));
+        },
+      },
+      песня: {
+        level: 'everyone', label: 'то же, что !ср',
+        async run(session, args) { return engine.builtins['ср'].run(session, args); },
+      },
+      очередь: {
+        level: 'everyone', label: 'очередь музыки',
+        async run(session) {
+          if (!engine.songs) { await engine.say(session, 'Плеер не настроен'); return; }
+          const st = engine.songs.state();
+          if (!st.queue.length) { await engine.say(session, 'Очередь пустая — заказывай: !ср <ссылка> 🎵'); return; }
+          const list = st.queue.slice(0, 4).map((s, i) => `${i + 1}. ${s.title}`).join(' | ');
+          await engine.say(session, `🎵 Очередь (${st.queue.length}): ${list}`.slice(0, 480));
+        },
+      },
+      скип: {
+        level: 'mod', label: 'пропустить трек (мод+)',
+        async run(session) {
+          if (!engine.songs) { await engine.say(session, 'Плеер не настроен'); return; }
+          const r = engine.songs.skip();
+          if (r.error) { await engine.say(session, r.error); return; }
+          const nextTitle = r.next ? '' : ' (очередь пустая)';
+          await engine.say(session, `⏭ Трек скипнут${nextTitle}`);
+        },
+      },
+      музыка: {
+        level: 'everyone', label: 'управление: !музыка пауза|прод|стоп (мод+)',
+        async run(session, args) {
+          if (!engine.songs) { await engine.say(session, 'Плеер не настроен'); return; }
+          const sub = String(args[0] || '').toLowerCase();
+          if (!['пауза', 'прод', 'стоп'].includes(sub)) {
+            await engine.say(session, 'Управление: !ср <ссылка> — заказ · !очередь · !скип / !музыка пауза|прод|стоп (мод+)');
+            return;
+          }
+          if (levelValue(session.level || 'everyone') < LEVELS.mod) { await engine.say(session, 'Управлять музыкой могут только моды 🛡'); return; }
+          const r = engine.songs.control(sub === 'прод' ? 'resume' : sub === 'пауза' ? 'pause' : 'stop');
+          if (r.error) { await engine.say(session, r.error); return; }
+          await engine.say(session, sub === 'пауза' ? '⏸ Музыка на паузе' : sub === 'прод' ? '▶️ Продолжаем' : '⏹ Музыка остановлена, очередь очищена');
+        },
+      },
+
       // ---------- цитаты канала ----------
       цитата: {
         level: 'everyone', label: 'цитата: !цитата [N] · поиск · добавить (мод+) · удалить (мод+)',
@@ -1101,6 +1182,20 @@ export function loadSettings() {
       cooldown: 60,   // сек между фразами одного зрителя
       blocked: ['спам', 'реклама'], // запрещённые слова (подстрока) — заполняет стример
       ...(stored.say ?? {}),
+    },
+    songs: {
+      enabled: true,
+      price: 100,      // баллов за заказ трека (0 = бесплатно)
+      maxLenSec: 600,  // длиннее — не принимаем
+      perUser: 2,      // максимум треков одного зрителя в очереди
+      volume: 60,      // громкость плеера (0–100) — применяется в /music
+      nowTemplate: '♪ {title} — заказал {by}', // что показывать на оверлее
+      ...(stored.songs ?? {}),
+    },
+    proxy: {
+      enabled: false, // не настроен — все запросы напрямую
+      url: '',        // http://127.0.0.1:8080 (только http-прокси)
+      ...(stored.proxy ?? {}),
     },
   };
 }

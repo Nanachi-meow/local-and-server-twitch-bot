@@ -27,6 +27,7 @@
     <button class="tab" data-tab="autoso">Автошатауты</button>
     <button class="tab" data-tab="timers">Таймеры</button>
     <button class="tab" data-tab="points">💎 Баллы</button>
+    <button class="tab" data-tab="songs">🎵 Музыка</button>
     <button class="tab" data-tab="overlay">📺 Оверлей</button>
     <button class="tab" data-tab="modules">🧩 Модули</button>
     <button class="tab" data-tab="settings">Настройки</button>
@@ -393,6 +394,46 @@
       </div>
     </section>
 
+    <!-- ============ МУЗЫКА ============ -->
+    <section id="tab-songs" class="tabpane">
+      <div class="card">
+        <h2>🎵 Плеер музыки для OBS</h2>
+        <p class="hint">Зрители заказывают треки командой <code>!ср &lt;ссылка YouTube&gt;</code> за баллы (или бесплатно). Плеер живёт на отдельной странице — добавь её в OBS как <b>Браузер-источник</b>: <code id="music-url"></code> — так музыку можно вывести в отдельную аудиодорожку OBS (правый клик по источнику в микшере → «Расширенные свойства аудио» → назначь дорожку, отличную от стрим-микса). Шаблон надписи и внешний вид — настраиваются; сам плеер — файл <code>sr-player.js</code>, можно править/заменять целиком.</p>
+        <div class="addrow">
+          <input id="music-url-field" class="wide" readonly />
+          <button class="act" id="music-copy">Скопировать</button>
+          <a class="act ghost" id="music-open" target="_blank">Открыть плеер</a>
+        </div>
+      </div>
+      <div class="card">
+        <h2>⚙️ Настройки заказов</h2>
+        <div class="evcard">
+          <label><input type="checkbox" id="sg-enabled" /> музыка включена</label>
+          <label>цена заказа, баллов <input type="number" id="sg-price" min="0" max="100000" style="width:70px" /></label>
+          <label>макс. длина, сек <input type="number" id="sg-maxlen" min="0" max="36000" style="width:80px" /></label>
+          <label>треков на юзера в очереди <input type="number" id="sg-peruser" min="1" max="10" style="width:60px" /></label>
+          <label>громкость плеера <input type="number" id="sg-volume" min="0" max="100" style="width:60px" /></label>
+          <label>шаблон «сейчас играет» <input type="text" id="sg-template" class="wide" maxlength="200" placeholder="♪ {title} — заказал {by}" /></label>
+          <div class="row"><button class="act" id="sg-save">Сохранить</button></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>📋 Очередь и текущий трек</h2>
+        <div id="sg-current" class="hint">Ничего не играет</div>
+        <table class="cmds">
+          <thead><tr><th>#</th><th>Трек</th><th>Заказал</th><th></th></tr></thead>
+          <tbody id="sg-body"></tbody>
+        </table>
+        <div class="row" style="margin-top:10px">
+          <button class="act" id="sg-skip">⏭ Скип</button>
+          <button class="act ghost" id="sg-pause">⏸ Пауза</button>
+          <button class="act ghost" id="sg-resume">▶ Прод</button>
+          <button class="act ghost" id="sg-stop">⏹ Стоп+очистить</button>
+          <button class="act ghost" id="sg-refresh">⟳ Обновить</button>
+        </div>
+      </div>
+    </section>
+
     <!-- ============ ОВЕРЛЕЙ ============ -->
     <section id="tab-overlay" class="tabpane">
       <div class="card">
@@ -481,6 +522,18 @@
         </div>
         <p class="hint">Бот войдёт под тем аккаунтом, под которым залогинен Twitch в этом браузере. Нужен <u>аккаунт бота</u> — если браузер держит твой стримерский, открой ссылку в инкогнито (сначала залогинься в Twitch как бот).<br>
         Учти: на канале бота нужно сделать модератором — <code>/mod имя_бота</code> в своём чате.</p>
+      </div>
+      <div class="card">
+        <h2>🌐 Прокси (для музыки и метаданных)</h2>
+        <p class="hint">Сервер бота ходит за названием/длиной треков на YouTube напрямую. Если YouTube у тебя без прокси не открывается — пропиши сюда http-прокси (например <code>http://127.0.0.1:8080</code>). Само <b>проигрывание</b> идёт в браузере OBS через прокси системы/OBS — на это настройка не влияет.</p>
+        <div class="evcard">
+          <label><input type="checkbox" id="proxy-enabled" /> ходить через прокси</label>
+          <label>адрес прокси <input type="text" id="proxy-url" class="wide" placeholder="http://127.0.0.1:8080" /></label>
+          <div class="row">
+            <button class="act" id="proxy-save">Сохранить</button>
+            <button class="act ghost" id="proxy-test">Проверить связь</button>
+          </div>
+        </div>
       </div>
       <div class="card">
         <h2>🎬 OBS (obs-websocket 5)</h2>

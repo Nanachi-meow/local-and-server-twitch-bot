@@ -10,6 +10,7 @@ import { QuotesManager } from './bot/quotes.js';
 import { BetsManager } from './bot/bets.js';
 import { ObsClient } from './bot/obs.js';
 import { ServicesManager } from './bot/services.js';
+import { SongsManager } from './bot/songs.js';
 import { overlay } from './bot/alerts.js';
 import { createHttpServer } from './server.js';
 import { logs } from './logs.js';
@@ -18,7 +19,7 @@ import {
 } from './config.js';
 import { SETTINGS_FILE, saveJson } from './store.js';
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 const state = {
   startedAt: Date.now(),
@@ -69,6 +70,9 @@ modules.start(); // тик 'tick' каждые 20с + автоподхват п�
 const points = new PointsManager({ helix, auth, logs, settings, channels });
 commands.setPoints(points);
 points.start(); // начисление за просмотр + автосохранение
+
+const songs = new SongsManager({ logs, settings });
+commands.setSongs(songs);
 
 const quotes = new QuotesManager({ logs }); // цитаты канала: data/quotes.json, без таймеров
 commands.setQuotes(quotes);
@@ -221,6 +225,7 @@ const app = {
   bets,
   obs,
   services,
+  songs,
   socket,
   logs,
   settings,
@@ -425,6 +430,24 @@ const app = {
           .map((w) => String(w || '').trim().toLowerCase().slice(0, 40))
           .filter(Boolean);
       }
+    }
+    // музыка: заказы за баллы
+    if (patch.songs && typeof patch.songs === 'object') {
+      const a = patch.songs;
+      const cur = settings.songs;
+      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (a.price !== undefined) cur.price = Math.max(0, Math.min(1_000_000, Number(a.price) || 0));
+      if (a.maxLenSec !== undefined) cur.maxLenSec = Math.max(0, Math.min(36_000, Number(a.maxLenSec) || 600));
+      if (a.perUser !== undefined) cur.perUser = Math.max(1, Math.min(10, Number(a.perUser) || 2));
+      if (a.volume !== undefined) cur.volume = Math.max(0, Math.min(100, Math.round(Number(a.volume) || 0)));
+      if (a.nowTemplate !== undefined) cur.nowTemplate = String(a.nowTemplate).slice(0, 200);
+    }
+    // прокси (для запросов к YouTube и подобным)
+    if (patch.proxy && typeof patch.proxy === 'object') {
+      const a = patch.proxy;
+      const cur = settings.proxy;
+      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (a.url !== undefined) cur.url = String(a.url).trim().slice(0, 200);
     }
     saveJson(SETTINGS_FILE, settings);
   },
@@ -651,6 +674,24 @@ const app = {
         const r = services.settle({ id: body.id, op: String(body.op || '') });
         if (r.error) throw new Error(r.error);
         return { settled: r.order.id, op: r.op };
+      }
+      case 'srnext': { // скип из панели
+        const r = songs.skip();
+        if (r.error) throw new Error(r.error);
+        return { next: Boolean(r.next) };
+      }
+      case 'srclear': { // очистить очередь из панели
+        return songs.clear();
+      }
+      case 'srcontrol': { // пауза/прод/стоп из панели
+        const r = songs.control(String(body.op || ''));
+        if (r.error) throw new Error(r.error);
+        return { ok: true };
+      }
+      case 'proxytest': { // проверка прокси из панели
+        const { proxyCheck } = await import('./bot/proxy.js');
+        const r = await proxyCheck(settings.proxy);
+        return { ok: true, via: settings.proxy.enabled ? 'через прокси' : 'напрямую', sample: r.title };
       }
       default:
         throw new Error(`Неизвестное действие: ${action}`);

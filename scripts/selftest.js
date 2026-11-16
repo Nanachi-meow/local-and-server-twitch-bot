@@ -179,6 +179,81 @@ ok('легаси рп: action переехал в response', hugCmd.mode === 'te
 const hornyCmd = engine.custom.find((c) => c.name === 'хорни');
 ok('легаси random: стал variants', hornyCmd.mode === 'variants' && hornyCmd.variants.length === 1);
 
+// ---------- музыка: заказы YouTube за баллы ----------
+const { parseVideoId, SongsManager } = await import('../src/bot/songs.js');
+const { PointsManager: SRPoints } = await import('../src/bot/points.js');
+ok('музыка: parseVideoId youtu.be', parseVideoId('https://youtu.be/dQw4w9WgXcQ') === 'dQw4w9WgXcQ');
+ok('музыка: parseVideoId watch?v= с параметрами', parseVideoId('https://www.youtube.com/watch?t=42&v=abc12345678') === 'abc12345678');
+ok('музыка: parseVideoId shorts и голый ID', parseVideoId('https://youtube.com/shorts/aabbccdde11') === 'aabbccdde11' && parseVideoId('dQw4w9WgXcQ') === 'dQw4w9WgXcQ');
+ok('музыка: parseVideoId мусор → null', parseVideoId('https://twitch.tv/x') === null && parseVideoId('') === null && parseVideoId('привет') === null);
+
+const songsSettings = {
+  events: {},
+  points: { enabled: true, intervalMin: 10, amount: 10, perMessage: 0 },
+  songs: { enabled: true, price: 100, maxLenSec: 600, perUser: 2, volume: 60, nowTemplate: '♪ {title} — заказал {by}' },
+};
+const songsFile = path.join(process.env.BOT_DATA_DIR, 'songs.json');
+const fakeFetcher = async (url) => {
+  if (url.includes('oembed')) {
+    if (url.includes('badvideo000')) return { status: 404, body: '' };
+    return { status: 200, body: JSON.stringify({ title: 'Never Gonna Give You Up', author_name: 'Rick Astley' }) };
+  }
+  // watch page
+  if (url.includes('longvideo000')) return { status: 200, body: '"lengthSeconds":"99999"' };
+  return { status: 200, body: '"lengthSeconds":"213"' };
+};
+const sm = new SongsManager({ logs, settings: songsSettings, dataFile: songsFile, fetcher: fakeFetcher });
+engine.setSongs(sm);
+
+const sr = await sm.add({ videoId: 'dQw4w9WgXcQ', by: 'Petya', byName: 'Petya' });
+ok('музыка: первый заказ сразу играет', !sr.error && sm.current?.id === 'dQw4w9WgXcQ' && sr.position === 0);
+const dup = await sm.add({ videoId: 'dQw4w9WgXcQ', by: 'Vasya', byName: 'Vasya' });
+ok('музыка: дубликат отклоняется', Boolean(dup.error));
+await sm.add({ videoId: 'abc12345678', by: 'Petya', byName: 'Petya' });
+await sm.add({ videoId: 'aabbccdde11', by: 'Petya', byName: 'Petya' });
+ok('музыка: лимит на юзера в очереди', sm.queue.length === 2);
+const long = await sm.add({ videoId: 'longvideo000', by: 'Vova', byName: 'Vova' });
+ok('музыка: длинный трек отклоняется', Boolean(long.error) && long.error.includes('длинно'));
+const bad = await sm.add({ videoId: 'badvideo000', by: 'Vova', byName: 'Vova' });
+ok('музыка: несуществующее видео отклоняется', Boolean(bad.error));
+
+sm.ended();
+ok('музыка: ended продвигает очередь', sm.current?.id === 'abc12345678' && sm.history.length === 1);
+sm.control('pause');
+ok('музыка: пауза', sm.paused === true);
+sm.control('resume');
+ok('музыка: снята с паузы', sm.paused === false);
+sm.saveNow();
+const storedSongs = JSON.parse(fs.readFileSync(songsFile, 'utf8'));
+ok('музыка: очередь сохраняется в файл', Array.isArray(storedSongs.queue) && storedSongs.queue.length === 1 && storedSongs.current?.id === 'abc12345678');
+
+// команды через движок: цена списывается, при отказе возвращается
+const srFakeHelix = {
+  sendMessage: async (b) => { sent.push(b.text); return { message_id: 'm' }; },
+  getStreamByLogin: async () => null,
+  getUserByLogin: async (login) => ({ id: '55', login, display_name: login }),
+  getChatters: async () => [],
+};
+const ptsSR = new SRPoints({ helix: srFakeHelix, auth: fakeAuth, logs, settings: songsSettings, channels: null, dataFile: path.join(process.env.BOT_DATA_DIR, 'points-sr.json') });
+ptsSR.add('girl', 200, 'Girl'); // заказ стоит 100 — хватит на один
+engine.points = ptsSR;
+await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!ср https://youtu.be/qwer1234567', badges: [] });
+ok('музыка: !ср списывает баллы', sent.at(-1).includes('в очереди') && ptsSR.balance('girl') === 100);
+ptsSR.spend('girl', 100); // оставляем 0 — на второй заказ не хватит
+await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!ср https://youtu.be/zxcv1234567', badges: [] });
+ok('музыка: не хватает баллов — отказ', sent.at(-1).includes('не хватает') && ptsSR.balance('girl') === 0);
+await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!ср это-не-ссылка', badges: [] });
+ok('музыка: не-ссылка отклоняется без списания', sent.at(-1).includes('не похоже') && ptsSR.balance('girl') === 0);
+await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!очередь', badges: [] });
+ok('музыка: !очередь отвечает', sent.at(-1).startsWith('🎵'));
+await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!скип', badges: [{ set_id: 'moderator' }] });
+ok('музыка: !скип (мод+) работает', sent.at(-1).includes('скипнут'));
+engine.points = null; // чистим за собой — чтобы следующие секции не путались
+
+let srNameThrew = false;
+try { engine.upsert({ name: 'ср', response: 'хак' }); } catch { srNameThrew = true; }
+ok('музыка: имена зарезервированы', srNameThrew && RESERVED.has('ср') && RESERVED.has('музыка'));
+
 // ---------- события ----------
 const evSettings = {
   events: {

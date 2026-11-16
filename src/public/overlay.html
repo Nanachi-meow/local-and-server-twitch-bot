@@ -66,12 +66,23 @@
     font-size: 13px; color: rgba(255, 255, 255, .45);
     text-shadow: 0 1px 3px #000;
   }
+  /* виджет «сейчас играет» — только надпись, звук живёт на /music */
+  #sr-now {
+    position: fixed; right: 24px; top: 84px;
+    max-width: 40vw; padding: 10px 16px; border-radius: 12px;
+    background: rgba(10, 8, 20, 0.72); border: 1px solid rgba(255,255,255,.12);
+    font-size: 18px; font-weight: 600; text-shadow: 0 2px 6px rgba(0,0,0,.6);
+    box-shadow: 0 0 22px rgba(139, 92, 246, .35);
+  }
+  #sr-now .sr-icon { margin-right: 4px; }
 </style>
 </head>
 <body>
   <div id="stage"></div>
+  <div id="sr-now" class="hidden"></div>
   <div id="events" hidden></div>
   <div id="conn">…</div>
+<script src="/sr-player.js"></script>
 <script>
   const EMOJI = { follow: '💜', sub: '🎉', resub: '💖', subgift: '🎁', raid: '🚀', meme: '🎬', wheel: '🎡' };
   const SUBLINE = { follow: 'новый фолловер', sub: 'новая подписка', resub: 'продление подписки', subgift: 'подаренная подписка', raid: 'рейд на канал', meme: 'мем за баллы', wheel: 'колесо баллов' };
@@ -221,6 +232,7 @@
   es.onmessage = (m) => {
     try {
       const ev = JSON.parse(m.data);
+      if (ev.kind === 'sr') { window.srPlayer?.onEvent?.(ev); return; }
       if (KINDS.includes(ev.kind)) {
         queue.push(ev);
         pump();

@@ -10,6 +10,8 @@ const STATIC = {
   '/app.js': { file: 'app.js', type: 'text/javascript; charset=utf-8' },
   '/style.css': { file: 'style.css', type: 'text/css; charset=utf-8' },
   '/overlay': { file: 'overlay.html', type: 'text/html; charset=utf-8' },
+  '/music': { file: 'music.html', type: 'text/html; charset=utf-8' },
+  '/sr-player.js': { file: 'sr-player.js', type: 'text/javascript; charset=utf-8' },
 };
 
 /** Папка с медиа-файлами для алертов (звуки/картинки). Файлы отдаются на /media/<имя>. */
@@ -200,6 +202,24 @@ export function createHttpServer({ app }) {
       const name = u.searchParams.get('name') || '';
       const removed = app.commands.remove(name);
       sendJson(res, 200, { ok: true, removed });
+      return;
+    }
+
+    if (route === '/api/songs' && req.method === 'GET') {
+      sendJson(res, 200, app.songs.state());
+      return;
+    }
+
+    if (route === '/api/songs' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      const op = String(body?.op || '');
+      // 'ended' и 'hello' звнит плеер с /music; остальное — панель
+      let r;
+      if (op === 'ended') r = app.songs.ended();
+      else if (op === 'remove') r = app.songs.removeAt(body.index);
+      else if (op === 'hello') r = { ok: true };
+      else throw new Error(`Неизвестное действие: ${op || '(пусто)'}`);
+      sendJson(res, 200, r);
       return;
     }
 

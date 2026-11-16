@@ -1506,6 +1506,101 @@ $('#ov-body').addEventListener('click', async (e) => {
   } catch (err) { toast(err.message, true); }
 });
 
+// ---------------- музыка (заказы YouTube за баллы) ----------------
+
+async function loadSongsTab() {
+  const st = await api('/api/songs');
+  const s = (await api('/api/settings')).songs ?? {};
+  $('#music-url').textContent = `${location.origin}/music`;
+  $('#music-url-field').value = `${location.origin}/music`;
+  $('#music-open').href = `${location.origin}/music`;
+  $('#sg-enabled').checked = Boolean(s.enabled);
+  $('#sg-price').value = s.price ?? 100;
+  $('#sg-maxlen').value = s.maxLenSec ?? 600;
+  $('#sg-peruser').value = s.perUser ?? 2;
+  $('#sg-volume').value = s.volume ?? 60;
+  $('#sg-template').value = s.nowTemplate ?? '♪ {title} — заказал {by}';
+  $('#sg-current').innerHTML = st.current
+    ? `▶ <b>${esc(st.current.title)}</b> — заказал ${esc(st.current.byName || st.current.by)}${st.paused ? ' · <b>на паузе</b>' : ''}`
+    : 'Ничего не играет';
+  $('#sg-body').innerHTML = (st.queue ?? []).map((song, i) => `
+    <tr data-index="${i}">
+      <td>${i + 1}</td>
+      <td class="cellresp">${esc(song.title)}</td>
+      <td class="cellname">${esc(song.byName || song.by)}</td>
+      <td><button class="act ghost sg-remove" title="убрать из очереди">🗑</button></td>
+    </tr>`).join('') || '<tr><td colspan="4" class="hint">Очередь пуста</td></tr>';
+}
+
+$('#music-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('#music-url-field').value); toast('Скопировано ✅'); }
+  catch { $('#music-url-field').select(); toast('Выделила поле — Ctrl+C', true); }
+});
+
+$('#sg-save').addEventListener('click', async () => {
+  try {
+    await putSettings({
+      songs: {
+        enabled: $('#sg-enabled').checked,
+        price: Number($('#sg-price').value) || 0,
+        maxLenSec: Number($('#sg-maxlen').value) || 600,
+        perUser: Number($('#sg-peruser').value) || 2,
+        volume: Number($('#sg-volume').value) || 60,
+        nowTemplate: $('#sg-template').value,
+      },
+    });
+    toast('Настройки музыки сохранены ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#sg-skip').addEventListener('click', async () => {
+  try { await api('/api/actions/srnext', { method: 'POST', body: '{}' }); toast('Трек скипнут ⏭'); loadSongsTab(); }
+  catch (e) { toast(e.message, true); }
+});
+
+$('#sg-pause').addEventListener('click', () => api('/api/actions/srcontrol', { method: 'POST', body: JSON.stringify({ op: 'pause' }) }).then(() => loadSongsTab()).catch((e) => toast(e.message, true)));
+$('#sg-resume').addEventListener('click', () => api('/api/actions/srcontrol', { method: 'POST', body: JSON.stringify({ op: 'resume' }) }).then(() => loadSongsTab()).catch((e) => toast(e.message, true)));
+$('#sg-stop').addEventListener('click', () => {
+  if (!confirm('Остановить музыку и очистить очередь?')) return;
+  api('/api/actions/srcontrol', { method: 'POST', body: JSON.stringify({ op: 'stop' }) }).then(() => loadSongsTab()).catch((e) => toast(e.message, true));
+});
+$('#sg-refresh').addEventListener('click', () => loadSongsTab().catch(() => {}));
+
+$('#sg-body').addEventListener('click', async (e) => {
+  const row = e.target.closest('tr[data-index]');
+  if (!row || !e.target.classList.contains('sg-remove')) return;
+  try {
+    await api('/api/songs', { method: 'POST', body: JSON.stringify({ op: 'remove', index: Number(row.dataset.index) }) });
+    toast('Убрано из очереди');
+    loadSongsTab();
+  } catch (err) { toast(err.message, true); }
+});
+
+// ---------------- прокси (под-вкладка в Настройках) ----------------
+
+async function loadProxySettings() {
+  const p = (await api('/api/settings')).proxy ?? {};
+  $('#proxy-enabled').checked = Boolean(p.enabled);
+  $('#proxy-url').value = p.url ?? '';
+}
+
+$('#proxy-save').addEventListener('click', async () => {
+  try {
+    await putSettings({
+      proxy: { enabled: $('#proxy-enabled').checked, url: $('#proxy-url').value.trim() },
+    });
+    toast('Прокси сохранён ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#proxy-test').addEventListener('click', async () => {
+  toast('Проверяю связь…');
+  try {
+    const r = await api('/api/actions/proxytest', { method: 'POST', body: '{}' });
+    toast(`✅ ${r.via} — YouTube доступен («${r.sample}»)`);
+  } catch (e) { toast(`❌ ${e.message}`, true); }
+});
+
 // ---------------- модули ----------------
 
 async function loadModules() {
@@ -1662,6 +1757,8 @@ loadSettings().catch(() => {});
 loadModules().catch(() => {});
 loadOverlaySettings().catch(() => {});
 loadPointsTab().catch(() => {});
+loadSongsTab().catch(() => {});
+loadProxySettings().catch(() => {});
 loadQuotes().catch(() => {});
 pollBets();
 poll();
