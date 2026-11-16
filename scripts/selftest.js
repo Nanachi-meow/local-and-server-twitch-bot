@@ -647,7 +647,7 @@ try { engine.upsert({ name: 'цитата', response: 'хак' }); } catch { quo
 ok('цитата: имя зарезервировано за встроенной', quoteReservedThrew && RESERVED.has('цитата'));
 
 // ---------- TTS-озвучка оверлея: дефолты и нормализация ----------
-const { loadSettings, normalizeTts } = await import('../src/bot/commands.js');
+const { loadSettings, normalizeTts, mergeTts } = await import('../src/bot/commands.js');
 const ttsDef = loadSettings().alerts.tts;
 ok('tts: дефолты в loadSettings (alerts.tts)', ttsDef.enabled === false && ttsDef.rate === 1 && ttsDef.volume === 1 && ttsDef.voiceName === '');
 
@@ -665,6 +665,13 @@ fs.writeFileSync(ttsSettingsFile, JSON.stringify({ alerts: { tts: { enabled: tru
 const ttsStored = loadSettings().alerts.tts;
 ok('tts: сохранённые значения переопределяют дефолты (merge)', ttsStored.enabled === true && ttsStored.rate === 1.5 && ttsStored.volume === 0.3 && ttsStored.voiceName === 'Milena');
 fs.rmSync(ttsSettingsFile, { force: true });
+
+// фикс критика: частичный патч не должен затирать сохранённый voiceName
+const phantomCur = { enabled: true, rate: 1.5, volume: 0.3, voiceName: 'Milena' };
+const partialPatch = mergeTts(phantomCur, { volume: 0.2 });
+ok('tts: mergeTts частичный патч держит voiceName и остальное', partialPatch.voiceName === 'Milena' && partialPatch.rate === 1.5 && partialPatch.enabled === true && partialPatch.volume === 0.2);
+const garbagePatch = mergeTts(phantomCur, 'мусор');
+ok('tts: mergeTts мусорный патч не меняет текущие значения', garbagePatch.enabled === true && garbagePatch.voiceName === 'Milena' && garbagePatch.rate === 1.5 && garbagePatch.volume === 0.3);
 
 // ---------- ставки и дуэли ----------
 const { BetsManager } = await import('../src/bot/bets.js');

@@ -1050,10 +1050,15 @@ const OV_KINDS = [
 ];
 
 let __mediaFiles = [];
+// семафор: вкладка Оверлей отрисовала актуальные настройки сервера.
+// До этого «Сохранить» держим заблокированным — иначе соберём алерты из
+// пустого DOM и молча выключим все алерты и TTS (панель свежая, бот перезапускался).
+let __overlayLoaded = false;
 
 async function loadOverlaySettings() {
   const [st, media] = await Promise.all([api('/api/settings'), api('/api/media')]);
   const a = st.alerts ?? {};
+  window.__settings = st; // свежие значения по умолчанию для TTS-голоса (не DOM-дефолт)
   __mediaFiles = media.files ?? [];
   $('#ov-url').value = `${location.origin}/overlay`;
   $('#ov-open').href = `${location.origin}/overlay?test=follow`;
@@ -1079,6 +1084,7 @@ async function loadOverlaySettings() {
   $('#tts-rate').value = tts.rate ?? 1;
   $('#tts-volume').value = tts.volume ?? 1;
   fillTtsVoices(String(tts.voiceName ?? ''));
+  __overlayLoaded = true; // настройки отрисованы — теперь можно собирать и слать
 }
 
 // список голосов берём из браузера панели (Web Speech API), русские — первыми
@@ -1086,31 +1092,42 @@ function ttsVoices() {
   try { return window.speechSynthesis?.getVoices?.() ?? []; } catch { return []; }
 }
 
+// сохранённый в настройках голос — единственный источник правды для дефолта,
+// DOM-дефолт (пустая опция «— по умолчанию —») значение не затирает
+function storedTtsVoice() {
+  try { return String(window.__settings?.alerts?.tts?.voiceName ?? ''); } catch { return ''; }
+}
+
 function fillTtsVoices(selected = '') {
   const sel = $('#tts-voice');
   if (!sel) return;
+  // значением по умолчанию всегда — сохранённое из настроек, а не DOM-дефолт
+  const want = String(selected || storedTtsVoice());
   const voices = ttsVoices();
   const hint = $('#tts-hint');
-  const opt = (v) => `<option value="${esc(v.name)}" ${v.name === selected ? 'selected' : ''}>${esc(v.name)}</option>`;
+  const opt = (v) => `<option value="${esc(v.name)}" ${v.name === want ? 'selected' : ''}>${esc(v.name)}</option>`;
   let html = '<option value="">— по умолчанию (первый русский) —</option>';
   if (voices.length) {
     const ru = voices.filter((v) => /^ru/i.test(String(v.lang || '')));
     const other = voices.filter((v) => !/^ru/i.test(String(v.lang || '')));
     html += (ru.length ? `<optgroup label="Русские">${ru.map(opt).join('')}</optgroup>` : '')
       + (other.length ? `<optgroup label="Остальные">${other.map(opt).join('')}</optgroup>` : '');
-    // голос сохранён из другого браузера — держим значение, чтобы не потерялся при сохранении
-    if (selected && !voices.some((v) => v.name === selected)) {
-      html += `<option value="${esc(selected)}" selected>${esc(selected)} (нет в этом браузере)</option>`;
-    }
     if (hint) hint.textContent = '';
   } else if (hint) {
     hint.textContent = 'speechSynthesis' in window ? 'голоса ещё грузятся — обновится само…' : 'браузер не поддерживает синтез речи';
+  }
+  // фантом: текущее имя из настроек держим в списке ВСЕГДА (и при пустом списке),
+  // иначе первый «Сохранить» ушёл бы с voiceName:'' и настройка молча потерялась
+  if (want && !voices.some((v) => v.name === want)) {
+    html += `<option value="${esc(want)}" selected>текущий: ${esc(want)} (нет в этом браузере)</option>`;
   }
   sel.innerHTML = html;
 }
 
 if ('speechSynthesis' in window) {
-  speechSynthesis.addEventListener?.('voiceschanged', () => fillTtsVoices($('#tts-voice')?.value ?? ''));
+  // при поздней загрузке списка: выбранное пользователем в DOM — сохраняем,
+  // иначе берём сохранённое из настроек (никогда — пустой DOM-дефолт)
+  speechSynthesis.addEventListener?.('voiceschanged', () => fillTtsVoices($('#tts-voice')?.value || storedTtsVoice()));
 }
 
 $('#ov-copy').addEventListener('click', async () => {
@@ -1119,8 +1136,11 @@ $('#ov-copy').addEventListener('click', async () => {
   catch { $('#ov-url').select(); toast('Выделила поле — Ctrl+C', true); }
 });
 
-// сбор alerts ЦЕЛИКОМ (события + TTS) — один PUT сохраняет и то, и другое
+// сбор alerts ЦЕЛИКОМ (события + TTS) — один PUT сохраняет и то, и другое.
+// Пока настройки вкладки не загружены — null: не шлём ни группу alerts,
+// ни глобальный alerts.enabled (иначе молча выключились бы ВСЕ алерты).
 function collectAlerts() {
+  if (!__overlayLoaded) return null;
   const alerts = { enabled: $('#ov-enabled').checked };
   document.querySelectorAll('#ov-body tr[data-kind]').forEach((row) => {
     alerts[row.dataset.kind] = {
@@ -1142,15 +1162,19 @@ function collectAlerts() {
 }
 
 $('#ov-save').addEventListener('click', async () => {
+  const alerts = collectAlerts();
+  if (!alerts) { toast('Настройки алертов ещё не загрузились — секунду…', true); return; }
   try {
-    await putSettings({ alerts: collectAlerts() });
+    await putSettings({ alerts });
     toast('Алерты сохранены ✅');
   } catch (e) { toast(e.message, true); }
 });
 
 $('#tts-save').addEventListener('click', async () => {
+  const alerts = collectAlerts();
+  if (!alerts) { toast('Настройки ещё не загрузились — секунду…', true); return; }
   try {
-    await putSettings({ alerts: collectAlerts() });
+    await putSettings({ alerts });
     toast('Озвучка сохранена ✅');
   } catch (e) { toast(e.message, true); }
 });

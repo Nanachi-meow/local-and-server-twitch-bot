@@ -93,6 +93,10 @@
   // очередь из SpeechSynthesisUtterance при повторных вызовах speak().
   function speak(text) {
     if (TTS_OFF || !cfg?.tts?.enabled || !('speechSynthesis' in window) || !text) return;
+    // анти-спам: кап очереди. При залпе мемов/рейдов браузер стекает фразы
+    // безлимитно и оверлей обзванивает ВСЁ; если в ожидании уже > 3 фраз
+    // (speechSynthesis.pending) — новую не ставим, пусть доспикит текущий хвост.
+    if (Number(speechSynthesis.pending) > 3) return;
     try {
       const u = new SpeechSynthesisUtterance(String(text));
       const v = pickVoice();
