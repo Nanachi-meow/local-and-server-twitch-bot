@@ -10,8 +10,15 @@ const STATIC = {
   '/app.js': { file: 'app.js', type: 'text/javascript; charset=utf-8' },
   '/style.css': { file: 'style.css', type: 'text/css; charset=utf-8' },
   '/overlay': { file: 'overlay.html', type: 'text/html; charset=utf-8' },
-  '/music': { file: 'music.html', type: 'text/html; charset=utf-8' },
-  '/sr-player.js': { file: 'sr-player.js', type: 'text/javascript; charset=utf-8' },
+  '/sr-player.js': { file: 'sr-player.js', type: 'text/javascript; charset=utf-8' }, // надпись «сейчас играет» в оверлее
+};
+
+/** Папка кастомизируемого плеера музыки (страница /music) — см. player/README.md. */
+const PLAYER_DIR = path.join(ROOT, 'player');
+const PLAYER_TYPES = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml', '.webp': 'image/webp', '.gif': 'image/gif',
 };
 
 /** Папка с медиа-файлами для алертов (звуки/картинки). Файлы отдаются на /media/<имя>. */
@@ -68,6 +75,21 @@ export function createHttpServer({ app }) {
       try {
         const body = fs.readFileSync(path.join(PUBLIC_DIR, st.file));
         send(res, 200, body, { 'Content-Type': st.type, 'Cache-Control': 'no-store' });
+      } catch {
+        send(res, 404, 'not found');
+      }
+      return;
+    }
+
+    // ---------- плеер музыки: всё из папки player/ (/music и /music/<файл>) ----------
+    if (route === '/music' || route.startsWith('/music/')) {
+      if (req.method !== 'GET') { send(res, 405, 'method not allowed'); return; }
+      const rel = route === '/music' ? 'index.html' : path.basename(decodeURIComponent(route.slice('/music/'.length)));
+      const type = PLAYER_TYPES[path.extname(rel).toLowerCase()];
+      const full = path.join(PLAYER_DIR, rel);
+      if (!type || !fs.existsSync(full)) { send(res, 404, 'not found'); return; }
+      try {
+        send(res, 200, fs.readFileSync(full), { 'Content-Type': type, 'Cache-Control': 'no-store' });
       } catch {
         send(res, 404, 'not found');
       }

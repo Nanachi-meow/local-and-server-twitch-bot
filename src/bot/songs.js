@@ -66,6 +66,7 @@ export class SongsManager {
     this.current = stored.current ?? null;
     this.paused = Boolean(stored.paused);
     this.testCount = Number(stored.testCount) || 0; // сколько раз жали «Тест плеера»
+    this.testing = null; // { id, title } — играет тест-трек (мимо очереди)
     this._dirty = false;
     this._lastOrder = new Map(); // login -> ts последнего успешного заказа (кулдаун)
   }
@@ -98,6 +99,7 @@ export class SongsManager {
       current: this.current,
       queue: this.queue.slice(0, 20),
       paused: this.paused,
+      testing: this.testing ? { title: this.testing.title } : null,
       enabled: Boolean(this.cfg().enabled),
       volume: this.cfg().volume ?? 60,
       nowTemplate: this.cfg().nowTemplate || '♪ {title} (заказ {by})',
@@ -157,6 +159,7 @@ export class SongsManager {
       }
     }
     const song = { id, title, author, duration, viewCount, by: byLogin, byName: byName || byLogin, at: Date.now() };
+    this.testing = null; // настоящий заказ вытесняет тест-трек
     if (!this.current) {
       this.current = song;
       this._emit('play');
@@ -177,6 +180,7 @@ export class SongsManager {
 
   /** Видео закончилось (сообщает плеер с /music). */
   ended() {
+    this.testing = null; // смена трека в эфире гасит тест
     if (!this.current) {
       this._emit('stop'); // пустая очередь: всё равно сообщаем — плеер сбрасывает UI
       return { stopped: true };
@@ -192,7 +196,15 @@ export class SongsManager {
   }
 
   skip() {
-    if (!this.current) return { error: 'сейчас ничего не играет' };
+    // играет тест-трек — скип = остановить тест
+    if (!this.current) {
+      if (this.testing) {
+        this.testing = null;
+        this._emitTest('stop');
+        return { ok: true, testing: true };
+      }
+      return { error: 'сейчас ничего не играет' };
+    }
     return this.ended();
   }
 
@@ -206,16 +218,20 @@ export class SongsManager {
 
   control(op) {
     if (op === 'pause') {
+      // играет тест-трек (очередь пустая) — паузим его
+      if (!this.current && this.testing) { this._emitTest('pause'); return { ok: true, testing: true }; }
       if (!this.current) return { error: 'нечего паузить' };
       this.paused = true;
       this._emit('pause');
     } else if (op === 'resume') {
+      if (!this.current && this.testing) { this._emitTest('resume'); return { ok: true, testing: true }; }
       this.paused = false;
       this._emit('resume');
     } else if (op === 'stop') {
       this.current = null;
       this.queue = [];
       this.paused = false;
+      if (this.testing) { this.testing = null; this._emitTest('stop'); }
       this._dirty = true;
       this.saveNow();
       this._emit('stop');
@@ -297,6 +313,7 @@ export class SongsManager {
    * «Тест плеера»: пушит специальное событие srtest — все плееры (OBS /music и превью в панели)
    * проигрывают трек, НЕ трогая очередь/текущий трек. Первая попытка в жизни бота — рикрол,
    * дальше — Bad Apple. Счётчик навсегда в data/songs.json.
+   * Управление тестом: control('pause'/'resume'/'stop') и skip() тоже рулят тестом.
    */
   test() {
     const cfg = this.cfg();
@@ -304,14 +321,19 @@ export class SongsManager {
     this.testCount = (Number(this.testCount) || 0) + 1;
     this.saveNow();
     const track = this.testCount === 1 ? TEST_TRACKS.first : TEST_TRACKS.next;
+    this.testing = { id: track.id, title: track.title };
+    this._emitTest('play', { volume: cfg.volume ?? 60 });
+    return { id: track.id, title: track.title, first: this.testCount === 1 };
+  }
+
+  /** Событие управления тестом (srtest): play/pause/resume/stop. */
+  _emitTest(op, extra = {}) {
     overlay.push({
       kind: 'srtest',
-      id: track.id,
-      title: track.title,
-      volume: cfg.volume ?? 60,
-      first: this.testCount === 1,
+      op,
+      ...(this.testing ? { id: this.testing.id, title: this.testing.title } : {}),
+      ...extra,
     });
-    return { id: track.id, title: track.title, first: this.testCount === 1 };
   }
 }
 

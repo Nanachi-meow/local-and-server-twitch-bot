@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>Плеер музыки — Twitch-бот</title>
+<style>
+  /* ═══════════════════════════════════════════════════════════════════
+   *  К А С Т О М И З А Ц И Я  — правь эти переменные под свой дизайн.
+   *  Всё остальное — логика, её трогать не обязательно.
+   *  Полный контракт (события/API) — в player/README.md
+   * ═══════════════════════════════════════════════════════════════════ */
+  :root {
+    --pl-width: 640px;          /* ширина видео */
+    --pl-accent: #8b5cf6;       /* цвет подсветки и полосы */
+    --pl-text: #ffffff;         /* цвет бегущей строки */
+    --pl-bg: rgba(10, 8, 20, .8); /* подложка строки */
+    --pl-font-size: 22px;       /* размер текста строки */
+    --pl-font-weight: 700;
+    --pl-speed: 30s;            /* пробег строки, сек (больше = медленнее) */
+    --pl-radius: 14px;
+    --pl-align: center;         /* center | flex-start | flex-end — где стоит блок */
+  }
+
+  html, body {
+    margin: 0; height: 100%; background: transparent; overflow: hidden;
+    font-family: 'Segoe UI', system-ui, sans-serif; color: var(--pl-text);
+  }
+  #pl-stage {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column; align-items: var(--pl-align);
+    justify-content: center; gap: 12px; padding: 0 24px;
+  }
+  #pl-video {
+    width: var(--pl-width); max-width: 96vw; aspect-ratio: 16 / 9;
+    border-radius: var(--pl-radius); overflow: hidden;
+    box-shadow: 0 0 42px color-mix(in srgb, var(--pl-accent) 55%, transparent);
+    background: #000;
+  }
+  #pl-video iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+  /* бегущая строка «сейчас играет» */
+  #pl-now {
+    width: var(--pl-width); max-width: 96vw;
+    background: var(--pl-bg); border: 1px solid color-mix(in srgb, var(--pl-accent) 45%, transparent);
+    border-radius: var(--pl-radius);
+    overflow: hidden; white-space: nowrap;
+  }
+  #pl-now.hidden { display: none; }
+  #pl-track {
+    display: inline-block; padding: 10px 0;
+    font-size: var(--pl-font-size); font-weight: var(--pl-font-weight);
+    text-shadow: 0 2px 8px rgba(0, 0, 0, .6);
+    animation: pl-marquee var(--pl-speed) linear infinite;
+    padding-left: 100%;
+  }
+  #pl-track.paused { animation-play-state: paused; }
+  @keyframes pl-marquee { to { transform: translateX(-200%); } }
+
+  /* тумблер музыки — правый верхний угол */
+  #pl-toggle {
+    position: fixed; right: 16px; top: 14px;
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 999px; cursor: pointer;
+    background: var(--pl-bg); border: 1px solid rgba(255, 255, 255, .2);
+    color: var(--pl-text); font-size: 15px; font-weight: 600; user-select: none;
+  }
+  #pl-toggle.off { opacity: .5; border-color: rgba(255, 255, 255, .12); }
+  .pl-placeholder {
+    color: var(--pl-text); opacity: .6; font-size: 18px;
+  }
+</style>
+</head>
+<body>
+  <div id="pl-toggle" title="включить/выключить музыку">🎵 <span id="pl-toggle-label">музыка</span></div>
+  <div id="pl-stage">
+    <div id="pl-video"></div>
+    <div id="pl-now" class="hidden"><div id="pl-track"></div></div>
+    <div id="pl-empty" class="pl-placeholder" hidden>ничего не играет — закажи командой или наградой</div>
+  </div>
+<script>
+  /**
+   * Плеер музыки для OBS (Browser Source). Полностью кастомизируется:
+   * дизайн — CSS выше (переменные :root), логику можно менять как угодно.
+   *
+   * Контракт с ботом (подробности в player/README.md):
+   *   GET  /api/songs            → { current, queue, paused, enabled, volume, nowTemplate }
+   *   SSE  /overlay/feed         → события:
+   *        { kind:'sr', op:'play'|'stop'|'update'|'pause'|'resume', current, volume, nowTemplate, paused }
+   *        { kind:'srtest', op:'play'|'pause'|'resume'|'stop', id, title, volume }
+   *   POST /api/songs {op:'ended'} — трек закончился
+   */
+  (() => {
+    let yt = null;
+    let current = null;
+    let testing = false;
+    let volume = 60;
+    let nowTemplate = '♪ {title} — заказал {by}';
+    let enabled = true;
+    let lastVideoId = null;
+
+    const el = (id) => document.getElementById(id);
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    function formatTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = Math.round(sec % 60);
+      return `${m}:${String(s).padStart(2, '0')}`;
+    }
+
+    // ---------- бегущая строка «сейчас играет» ----------
+    function renderNow() {
+      const track = el('pl-track');
+      const now = el('pl-now');
+      const empty = el('pl-empty');
+      const src = testing ? { title: `🧪 Тест: ${testingTitle}`, by: 'плеер', author: '', duration: 0 } : current;
+      if (!src) {
+        now.classList.add('hidden');
+        if (empty) empty.hidden = !enabled;
+        return;
+      }
+      if (empty) empty.hidden = true;
+      const text = nowTemplate
+        .replaceAll('{title}', src.title || '')
+        .replaceAll('{by}', src.byName || src.by || '')
+        .replaceAll('{author}', src.author || '')
+        .replaceAll('{duration}', formatTime(src.duration || 0));
+      track.textContent = text;
+      now.classList.remove('hidden');
+      track.classList.toggle('paused', pausedNow);
+    }
+    let testingTitle = '';
+    let pausedNow = false;
+
+    // ---------- YouTube ----------
+    function ensureApi() {
+      if (yt) return;
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+      window.onYouTubeIframeAPIReady = () => {
+        yt = new YT.Player('pl-video', {
+          width: '100%', height: '100%',
+          playerVars: { playsinline: 1, rel: 0, modestbranding: 1 },
+          events: {
+            onReady: () => { applyState(); },
+            onStateChange: (e) => {
+              // тест не отправляет 'ended' — он не в очереди
+              if (e.data === YT.PlayerState.ENDED && !testing && current) {
+                fetch('/api/songs', {
+                  method: 'POST', headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ op: 'ended' }),
+                }).then((r) => r.json()).catch(() => {});
+              }
+            },
+          },
+        });
+      };
+    }
+    function playVideo(id) {
+      if (!yt || !id) return;
+      if (lastVideoId !== id) { yt.loadVideoById(id); lastVideoId = id; }
+      yt.setVolume(volume);
+      yt.playVideo();
+    }
+
+    // ---------- состояние ----------
+    function applyState() {
+      renderNow();
+      ensureApi();
+      if (!enabled) { try { yt?.stopVideo?.(); } catch {} return; }
+      if (current?.id) playVideo(current.id);
+      else if (!testing) { try { yt?.stopVideo?.(); lastVideoId = null; } catch {} }
+    }
+
+    async function loadState() {
+      try {
+        const st = await fetch('/api/songs').then((r) => r.json());
+        current = st.current ?? null;
+        volume = Math.max(0, Math.min(100, Number(st.volume ?? 60)));
+        nowTemplate = String(st.nowTemplate || nowTemplate);
+        enabled = Boolean(st.enabled);
+        pausedNow = Boolean(st.paused);
+        renderToggle();
+        applyState();
+      } catch {}
+    }
+
+    // ---------- события SSE ----------
+    const es = new EventSource('/overlay/feed');
+    es.onmessage = (m) => {
+      try {
+        const ev = JSON.parse(m.data);
+        if (ev?.kind === 'sr') {
+          volume = Math.max(0, Math.min(100, Number(ev.volume ?? volume)));
+          nowTemplate = String(ev.nowTemplate || nowTemplate);
+          current = ev.current ?? null;
+          pausedNow = Boolean(ev.paused);
+          testing = false;
+          if (ev.op === 'pause') { pausedNow = true; try { yt?.pauseVideo?.(); } catch {} renderNow(); return; }
+          if (ev.op === 'resume') { pausedNow = false; try { yt?.playVideo?.(); } catch {} renderNow(); return; }
+          if (ev.op === 'stop') { current = null; testing = false; try { yt?.stopVideo?.(); lastVideoId = null; } catch {} renderNow(); return; }
+          applyState();
+        } else if (ev?.kind === 'srtest') {
+          volume = Math.max(0, Math.min(100, Number(ev.volume ?? volume)));
+          if (ev.op === 'play') {
+            testing = true; pausedNow = false;
+            testingTitle = String(ev.title || 'тест');
+            ensureApi(); playVideo(ev.id);
+            renderNow();
+          } else if (ev.op === 'pause') { pausedNow = true; try { yt?.pauseVideo?.(); } catch {} renderNow(); }
+          else if (ev.op === 'resume') { pausedNow = false; try { yt?.playVideo?.(); } catch {} renderNow(); }
+          else if (ev.op === 'stop') { testing = false; try { yt?.stopVideo?.(); lastVideoId = null; } catch {} renderNow(); }
+        }
+      } catch {}
+    };
+
+    // ---------- тумблер музыки (правый верхний угол) ----------
+    function renderToggle() {
+      el('pl-toggle-label').textContent = enabled ? 'музыка вкл' : 'музыка выкл';
+      el('pl-toggle').classList.toggle('off', !enabled);
+    }
+    el('pl-toggle').addEventListener('click', async () => {
+      el('pl-toggle').style.pointerEvents = 'none';
+      try {
+        const s = await fetch('/api/songs').then((r) => r.json());
+        const next = !s.enabled;
+        await fetch('/api/settings', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ songs: { enabled: next } }),
+        });
+        enabled = next;
+        renderToggle();
+        applyState();
+      } catch {}
+      el('pl-toggle').style.pointerEvents = '';
+    });
+
+    loadState();
+  })();
+</script>
+</body>
+</html>

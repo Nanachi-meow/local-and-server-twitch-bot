@@ -1735,12 +1735,16 @@ function sgLoadVideo(id) {
 
 function sgPauseVideo() { try { sgYt?.pauseVideo?.(); } catch {} }
 function sgPlayVideo() { try { sgYt?.playVideo?.(); } catch {} }
-function sgStopVideo() { try { sgYt?.stopVideo?.(); sgYtWanted = null; } catch {} }
+function sgStopVideo() {
+  try { sgYt?.stopVideo?.(); sgYtWanted = null; sgYt?.mute?.(); } catch {} // после теста превью снова без звука
+}
 
-// применяем состояние плеера/очереди к вкладке (из /api/songs или живьём из SSE)
+// применяется состояние плеера/очереди к вкладке (из /api/songs или живьём из SSE)
+let __songsTesting = false;
 function __sgApplyState(st) {
   if (!st) return;
   __songsPaused = Boolean(st.paused);
+  __songsTesting = false; // «sr»-событие = реальный трек, теста больше нет
   $('#sg-current').innerHTML = st.current
     ? `▶ <b>${esc(st.current.title)}</b> — заказал ${esc(st.current.byName || st.current.by)}${st.paused ? ' · <b>на паузе</b>' : ''}`
     : 'Ничего не играет';
@@ -1772,10 +1776,13 @@ function __sgApplyState(st) {
   // превью-плеер повторяет состояние OBS-плеера (обычные треки — без звука; тест включает его сам)
   sgEnsureYt();
   try { sgYt?.mute?.(); } catch {}
+  const placeholder = $('#sg-player-ph');
   if (st.current?.id) {
+    if (placeholder) placeholder.classList.add('hidden');
     sgLoadVideo(st.current.id);
     if (__songsPaused) sgPauseVideo();
   } else {
+    if (placeholder && !__songsTesting) placeholder.classList.remove('hidden');
     sgStopVideo();
   }
 }
@@ -1785,7 +1792,14 @@ const sgFeed = new EventSource('/overlay/feed');
 sgFeed.onmessage = (m) => {
   try {
     const ev = JSON.parse(m.data);
-    if (ev?.kind === 'srtest') { sgPlayTest(ev); return; }
+    if (ev?.kind === 'srtest') {
+      // команды плеера рулят и тестом: пауза/прод/стоп приходят сюда же
+      if (ev.op === 'pause') { __songsPaused = true; sgPauseVideo(); }
+      else if (ev.op === 'resume') { __songsPaused = false; sgPlayVideo(); }
+      else if (ev.op === 'stop') { __songsTesting = false; sgStopVideo(); $('#sg-player-ph')?.classList.remove('hidden'); }
+      else if (ev.op === 'play') { __songsTesting = true; sgPlayTest(ev); const ph = $('#sg-player-ph'); if (ph) ph.classList.add('hidden'); }
+      return;
+    }
     if (ev?.kind === 'sr') __sgApplyState(ev);
   } catch {}
 };

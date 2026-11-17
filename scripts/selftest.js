@@ -364,6 +364,27 @@ const t3 = await sm.test();
 ok('музыка: тест плеера — выключенная музыка не тестируется', Boolean(t3.error));
 songsSettings.songs.enabled = true;
 
+// управление тест-треком: пауза/скип/стоп работают и на нём (очередь пустая)
+const smTest = new SongsManager({
+  logs, settings: songsSettings,
+  dataFile: path.join(process.env.BOT_DATA_DIR, 'songs-test.json'),
+  fetcher: fakeFetcher,
+});
+const tStart = await smTest.test();
+ok('музыка: тест на пустой очереди стартует', tStart.first === true && smTest.testing?.id === 'dQw4w9WgXcQ');
+const tpause = smTest.control('pause');
+ok('музыка: пауза во время теста', tpause.ok === true && tpause.testing === true);
+const tresume = smTest.control('resume');
+ok('музыка: продолжение теста', tresume.ok === true && tresume.testing === true);
+const tskip = smTest.skip();
+ok('музыка: скип во время теста останавливает его', tskip.ok === true && smTest.testing === null);
+const tno = smTest.control('pause');
+ok('музыка: после теста — нечего паузить', Boolean(tno.error));
+// реальный заказ вытесняет тест
+await smTest.test();
+const realOrder = await smTest.add({ videoId: 'realtrack111', by: 'Girl', byName: 'Girl' });
+ok('музыка: реальный заказ вытесняет тест', !realOrder.error && smTest.current?.id === 'realtrack111' && smTest.testing === null);
+
 let srNameThrew = false;
 try { engine.upsert({ name: 'ср', response: 'хак' }); } catch { srNameThrew = true; }
 ok('музыка: имена зарезервированы', srNameThrew && RESERVED.has('ср') && RESERVED.has('музыка'));
