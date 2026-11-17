@@ -56,6 +56,8 @@ $$('.tab').forEach((btn) => {
     $$('.tabpane').forEach((p) => p.classList.remove('active'));
     btn.classList.add('active');
     $(`#tab-${btn.dataset.tab}`).classList.add('active');
+    // вкладка была скрыта — превью раскладки музыки рисовалось с нулевой шириной; перерисуем
+    if (btn.dataset.tab === 'songs') requestAnimationFrame(() => { plpRenderStage(); plpRenderProps(); });
   });
 });
 
@@ -1979,7 +1981,40 @@ $('#sg-test').addEventListener('click', async () => {
 // ---------------- 📐 редактор раскладки OBS-плеера (слои объектов) ----------------
 // всё в px сцены OBS 1920×1080; превью честно масштабируется: k = width/1920
 
-let plp = { objects: [], sel: 0, selSet: new Set() }; // selSet — мультивыделение (shift+клик); sel — последний кликнутый
+let plp = { objects: [], sel: 0, selSet: new Set(), clipboard: [] }; // selSet — мультивыделение (shift+клик); sel — последний кликнутый
+
+// ---------- история: ctrl+z / ctrl+y ----------
+const plpHist = [];
+const plpRedoStack = [];
+let plpLastPush = 0;
+
+function plpPush() {
+  plpHist.push(JSON.stringify(plp.objects));
+  if (plpHist.length > 60) plpHist.shift();
+  plpRedoStack.length = 0;
+  plpLastPush = Date.now();
+}
+function plpPushThrottled() {
+  if (Date.now() - plpLastPush > 600) plpPush(); // один снимок на «жест» (ползунок тащат сотней input-ов)
+}
+function plpUndo() {
+  if (!plpHist.length) { toast('Отменять нечего'); return; }
+  plpRedoStack.push(JSON.stringify(plp.objects));
+  plp.objects = JSON.parse(plpHist.pop());
+  plp.selSet = new Set();
+  plp.sel = -1;
+  plpRenderStage();
+  plpRenderProps();
+}
+function plpRedo() {
+  if (!plpRedoStack.length) { toast('Повторять нечего'); return; }
+  plpHist.push(JSON.stringify(plp.objects));
+  plp.objects = JSON.parse(plpRedoStack.pop());
+  plp.selSet = new Set();
+  plp.sel = -1;
+  plpRenderStage();
+  plpRenderProps();
+}
 
 const PLP_TYPE_RU = { video: '📺 видео', marquee: '🎬 строка', backdrop: '🟪 подложка', image: '🖼 картинка' };
 
@@ -2175,6 +2210,7 @@ function plpGuides({ v, h }) {
     if (handle && plp.selSet.size === 1) mode = 'resize';
     else mode = 'move';
     snapshot();
+    plpPush(); // снимок до жеста — для ctrl+z
     plpRenderStage();
     plpRenderProps();
     e.preventDefault();
@@ -2265,6 +2301,9 @@ function plpGuides({ v, h }) {
   stage.addEventListener('pointercancel', stop);
 })();
 
+// любые контролы свойств: снимок истории при первом касании (жест=одноundo)
+$('#plp-props').addEventListener('pointerdown', plpPushThrottled);
+
 // ---------- свойства выделенного (одного или группы) ----------
 function plpRenderProps() {
   const chips = $('#plp-objects');
@@ -2275,7 +2314,7 @@ function plpRenderProps() {
   ).join('') || '<span class="hint">объектов нет</span>';
 
   if (!plp.selSet.size) {
-    props.innerHTML = '<p class="hint">Клик — выделить объект · shift+клик — несколько · потяни по пустому месту — рамка выделения, как на рабочем столе. Выделенное двигается вместе.</p>';
+    props.innerHTML = '<p class="hint">Клик — выделить объект · shift+клик — несколько · потяни по пустому месту — рамка выделения, как на рабочем столе.<br>Хоткеи: <b>ctrl+z</b> отменить · <b>ctrl+y</b> вернуть · <b>ctrl+c/x/v</b> копировать/вырезать/вставить.</p>';
     return;
   }
 
@@ -2300,6 +2339,7 @@ function plpRenderProps() {
     $('#plp-zup').addEventListener('click', () => { for (const i of plp.selSet) plp.objects[i].z = Math.min(30, plp.objects[i].z + 1); plpRenderStage(); plpRenderProps(); });
     $('#plp-zdown').addEventListener('click', () => { for (const i of plp.selSet) plp.objects[i].z = Math.max(0, plp.objects[i].z - 1); plpRenderStage(); plpRenderProps(); });
     $('#plp-del').addEventListener('click', () => {
+      plpPush();
       plp.objects = plp.objects.filter((_, i) => !plp.selSet.has(i));
       plp.selSet = new Set();
       plp.sel = -1;
@@ -2337,7 +2377,9 @@ function plpRenderProps() {
   props.innerHTML = html;
 
   // слушатели полей
+  $('#plp-w')?.addEventListener('pointerdown', plpPush);
   $('#plp-w')?.addEventListener('input', () => {
+    plpPushThrottled();
     o.w = Number($('#plp-w').value);
     if (o.type === 'video') o.h = Math.round(o.w * 9 / 16);
     $('#plp-w-val').textContent = String(o.w);
@@ -2382,12 +2424,59 @@ function plpRenderProps() {
     });
   }
   $('#plp-del')?.addEventListener('click', () => {
+    plpPush();
     plp.objects.splice(plp.sel, 1);
     plp.sel = Math.max(0, plp.sel - 1);
+    plp.selSet = new Set(plp.sel >= 0 ? [plp.sel] : []);
     plpRenderStage();
     plpRenderProps();
   });
 }
+
+// ---------- копирование: ctrl+c / ctrl+x / ctrl+v ----------
+function plpCopy(cut = false) {
+  if (!plp.selSet.size) { toast('Сначала выдели объект(ы)', true); return; }
+  plp.clipboard = [...plp.selSet].map((i) => JSON.parse(JSON.stringify(plp.objects[i])));
+  if (cut) {
+    plpPush();
+    plp.objects = plp.objects.filter((_, i) => !plp.selSet.has(i));
+    plp.selSet = new Set();
+    plp.sel = -1;
+    plpRenderStage();
+    plpRenderProps();
+    toast(`Вырезано: ${plp.clipboard.length}`);
+  } else toast(`Скопировано: ${plp.clipboard.length}`);
+}
+
+function plpPaste() {
+  if (!plp.clipboard?.length) { toast('Буфер пуст — сначала копируй (ctrl+c)', true); return; }
+  plpPush();
+  const pasted = [];
+  for (const [n, o] of plp.clipboard.entries()) {
+    const c = { ...o, x: o.x + 30, y: o.y + 30 };
+    c.id = `${c.type}-${Date.now()}-${n}`;
+    plp.objects.push(c);
+    pasted.push(plp.objects.length - 1);
+  }
+  plp.selSet = new Set(pasted);
+  plp.sel = pasted.at(-1);
+  plpRenderStage();
+  plpRenderProps();
+  toast(`Вставлено: ${pasted.length}`);
+}
+
+// горячие клавиши редактора — только на вкладке Музыка и не в полях ввода
+document.addEventListener('keydown', (e) => {
+  if (!$('#tab-songs')?.classList.contains('active')) return;
+  if (e.target.closest('input, textarea, select')) return;
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const key = String(e.key || '').toLowerCase();
+  if (key === 'z' && !e.shiftKey) { e.preventDefault(); plpUndo(); }
+  else if (key === 'y' || (key === 'z' && e.shiftKey)) { e.preventDefault(); plpRedo(); }
+  else if (key === 'c') { e.preventDefault(); plpCopy(); }
+  else if (key === 'x') { e.preventDefault(); plpCopy(true); }
+  else if (key === 'v') { e.preventDefault(); plpPaste(); }
+});
 
 $('#plp-objects').addEventListener('click', (e) => {
   const chip = e.target.closest('.chip[data-i]');
@@ -2428,6 +2517,7 @@ $('#plp-image-file').addEventListener('change', async () => {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
     const zMax = Math.max(0, ...plp.objects.map((o) => o.z));
+    plpPush();
     plp.objects.push({ id: `image-${Date.now()}`, type: 'image', x: 660, y: 340, w: 600, h: 400, opacity: 100, z: zMax + 1, hideOnIdle: false, image: file.name, radius: 0 });
     plp.sel = plp.objects.length - 1;
     $('#plp-image-file').value = '';

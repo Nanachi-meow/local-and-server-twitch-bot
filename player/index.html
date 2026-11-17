@@ -109,12 +109,14 @@
     }
 
     function renderScene() {
-      // clientWidth у только что созданного источника OBS может прийти 0 — подстрахуемся
+      // ноль координат — центр сцены: позиция считается от 50% + смещение.
+      // даже если размер окна пришёл кривым, объекты не улетают в левый верхний угол
       const vw = window.innerWidth || document.documentElement.clientWidth || SCENE_W;
       const k = vw / SCENE_W;
-      // полностью перестраиваем DOM при изменении списка объектов
       const key = JSON.stringify(cfg.objects.map((o) => [o.id, o.type, o.image, o.z]));
-      if (renderScene.key !== key) {
+      // самозалечивание: если хоть один объект остался без узла (конфиг прилетел новым) — перестраиваем
+      const orphan = cfg.objects.some((o) => !nodes.get(o.id));
+      if (renderScene.key !== key || orphan) {
         renderScene.key = key;
         stage.innerHTML = '';
         nodes.clear();
@@ -142,12 +144,12 @@
           nodes.set(o.id, div);
         }
       }
-      // позиции/размеры/стили — каждый кадр события (id стабилен: конфиг прилетает новыми объектами)
+      // позиции/размеры/стили — каждый кадр события; СЦЕНА: x=960,y=540 — это «ноль» (центр)
       for (const o of cfg.objects) {
         const div = nodes.get(o.id);
         if (!div) continue;
-        div.style.left = `${o.x * k}px`;
-        div.style.top = `${o.y * k}px`;
+        div.style.left = `calc(50% + ${Math.round((o.x - 960) * k)}px)`;
+        div.style.top = `calc(50% + ${Math.round((o.y - 540) * k)}px)`;
         div.style.width = `${o.w * k}px`;
         div.style.height = `${o.h * k}px`;
         div.style.zIndex = String(o.z ?? 1);
