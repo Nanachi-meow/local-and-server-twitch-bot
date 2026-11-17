@@ -191,9 +191,16 @@ function setChip(id, text, cls) {
   el.className = `chip ${cls || ''}`;
 }
 
+let __botStartedAt = null; // время старта бота — для локального тика аптайма каждую секунду
+
+// аптайм тикает сам каждую секунду (сервер опрашивается раз в 2с — без этого счётчик прыгал бы по 2)
+setInterval(() => {
+  const el = $('#st-uptime');
+  if (el && __botStartedAt) el.textContent = fmtDuration(Date.now() - __botStartedAt);
+}, 1000);
+
 function renderState(st) {
   const { auth: a, runtime: rt, configured } = st;
-
   const chans = st.config?.channels ?? [];
   setChip('#chip-config',
     chans.length ? `каналы: ${chans.map((c) => '@' + c).join(' ')}` : 'каналы не заданы',
@@ -220,6 +227,8 @@ function renderState(st) {
   }
 
   // статистика
+  // локальный тик каждую секунду: храним старт, компенсируя сдвиг часов браузера (skew сервера = st.now - Date.now())
+  __botStartedAt = st.startedAt - (st.now - Date.now());
   $('#st-uptime').textContent = fmtDuration(st.now - st.startedAt);
   $('#st-msg').textContent = st.counters.messagesSeen ?? 0;
   $('#st-cmd').textContent = st.counters.commandsRun ?? 0;
