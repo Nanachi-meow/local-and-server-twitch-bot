@@ -584,7 +584,6 @@ const app = {
       if (a.requestMode !== undefined) cur.requestMode = a.requestMode === 'reward' ? 'reward' : 'command';
       if (a.rewardName !== undefined) cur.rewardName = String(a.rewardName).trim().slice(0, 100);
       if (a.commandCooldown !== undefined) cur.commandCooldown = Math.max(0, Math.min(86_400, Math.round(Number(a.commandCooldown) || 0)));
-      if (a.userMaxLengthSec !== undefined) cur.userMaxLengthSec = Math.max(0, Math.min(36_000, Math.round(Number(a.userMaxLengthSec) || 0)));
       if (a.minViews !== undefined) cur.minViews = Math.max(0, Math.min(1_000_000_000, Math.round(Number(a.minViews) || 0)));
       if (Array.isArray(a.allow)) {
         cur.allow = [...new Set(a.allow.map((r) => String(r).toLowerCase()))]

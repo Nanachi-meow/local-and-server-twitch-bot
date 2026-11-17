@@ -306,11 +306,11 @@ const okViews = await sm.add({ videoId: 'qqq111qqqq3', by: 'Vova', byName: 'Vova
 ok('музыка: хватает просмотров — принимается', !okViews.error);
 songsSettings.songs.minViews = 0;
 
-// суммарная длина треков юзера (текущий трек Пети = 213 сек)
-songsSettings.songs.userMaxLengthSec = 240;
-const longSum = await sm.add({ videoId: 'qqq111qqqq4', by: 'Petya', byName: 'Petya' });
-ok('музыка: суммарная длина юзера — отклоняется', Boolean(longSum.error) && longSum.error.includes('лимит'));
-songsSettings.songs.userMaxLengthSec = 0;
+// лимит на юзера: подряд в очереди (perUser), пока один не сыграет — новых нельзя
+songsSettings.songs.perUser = 1;
+const blocked = await sm.add({ videoId: 'qqq111qqqq4', by: 'Vova', byName: 'Vova' });
+ok('музыка: лимит треков юзера подряд — отклоняется', Boolean(blocked.error) && blocked.error.includes('дождись'));
+songsSettings.songs.perUser = 2;
 
 // кулдаун заказов на юзера
 songsSettings.songs.commandCooldown = 3600;

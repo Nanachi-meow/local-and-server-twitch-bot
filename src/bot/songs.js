@@ -115,7 +115,6 @@ export class SongsManager {
     const byLogin = String(by || '').toLowerCase();
     const maxLen = Math.max(0, Number(cfg.maxLenSec ?? 600));
     const perUser = Math.max(1, Number(cfg.perUser ?? 2));
-    const userMax = Math.max(0, Number(cfg.userMaxLengthSec ?? 0));
     const minViews = Math.max(0, Number(cfg.minViews ?? 0));
     if (!id) return { error: 'не поняла ссылку — пришли ссылку на ролик YouTube' };
     if (this.blacklistHas(id)) return { error: 'этот трек в чёрном списке канала 🚫' };
@@ -124,7 +123,7 @@ export class SongsManager {
     } else {
       if (this.queue.some((x) => x.id === id) || this.current?.id === id) return { error: 'этот трек уже в очереди' };
       const mine = this.queue.filter((x) => String(x.by).toLowerCase() === byLogin).length;
-      if (mine >= perUser) return { error: `у тебя уже ${mine} ${mine === 1 ? 'трек' : 'трека'} в очереди — дождись` };
+      if (mine >= perUser) return { error: `у тебя уже ${mine} ${mine === 1 ? 'трек' : 'трека'} в очереди — дождись, пока один сыграет (или закажет кто-то другой)` };
     }
     let title = '';
     let author = '';
@@ -150,15 +149,7 @@ export class SongsManager {
         ? 'не смогла узнать просмотры видео — попробуй другое'
         : `мало просмотров (${viewCount} < ${minViews}) 📉` };
     }
-    // суммарная длина треков этого юзера (очередь + его текущий + новый)
-    if (userMax) {
-      const mineSec = [...this.queue, this.current]
-        .filter((x) => x && String(x.by).toLowerCase() === byLogin)
-        .reduce((s, x) => s + (Number(x.duration) || 0), 0);
-      if (mineSec + duration > userMax) {
-        return { error: `твои треки уже ${Math.round(mineSec / 60)} мин, этот ещё ${Math.round(duration / 60)} — лимит ${Math.round(userMax / 60)} мин ⏳` };
-      }
-    }
+    // суммарная длина треков этого юзера удалена — вместо неё лимит perUser (штук в очереди подряд)
     const song = { id, title, author, duration, viewCount, by: byLogin, byName: byName || byLogin, at: Date.now() };
     this.testing = null; // настоящий заказ вытесняет тест-трек
     if (!this.current) {
