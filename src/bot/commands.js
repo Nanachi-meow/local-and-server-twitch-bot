@@ -963,6 +963,17 @@ export function loadSettings() {
       objects: [],        // пусто = дефолт: аватар сверху, текст ниже
       ...(stored.shoutoutOverlay ?? {}),
     },
+    // «Слово дня»: угловой виджет, слово выбирается само — самое частое в чате
+    wordOfDay: {
+      enabled: false,
+      corner: 'top-left',  // top-left | top-right | bottom-left | bottom-right
+      rotate: 0,           // поворот подложки, градусы -15..15
+      color: '#ffffff',   // текст
+      bg: '#0c0a19',      // подложка
+      opacity: 80,        // подложка прозрачность %
+      radius: 18,         // закругление углов
+      ...(stored.wordOfDay ?? {}),
+    },
     autoPin: {
       enabled: true,
       mode: 'stream', // 'stream' = до конца стрима, '20' = 20 минут

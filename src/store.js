@@ -16,6 +16,7 @@ export const TOKENS_FILE = path.join(DATA_DIR, 'tokens.json');
 export const BROADCASTER_TOKENS_FILE = path.join(DATA_DIR, 'broadcaster-tokens.json');
 export const SONGS_FILE = path.join(DATA_DIR, 'songs.json');
 export const QUOTES_FILE = path.join(DATA_DIR, 'quotes.json');
+export const WORDOFDAY_FILE = path.join(DATA_DIR, 'wordofday.json');
 
 export function ensureDataDir() {
   fs.mkdirSync(DATA_DIR, { recursive: true });

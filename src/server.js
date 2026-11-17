@@ -309,6 +309,11 @@ export function createHttpServer({ app }) {
       return;
     }
 
+    if (route === '/api/wordofday' && req.method === 'GET') {
+      sendJson(res, 200, { wod: app.processor.wodState() });
+      return;
+    }
+
     if (route === '/api/songs' && req.method === 'GET') {
       sendJson(res, 200, app.songs.state());
       return;

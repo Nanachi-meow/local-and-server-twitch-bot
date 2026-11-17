@@ -573,6 +573,19 @@ const app = {
           });
       }
     }
+    // «Слово дня»: угловой виджет, слово выбирается само — самое частое в чате
+    if (patch.wordOfDay !== undefined && patch.wordOfDay !== null && typeof patch.wordOfDay === 'object') {
+      const a = patch.wordOfDay;
+      const cur = settings.wordOfDay ??= {};
+      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (a.corner !== undefined) cur.corner = ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(a.corner) ? a.corner : 'top-left';
+      if (a.rotate !== undefined) cur.rotate = Math.max(-15, Math.min(15, Math.round(Number(a.rotate) || 0)));
+      if (a.color !== undefined) cur.color = String(a.color).slice(0, 20);
+      if (a.bg !== undefined) cur.bg = String(a.bg).slice(0, 20);
+      if (a.opacity !== undefined) cur.opacity = Math.max(0, Math.min(100, Math.round(Number(a.opacity) || 0)));
+      if (a.radius !== undefined) cur.radius = Math.max(0, Math.min(60, Math.round(Number(a.radius) || 0)));
+      try { overlay.push({ kind: 'wordofday', ...processor.wodState() }); } catch {}
+    }
     // награды канала (редемпции): таблица мэппингов + кулдаун
     if (patch.redemptions && typeof patch.redemptions === 'object') {
       const a = patch.redemptions;
@@ -824,6 +837,9 @@ const app = {
           recipient: 'ТестовыйДруг',
         });
         return { tested: body.kind || 'follow' };
+      }
+      case 'wordofdayreset': {
+        return processor.resetWordOfDay();
       }
       case 'redemptiontest': {
         // тест алерта награды канала (карточка «👑 Награды канала»)

@@ -1698,6 +1698,54 @@ $('#tts-test').addEventListener('click', () => {
   } catch { toast('Не удалось произнести — синтез речи недоступен', true); }
 });
 
+// ---------------- 📖 «Слово дня» (авто: самое частое слово чата) ----------------
+
+async function loadWordOfDay() {
+  const [st, { wod }] = await Promise.all([api('/api/settings'), api('/api/wordofday')]);
+  const w = st.wordOfDay ?? {};
+  $('#wod-enabled').checked = Boolean(w.enabled);
+  $('#wod-corner').value = w.corner ?? 'top-left';
+  $('#wod-rotate').value = w.rotate ?? 0;
+  $('#wod-rotate-val').textContent = `${w.rotate ?? 0}°`;
+  $('#wod-color').value = w.color ?? '#ffffff';
+  $('#wod-bg').value = w.bg ?? '#0c0a19';
+  $('#wod-opacity').value = w.opacity ?? 80;
+  $('#wod-radius').value = w.radius ?? 18;
+  $('#wod-current').textContent = wod.word ? wod.word : '— пока пусто, чат ещё не решал —';
+  $('#wod-count').textContent = wod.word ? `· написали ${wod.count} раз` : '';
+}
+loadWordOfDay().catch(() => {});
+
+$('#wod-rotate').addEventListener('input', () => { $('#wod-rotate-val').textContent = `${$('#wod-rotate').value}°`; });
+
+$('#wod-save').addEventListener('click', async () => {
+  try {
+    await putSettings({
+      wordOfDay: {
+        enabled: $('#wod-enabled').checked,
+        corner: $('#wod-corner').value,
+        rotate: Number($('#wod-rotate').value) || 0,
+        color: $('#wod-color').value,
+        bg: $('#wod-bg').value,
+        opacity: Number($('#wod-opacity').value) || 80,
+        radius: Number($('#wod-radius').value) || 18,
+      },
+    });
+    toast('Виджет «Слово дня» сохранён ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#wod-refresh').addEventListener('click', () => loadWordOfDay().catch(() => {}));
+
+$('#wod-reset').addEventListener('click', async () => {
+  if (!confirm('Обнулить статистику слов? «Слово дня» выберется заново из новых сообщений.')) return;
+  try {
+    await api('/api/actions/wordofdayreset', { method: 'POST', body: '{}' });
+    toast('Статистика обнулена');
+    loadWordOfDay();
+  } catch (e) { toast(e.message, true); }
+});
+
 // ---------------- музыка (заказы YouTube) ----------------
 
 // YouTube-плеер в панели: превью без звука, состояние приезжает по SSE (та же шина, что у OBS-плеера)

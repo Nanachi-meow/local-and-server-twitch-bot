@@ -501,6 +501,40 @@ ok('шатаут-оверлей: аватар передаётся (гиф ил�
 ok('шатаут-оверлей: баннер канала передаётся', soOv.some((s) => s.includes('"banner"')));
 overlaySo.clients.clear();
 
+// ---------- «Слово дня»: выбирается само — самое частое слово чата ----------
+const wodSettings = {
+  events: {},
+  wordOfDay: { enabled: true, corner: 'top-right', rotate: -4, color: '#ffffff', bg: '#0c0a19', opacity: 75, radius: 14 },
+};
+const processorWod = new EventProcessor({
+  helix: fakeHelixSo, auth: fakeAuth, logs, settings: wodSettings, state: { counters: {} },
+  channels: registry,
+  wodFile: path.join(process.env.BOT_DATA_DIR, 'wordofday-test.json'),
+});
+processorWod._wod = { date: new Date().toISOString().slice(0, 10), stats: {}, word: '', count: 0 };
+await processorWod.onChatMessage({ broadcaster_user_id: '200', chatter_user_id: 'a', chatter_user_login: 'girl', chatter_user_name: 'Girl', message: { text: 'кот кот серый кот подошёл' } });
+ok('слово дня: самое частое выбирается', processorWod.wodState().word === 'кот');
+ok('слово дня: счётчик = сколько раз написали', processorWod.wodState().count === 3);
+await processorWod.onChatMessage({ broadcaster_user_id: '200', chatter_user_id: 'b', chatter_user_login: 'boy', chatter_user_name: 'Boy', message: { text: 'пёс ПЁС пёс!! кот' } });
+ok('слово дня: пока лидер держится (кот 4 > пёс 3)', processorWod.wodState().word === 'кот' && processorWod.wodState().count === 4);
+await processorWod.onChatMessage({ broadcaster_user_id: '200', chatter_user_id: 'b2', chatter_user_login: 'boy2', chatter_user_name: 'Boy2', message: { text: 'пёс и ещё пёс' } });
+ok('слово дня: обгон — слово меняется', processorWod.wodState().word === 'пёс' && processorWod.wodState().count === 5);
+await processorWod.onChatMessage({ broadcaster_user_id: '200', chatter_user_id: 'c', chatter_user_login: 'user', chatter_user_name: 'U', message: { text: '!ср https://youtu.be/x' } });
+ok('слово дня: команды не считаются', processorWod.wodState().word === 'пёс' && processorWod.wodState().count === 5);
+await processorWod.onChatMessage({ broadcaster_user_id: '200', chatter_user_id: 'd', chatter_user_login: 'testbot', chatter_user_name: 'TestBot', message: { text: 'пёс' } });
+ok('слово дня: сообщения бота не считаются', processorWod.wodState().count === 5);
+wodSettings.wordOfDay.enabled = false;
+await processorWod.onChatMessage({ broadcaster_user_id: '200', chatter_user_id: 'e', chatter_user_login: 'zz', chatter_user_name: 'Z', message: { text: 'зебра зебра' } });
+ok('слово дня: выключенный виджет не считает', processorWod.wodState().word === 'пёс');
+wodSettings.wordOfDay.enabled = true;
+const wodOv = [];
+overlaySo.clients.add({ write: (s) => wodOv.push(String(s)) });
+await processorWod.onChatMessage({ broadcaster_user_id: '200', chatter_user_id: 'f', chatter_user_login: 'ww', chatter_user_name: 'W', message: { text: 'Пёс' } });
+ok('слово дня: событие уходит на оверлей', wodOv.some((s) => s.includes('"kind":"wordofday"') && s.includes('"count":6')));
+const reset = processorWod.resetWordOfDay();
+ok('слово дня: сброс обнуляет', reset.word === '' && reset.count === 0);
+overlaySo.clients.clear();
+
 // ---------- автозакреп ----------
 const sentPin = [];
 const pinCalls = [];

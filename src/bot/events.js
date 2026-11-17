@@ -1,6 +1,7 @@
 import { renderTemplate } from './render.js';
 import { HelixError } from '../twitch/helix.js';
 import { overlay } from './alerts.js';
+import { loadJson, saveJson, WORDOFDAY_FILE } from '../store.js';
 
 export const EVENT_KINDS = ['follow', 'raid', 'sub', 'resub', 'subgift'];
 
@@ -17,7 +18,7 @@ const TEST_VARS = {
  * Мультиканальная: каждое событие несёт broadcaster_user_id — реакция уходит в тот же канал.
  */
 export class EventProcessor {
-  constructor({ helix, auth, logs, settings, state, channels = null }) {
+  constructor({ helix, auth, logs, settings, state, channels = null, wodFile = WORDOFDAY_FILE }) {
     this.helix = helix;
     this.auth = auth;
     this.logs = logs;
@@ -30,6 +31,16 @@ export class EventProcessor {
     this._recentRaids = new Map(); // `${channelId}:${login}` -> ts
     this._recentFollows = new Map();
     this._autoSo = new Map(); // автошатауты: `${channelId}:${login}` -> ts
+    this._wodFile = wodFile;
+    // «Слово дня»: частоты слов за сегодня; слово выбирается само — какое чаще всего пишут
+    const stored = loadJson(wodFile, null) ?? {};
+    this._wod = {
+      date: stored.date ?? '',
+      stats: (stored.stats && typeof stored.stats === 'object') ? stored.stats : {},
+      word: stored.word ?? '',
+      count: Number(stored.count) || 0,
+    };
+    this._wodTimer = null;
   }
 
   setContext(ctx) {
@@ -109,6 +120,8 @@ export class EventProcessor {
       text: m?.message?.text ?? '',
       level: userLevelBadge(m, bId),
     });
+    // «Слово дня»: считаем частоты и выбираем самое частое слово чата
+    try { this._trackWordOfDay(m?.message?.text ?? '', m?.chatter_user_login); } catch {}
     try {
       // автошатаут: человек из списка написал сообщение → приветственная карточка
       await this.maybeAutoShoutout(m);
@@ -128,6 +141,78 @@ export class EventProcessor {
     } catch (e) {
       this.logs.system.push({ level: 'error', message: `Ошибка обработки сообщения: ${e.message}` });
     }
+  }
+
+  // ---------------- «Слово дня»: самое частое слово чата ----------------
+
+  /** Текущее состояние для панели/API. */
+  wodState() {
+    const cfg = this.settings?.wordOfDay ?? {};
+    return {
+      enabled: Boolean(cfg.enabled),
+      word: this._wod.word || '',
+      count: Number(this._wod.count) || 0,
+    };
+  }
+
+  /**
+   * Считаем слова каждого сообщения. «Слово дня» = самое частое за сегодня:
+   * как только другое слово обгоняет текущее — виджет переключается на него.
+   * Команды (сообщения с «!») и слова самого бота не считаются.
+   */
+  _trackWordOfDay(text, login) {
+    const cfg = this.settings?.wordOfDay;
+    if (!cfg?.enabled) return;
+    if (!text || String(text).startsWith('!')) return;
+    if (login && login === this.auth?.tokens?.login) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    if (this._wod.date !== today) {
+      // новый день — статистика с нуля
+      this._wod = { date: today, stats: {}, word: '', count: 0 };
+    }
+
+    const words = String(text).toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) ?? [];
+    let changed = false;
+    for (const w of words) {
+      this._wod.stats[w] = (this._wod.stats[w] || 0) + 1;
+      changed = true;
+      // обгон по частоте → смена «слова дня»
+      if (!this._wod.word || this._wod.stats[w] > (this._wod.stats[this._wod.word] || 0)) {
+        this._wod.word = w;
+      }
+    }
+    if (!changed) return;
+    this._wod.count = this._wod.stats[this._wod.word] || 0;
+
+    // статистика не растёт бесконечно — держим разумный объём
+    const keys = Object.keys(this._wod.stats);
+    if (keys.length > 300) {
+      for (const k of keys.sort((a, b) => this._wod.stats[a] - this._wod.stats[b]).slice(0, keys.length - 300)) {
+        delete this._wod.stats[k];
+      }
+    }
+
+    overlay.push({ kind: 'wordofday', ...this.wodState() });
+
+    // сохранение на диск — отложенно, таймер не держит процесс живым
+    clearTimeout(this._wodTimer);
+    this._wodTimer = setTimeout(() => this._wodSave(), 15_000);
+    this._wodTimer.unref?.();
+  }
+
+  _wodSave() {
+    try { saveJson(this._wodFile, this._wod); } catch (e) {
+      this.logs?.system?.push?.({ level: 'error', message: `Слово дня: не сохранилось — ${e.message}` });
+    }
+  }
+
+  /** Сброс статистики (кнопка в панели): слово и счётчик заново наберутся из чата. */
+  resetWordOfDay() {
+    this._wod = { date: new Date().toISOString().slice(0, 10), stats: {}, word: '', count: 0 };
+    this._wodSave();
+    overlay.push({ kind: 'wordofday', ...this.wodState() });
+    return this.wodState();
   }
 
   // ---------------- уведомления чата (сабы, рейды и т.п.) ----------------
