@@ -205,6 +205,8 @@ function renderState(st) {
     rt.eventsub?.connected ? `чат подключен (${subsOk}/${subsTotal || '?'} подписок)` : 'чат отключен',
     rt.eventsub?.connected ? 'ok' : 'err');
   $('#chip-version').textContent = `v${st.version}`;
+  const badge = $('#version-badge');
+  if (badge) badge.textContent = `v${st.version}`;
 
   const onboarding = $('#onboarding');
   if (configured && a.login && rt.eventsub?.connected) {
