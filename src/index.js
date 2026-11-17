@@ -114,10 +114,78 @@ const onSubEvent = async (type, event) => {
     timers.noteChat(event); // счётчик для таймеров
   }
   if (type === 'channel.channel_points_custom_reward_redemption.add') {
-    redemptions.handle(event); // награды канала: лента + оверлей
+    const r = redemptions.handle(event); // награды канала: лента + оверлей
+    await onSongRedemption(event).catch((e) => {
+      logSystem(`Заказ музыки наградой: сбой — ${e.message}`, 'error');
+    });
+    void r;
   }
   processor.dispatch(type, event);
 };
+
+/**
+ * Заказ музыки через награду канала (settings.songs.requestMode === 'reward').
+ * Заказ не прошёл (чс/лимиты/доступ) — редемпция отменяется, Twitch возвращает баллы.
+ * Нужен токен стримера со скоупом channel:manage:redemptions (иначе вернётся 403 — просто запишем в лог).
+ */
+async function onSongRedemption(event) {
+  const scfg = settings.songs ?? {};
+  if (scfg.requestMode !== 'reward') return;
+  const wanted = String(scfg.rewardName ?? '').trim().toLowerCase();
+  const evReward = String(event?.reward?.title ?? event?.reward_name ?? '').trim().toLowerCase();
+  if (!wanted || evReward !== wanted) return;
+
+  const login = String(event?.user_login ?? '').toLowerCase();
+  const byName = String(event?.user_name ?? '') || login;
+  const broadcasterId = String(event?.broadcaster_user_id ?? '');
+  const sayToChat = async (text) => {
+    if (!broadcasterId || !auth.tokens?.userId) return;
+    try {
+      await helix.sendMessage({ broadcasterId, senderId: auth.tokens.userId, text: `@${login}, ${text}`.slice(0, 480) });
+    } catch { /* чат недоступен — молча; главное — очередь и возврат */ }
+  };
+
+  const { parseVideoId, requestAllowed, cancelRedemption } = await import('./bot/songs.js');
+  const videoId = parseVideoId(String(event?.user_input ?? ''));
+  if (!videoId) {
+    await sayToChat('пришли ссылку YouTube в поле ввода награды 🎵');
+    await refund();
+    return;
+  }
+  // доступ: у редемпции нет бейджей — проверяем личный список/фолловеров; остальное пускает баллы
+  const gate = await requestAllowed(scfg, { level: 'everyone', login, userId: event?.user_id, broadcasterId, helix });
+  if (!gate.ok) {
+    await sayToChat('заказывать музыку пока нельзя — спроси у стримера');
+    await refund();
+    return;
+  }
+  const left = songs.orderCooldownLeft(login);
+  if (left > 0) {
+    await sayToChat(`следующий заказ через ${left} сек ⏳`);
+    await refund();
+    return;
+  }
+  const r = await songs.add({ videoId, by: login, byName });
+  if (r.error) {
+    await sayToChat(r.error);
+    await refund();
+    return;
+  }
+  const pos = r.position === 0 ? 'включаю сейчас! 🎵' : `в очереди на ${r.position}-м месте`;
+  await sayToChat(`🎵 ${r.song.title} — ${pos}`.slice(0, 400));
+
+  async function refund() {
+    const rewardId = event?.reward?.id ?? event?.reward_id;
+    const redemptionId = event?.id;
+    if (!rewardId || !redemptionId) return;
+    try {
+      const res = await cancelRedemption({ broadcasterId, rewardId, redemptionId, helix: helixBc });
+      if (res.ok) logSystem(`Награда «${evReward}» отменена — баллы возвращены @${login}`, 'info');
+    } catch (e) {
+      logSystem(`Возврат баллов не удался (@${login}): ${e.message} — нужен перевход стримера (скоуп channel:manage:redemptions)`, 'warn');
+    }
+  }
+}
 
 // Подписки токена бота: чат, уведомления, фоллоу, рейды, старт/конец стрима.
 const socket = new EventSocket({
@@ -512,6 +580,25 @@ const app = {
       if (a.perUser !== undefined) cur.perUser = Math.max(1, Math.min(10, Number(a.perUser) || 2));
       if (a.volume !== undefined) cur.volume = Math.max(0, Math.min(100, Math.round(Number(a.volume) || 0)));
       if (a.nowTemplate !== undefined) cur.nowTemplate = String(a.nowTemplate).slice(0, 200);
+      // способ заказов + ограничения + доступ
+      if (a.requestMode !== undefined) cur.requestMode = a.requestMode === 'reward' ? 'reward' : 'command';
+      if (a.rewardName !== undefined) cur.rewardName = String(a.rewardName).trim().slice(0, 100);
+      if (a.commandCooldown !== undefined) cur.commandCooldown = Math.max(0, Math.min(86_400, Math.round(Number(a.commandCooldown) || 0)));
+      if (a.userMaxLengthSec !== undefined) cur.userMaxLengthSec = Math.max(0, Math.min(36_000, Math.round(Number(a.userMaxLengthSec) || 0)));
+      if (a.minViews !== undefined) cur.minViews = Math.max(0, Math.min(1_000_000_000, Math.round(Number(a.minViews) || 0)));
+      if (Array.isArray(a.allow)) {
+        cur.allow = [...new Set(a.allow.map((r) => String(r).toLowerCase()))]
+          .filter((r) => ['everyone', 'sub', 'vip', 'follower', 'mod', 'broadcaster'].includes(r));
+      }
+      if (Array.isArray(a.allowUsers)) {
+        cur.allowUsers = [...new Set(a.allowUsers.map((u) => String(u).toLowerCase().trim()).filter(Boolean))].slice(0, 50);
+      }
+      if (Array.isArray(a.blacklist)) {
+        cur.blacklist = a.blacklist
+          .map((x) => ({ id: String(x?.id || '').slice(0, 20), title: String(x?.title || '').slice(0, 200) }))
+          .filter((x) => x.id)
+          .slice(0, 300);
+      }
       // громкость/шаблон применяем к плееру в OBS сразу — SSE-событие доехает до /music
       try { songs?._emit?.('update'); } catch {}
     }

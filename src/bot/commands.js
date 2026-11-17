@@ -626,6 +626,12 @@ export class CommandEngine {
           if (!engine.songs) { await engine.say(session, 'Плеер не настроен'); return; }
           const cfg = engine.songs.cfg();
           if (!cfg.enabled) { await engine.say(session, 'Музыка сейчас выключена 🎵❌'); return; }
+          // способ приёма заказов: только через награду канала
+          if (cfg.requestMode === 'reward') {
+            const rn = cfg.rewardName || 'заказать песню';
+            await engine.say(session, `Заказы музыки — через награду канала «${rn}» за баллы 🎵`);
+            return;
+          }
           if (!args[0]) {
             const st = engine.songs.state();
             if (!st.current) { await engine.say(session, 'Сейчас ничего не играет. Заказ: !ср <ссылка на YouTube> 🎵'); return; }
@@ -634,6 +640,24 @@ export class CommandEngine {
             line += q ? ` · в очереди: ${q}` : ' · очередь пустая';
             line += st.paused ? ' · на паузе' : '';
             await engine.say(session, line.slice(0, 480));
+            return;
+          }
+          // кому можно заказывать (стример — всегда; роли/фолловеры/личный список)
+          const { requestAllowed } = await import('./songs.js');
+          const gate = await requestAllowed(cfg, {
+            level: session.level, login: session.login, userId: session.userId,
+            broadcasterId: session.broadcasterId, helix: engine.helix,
+          });
+          if (!gate.ok) {
+            const names = { everyone: 'все', sub: 'сабы', vip: 'випы', follower: 'фолловеры', mod: 'моды', broadcaster: 'стример' };
+            const roles = (Array.isArray(cfg.allow) ? cfg.allow : []).map((r) => names[r] ?? r).join(', ');
+            await engine.say(session, `Заказывать музыку могут: ${roles || 'все'} 🎵`);
+            return;
+          }
+          // кулдаун на юзера между заказами
+          const left = engine.songs.orderCooldownLeft(session.login);
+          if (left > 0) {
+            await engine.say(session, `@${session.login}, следующий заказ через ${left} сек ⏳`);
             return;
           }
           const { parseVideoId } = await import('./songs.js');
@@ -1002,6 +1026,14 @@ export function loadSettings() {
       perUser: 2,      // максимум треков одного зрителя в очереди
       volume: 60,      // громкость плеера (0–100) — применяется в /music
       nowTemplate: '♪ {title} — заказал {by}', // что показывать на оверлее
+      requestMode: 'command', // 'command' (через !ср) | 'reward' (наградой за баллы)
+      rewardName: '',        // название награды-заказа (для requestMode='reward')
+      commandCooldown: 0,    // сек между заказами одного зрителя (0 = без кулдауна)
+      userMaxLengthSec: 0,   // макс. суммарная длина треков юзера в очереди (0 = без лимита)
+      minViews: 0,           // минимум просмотров у трека (0 = не проверять)
+      allow: [],             // кому можно заказывать: everyone/sub/vip/follower/mod/broadcaster (пусто = все)
+      allowUsers: [],        // персональный белый список ников
+      blacklist: [],         // чёрный список треков: [{ id, title }]
       ...(stored.songs ?? {}),
     },
     proxy: {

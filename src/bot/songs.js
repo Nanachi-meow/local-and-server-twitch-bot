@@ -60,6 +60,7 @@ export class SongsManager {
     this.current = stored.current ?? null;
     this.paused = Boolean(stored.paused);
     this._dirty = false;
+    this._lastOrder = new Map(); // login -> ts последнего успешного заказа (кулдаун)
   }
 
   cfg() {
@@ -95,7 +96,7 @@ export class SongsManager {
     };
   }
 
-  /** Добавить трек в очередь. Валидация длины/дублей/лимита — здесь, баллы — в команде. */
+  /** Добавить трек в очередь. Валидация длины/просмотров/чс/лимитов — здесь, баллы — в команде/награде. */
   async add({ videoId, by, byName }) {
     const cfg = this.cfg();
     if (!cfg.enabled) return { error: 'музыка выключена' };
@@ -103,7 +104,10 @@ export class SongsManager {
     const byLogin = String(by || '').toLowerCase();
     const maxLen = Math.max(0, Number(cfg.maxLenSec ?? 600));
     const perUser = Math.max(1, Number(cfg.perUser ?? 2));
+    const userMax = Math.max(0, Number(cfg.userMaxLengthSec ?? 0));
+    const minViews = Math.max(0, Number(cfg.minViews ?? 0));
     if (!id) return { error: 'не поняла ссылку — пришли ссылку на ролик YouTube' };
+    if (this.blacklistHas(id)) return { error: 'этот трек в чёрном списке канала 🚫' };
     if (!this.current && !this.queue.length) {
       // очередь пуста — этот трек станет текущим, лимиты на «текущий» не считаем
     } else {
@@ -114,11 +118,13 @@ export class SongsManager {
     let title = '';
     let author = '';
     let duration = 0;
+    let viewCount = 0;
     try {
       const info = await fetchVideoInfo(id, this.settings?.proxy, this.fetcher);
       title = info.title;
       author = info.author;
       duration = info.duration;
+      viewCount = info.viewCount;
     } catch (e) {
       return { error: `не смогла узнать трек: ${e.message}` };
     }
@@ -128,7 +134,21 @@ export class SongsManager {
         ? 'не смогла узнать длину видео — попробуй другое'
         : `слишком длинно (${duration} сек > лимита ${maxLen})` };
     }
-    const song = { id, title, author, duration, by: byLogin, byName: byName || byLogin, at: Date.now() };
+    if (minViews && (!viewCount || viewCount < minViews)) {
+      return { error: !viewCount
+        ? 'не смогла узнать просмотры видео — попробуй другое'
+        : `мало просмотров (${viewCount} < ${minViews}) 📉` };
+    }
+    // суммарная длина треков этого юзера (очередь + его текущий + новый)
+    if (userMax) {
+      const mineSec = [...this.queue, this.current]
+        .filter((x) => x && String(x.by).toLowerCase() === byLogin)
+        .reduce((s, x) => s + (Number(x.duration) || 0), 0);
+      if (mineSec + duration > userMax) {
+        return { error: `твои треки уже ${Math.round(mineSec / 60)} мин, этот ещё ${Math.round(duration / 60)} — лимит ${Math.round(userMax / 60)} мин ⏳` };
+      }
+    }
+    const song = { id, title, author, duration, viewCount, by: byLogin, byName: byName || byLogin, at: Date.now() };
     if (!this.current) {
       this.current = song;
       this._emit('play');
@@ -138,6 +158,12 @@ export class SongsManager {
     }
     this._dirty = true;
     this.saveNow();
+    this._lastOrder.set(byLogin, Date.now()); // отсчёт кулдауна между заказами
+    // карта не растёт вечно
+    if (this._lastOrder.size > 500) {
+      const cut = Date.now() - 86_400_000;
+      for (const [k, ts] of this._lastOrder) if (ts < cut) this._lastOrder.delete(k);
+    }
     return { song, position: this.current?.id === id ? 0 : this.queue.length };
   }
 
@@ -202,4 +228,100 @@ export class SongsManager {
     this._emit('update');
     return { ok: true };
   }
+
+  // ---------------- чёрный список треков ----------------
+
+  /** Трек в чёрном списке? (settings.songs.blacklist: [{ id, title }]) */
+  blacklistHas(id) {
+    const list = Array.isArray(this.cfg().blacklist) ? this.cfg().blacklist : [];
+    return list.some((x) => x && x.id === String(id));
+  }
+
+  /** Добавить трек в ЧС по ссылке; выкидывает его из очереди/эфира. Возвращает { blacklisted, title } | { error }. */
+  async blacklistAdd(url) {
+    const id = parseVideoId(url);
+    if (!id) return { error: 'это не похоже на ссылку YouTube' };
+    const cfg = this.cfg();
+    if (!Array.isArray(cfg.blacklist)) cfg.blacklist = [];
+    if (this.blacklistHas(id)) return { error: 'этот трек уже в чёрном списке' };
+    let title = '';
+    try {
+      const info = await fetchVideoInfo(id, this.settings?.proxy, this.fetcher);
+      title = info.title || '';
+    } catch { /* название не критично — оставим пустым */ }
+    cfg.blacklist.push({ id, title });
+    // выкидываем из очереди
+    const qi = this.queue.findIndex((x) => x.id === id);
+    if (qi >= 0) { this.queue.splice(qi, 1); this._dirty = true; }
+    // играет сейчас — скипаем
+    const wasCurrent = this.current?.id === id;
+    if (wasCurrent) this.current = this.queue.shift() ?? null;
+    if (qi >= 0 || wasCurrent) {
+      this.saveNow();
+      this._emit(wasCurrent ? 'play' : 'update');
+    }
+    return { blacklisted: id, title };
+  }
+
+  /** Убрать трек из ЧС (id). */
+  blacklistRemove(id) {
+    const cfg = this.cfg();
+    if (!Array.isArray(cfg.blacklist)) return { error: 'чёрный список пуст' };
+    const i = cfg.blacklist.findIndex((x) => x && x.id === String(id));
+    if (i < 0) return { error: 'нет такого трека в чёрном списке' };
+    const [removed] = cfg.blacklist.splice(i, 1);
+    this._emit('update');
+    return { removed };
+  }
+
+  // ---------------- кулдаун заказов ----------------
+
+  /** Сколько секунд юзеру осталось ждать до следующего заказа (0 = можно). */
+  orderCooldownLeft(by) {
+    const cd = Math.max(0, Number(this.cfg().commandCooldown ?? 0));
+    if (!cd) return 0;
+    const last = this._lastOrder.get(String(by || '').toLowerCase()) || 0;
+    if (!last) return 0;
+    return Math.max(0, Math.ceil((cd * 1000 - (Date.now() - last)) / 1000));
+  }
 }
+
+/**
+ * Кому можно заказывать музыку (общее для команды и награды).
+ * roles: everyone/sub/vip/follower/mod/broadcaster; стример может всегда;
+ * allowUsers — персональный белый список ников. level — роль из чата (у награды нет бейджей).
+ */
+export async function requestAllowed(cfg = {}, { level = 'everyone', login, userId, broadcasterId, helix } = {}) {
+  const allow = Array.isArray(cfg.allow) ? cfg.allow.filter(Boolean) : [];
+  const allowUsers = (Array.isArray(cfg.allowUsers) ? cfg.allowUsers : []).map((u) => String(u).toLowerCase());
+  const who = String(login || '').toLowerCase();
+  if (level === 'broadcaster') return { ok: true };
+  if (who && allowUsers.includes(who)) return { ok: true, via: 'list' };
+  if (!allow.length || allow.includes('everyone')) return { ok: true };
+  if (level && level !== 'everyone' && allow.includes(level)) return { ok: true };
+  if (allow.includes('follower') && userId && broadcasterId && helix) {
+    try {
+      const f = await helix.getFollower({ broadcasterId, userId });
+      if (f) return { ok: true, via: 'follower' };
+    } catch { /* проверка фоллоу не удалась — не пускаем */ }
+  }
+  return { ok: false };
+}
+
+/**
+ * Отменить списание награды канала — Twitch вернёт зрителю баллы.
+ * Нужен токен стримера со скоупом channel:manage:redemptions (helix = Helix с broadcaster-токеном).
+ */
+export async function cancelRedemption({ broadcasterId, rewardId, redemptionId, helix }) {
+  if (!broadcasterId || !rewardId || !redemptionId || !helix) return { error: 'недостаточно данных для возврата баллов' };
+  const json = await helix.call('PATCH', '/channel_points/custom_rewards/redemptions', {
+    query: {
+      broadcaster_id: broadcasterId,
+      reward_id: rewardId,
+      id: redemptionId,
+    },
+    body: { status: 'CANCELED' },
+  });
+  return { ok: true, redemption: json?.data?.[0] ?? null };
+}
+

@@ -221,6 +221,8 @@ nav {
 .sg-volume-row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
 .sg-volume-row input[type='range'] { flex: 1; accent-color: var(--accent); }
 .sg-right .evcard { margin-bottom: 12px; }
+.sg-title-link { cursor: pointer; border-bottom: 1px dotted var(--muted); }
+.sg-title-link:hover { color: var(--accent); }
 
 /* выключенная встроенная команда — приглушена */
 tr.off td { opacity: .45; }

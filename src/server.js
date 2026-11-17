@@ -300,6 +300,14 @@ export function createHttpServer({ app }) {
       if (op === 'ended') r = app.songs.ended();
       else if (op === 'remove') r = app.songs.removeAt(body.index);
       else if (op === 'hello') r = { ok: true };
+      else if (op === 'blacklist-add') {
+        r = await app.songs.blacklistAdd(String(body?.url || ''));
+        if (!r.error) app.saveSettings({}); // ЧС живёт в настройках — фиксируем на диск
+      }
+      else if (op === 'blacklist-remove') {
+        r = app.songs.blacklistRemove(String(body?.id || ''));
+        if (!r.error) app.saveSettings({});
+      }
       else throw new Error(`Неизвестное действие: ${op || '(пусто)'}`);
       sendJson(res, 200, r);
       return;

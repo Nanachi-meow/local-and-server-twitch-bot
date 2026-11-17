@@ -237,7 +237,7 @@ const fakeFetcher = async (url) => {
   }
   // watch page
   if (url.includes('longvideo000')) return { status: 200, body: '"lengthSeconds":"99999"' };
-  return { status: 200, body: '"lengthSeconds":"213"' };
+  return { status: 200, body: '"lengthSeconds":"213","viewCount":"1000000"' };
 };
 const sm = new SongsManager({ logs, settings: songsSettings, dataFile: songsFile, fetcher: fakeFetcher });
 engine.setSongs(sm);
@@ -273,6 +273,84 @@ await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl
 ok('музыка: !очередь отвечает', sent.at(-1).startsWith('🎵'));
 await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!скип', badges: [{ set_id: 'moderator' }] });
 ok('музыка: !скип (мод+) работает', sent.at(-1).includes('скипнут'));
+
+// ---------- музыка: правила заказов (чс, просмотры, длины, кулдауны, доступ, награда) ----------
+const { requestAllowed: songsRequestAllowed, cancelRedemption } = await import('../src/bot/songs.js');
+
+// чёрный список
+songsSettings.songs.blacklist = [{ id: 'qqqq1111111', title: 'Запрещённый трек' }];
+const blRes = await sm.add({ videoId: 'qqqq1111111', by: 'Vova', byName: 'Vova' });
+ok('музыка: чс — трек отклоняется', Boolean(blRes.error) && blRes.error.includes('чёрном списке'));
+const blAdd = await sm.blacklistAdd('https://youtu.be/zzzz2222222');
+ok('музыка: чс — добавление по ссылке', !blAdd.error && songsSettings.songs.blacklist.some((x) => x.id === 'zzzz2222222'));
+const blDup = await sm.blacklistAdd('https://youtu.be/zzzz2222222');
+ok('музыка: чс — повтор отклоняется', Boolean(blDup.error));
+const blDel = await sm.blacklistRemove('zzzz2222222');
+ok('музыка: чс — удаление', !blDel.error && !sm.blacklistHas('zzzz2222222'));
+const blBad = await sm.blacklistAdd('не-ссылка');
+ok('музыка: чс — не-ссылка отклоняется', Boolean(blBad.error));
+
+// чс выкидывает трек из очереди
+await sm.add({ videoId: 'zzzz3333333', by: 'Vova', byName: 'Vova' });
+ok('музыка: трек в очереди перед блокировкой', sm.queue.some((s) => s.id === 'zzzz3333333'));
+await sm.blacklistAdd('zzzz3333333');
+ok('музыка: чс выкидывает трек из очереди', !sm.queue.some((s) => s.id === 'zzzz3333333') && sm.blacklistHas('zzzz3333333'));
+sm.blacklistRemove('zzzz3333333');
+
+// минимальные просмотры
+songsSettings.songs.minViews = 1_000_001;
+const lowViews = await sm.add({ videoId: 'qqq111qqqq2', by: 'Vova', byName: 'Vova' });
+ok('музыка: мало просмотров — отклоняется', Boolean(lowViews.error) && lowViews.error.includes('просмотров'));
+songsSettings.songs.minViews = 1000;
+const okViews = await sm.add({ videoId: 'qqq111qqqq3', by: 'Vova', byName: 'Vova' });
+ok('музыка: хватает просмотров — принимается', !okViews.error);
+songsSettings.songs.minViews = 0;
+
+// суммарная длина треков юзера (текущий трек Пети = 213 сек)
+songsSettings.songs.userMaxLengthSec = 240;
+const longSum = await sm.add({ videoId: 'qqq111qqqq4', by: 'Petya', byName: 'Petya' });
+ok('музыка: суммарная длина юзера — отклоняется', Boolean(longSum.error) && longSum.error.includes('лимит'));
+songsSettings.songs.userMaxLengthSec = 0;
+
+// кулдаун заказов на юзера
+songsSettings.songs.commandCooldown = 3600;
+const coolAdd = await sm.add({ videoId: 'zzz888zzzz8', by: 'Girl', byName: 'Girl' });
+ok('музыка: заказ при включённом кулдауне проходит первый раз', !coolAdd.error);
+ok('музыка: кулдаун отсчитывается после заказа', sm.orderCooldownLeft('girl') > 0);
+ok('музыка: кулдаун не мешает другому юзеру', sm.orderCooldownLeft('vasya') === 0);
+songsSettings.songs.commandCooldown = 0;
+
+// доступ: роли, фолловеры, личный список, стример
+ok('музыка: доступ — пусто = все', (await songsRequestAllowed({ allow: [] }, { level: 'everyone', login: 'x' })).ok === true);
+ok('музыка: доступ — вип из списка', (await songsRequestAllowed({ allow: ['vip'] }, { level: 'vip', login: 'x' })).ok === true);
+ok('музыка: доступ — зритель мимо списка', (await songsRequestAllowed({ allow: ['vip'] }, { level: 'everyone', login: 'x' })).ok === false);
+ok('музыка: доступ — личный список (без регистра)', (await songsRequestAllowed({ allow: ['vip'], allowUsers: ['Special_Girl'] }, { level: 'everyone', login: 'special_girl' })).ok === true);
+ok('музыка: доступ — стример всегда', (await songsRequestAllowed({ allow: [] }, { level: 'broadcaster', login: 'x' })).ok === true);
+const fakeFollowHelix = { getFollower: async () => ({ followed_at: new Date().toISOString() }) };
+const gateFollower = await songsRequestAllowed({ allow: ['follower'] }, { level: 'everyone', login: 'x', userId: '9', broadcasterId: '100', helix: fakeFollowHelix });
+ok('музыка: доступ — фолловер пускается', gateFollower.ok === true && gateFollower.via === 'follower');
+
+// режим награды: команда перенаправляет
+songsSettings.songs.requestMode = 'reward';
+songsSettings.songs.rewardName = 'заказать песню';
+await engine.handleChatMessage({ userId: '10', login: 'girl', displayName: 'Girl', text: '!ср https://youtu.be/xxx2223334', badges: [] });
+ok('музыка: режим награды — команда перенаправляет', sent.at(-1).includes('наград') && sent.at(-1).includes('заказать песню'));
+songsSettings.songs.requestMode = 'command';
+songsSettings.songs.rewardName = '';
+
+// возврат баллов: отмена редемпции через helix стримера
+const refundCalls = [];
+const fakeBcHelixRefund = {
+  call: async (method, ep, opts) => { refundCalls.push({ method, ep, opts }); return { data: [{ id: 'r1', status: 'CANCELED' }] }; },
+};
+const refund = await cancelRedemption({ broadcasterId: '100', rewardId: 'rw1', redemptionId: 'r1', helix: fakeBcHelixRefund });
+ok('музыка: возврат баллов — CANCELED через helix стримера',
+  refund.ok && refundCalls[0]?.method === 'PATCH'
+  && refundCalls[0]?.ep === '/channel_points/custom_rewards/redemptions'
+  && refundCalls[0]?.opts.body.status === 'CANCELED'
+  && refundCalls[0]?.opts.query.reward_id === 'rw1');
+const refundBad = await cancelRedemption({ broadcasterId: '', rewardId: 'x', redemptionId: 'y', helix: fakeBcHelixRefund });
+ok('музыка: возврат без данных — понятная ошибка', Boolean(refundBad.error));
 
 let srNameThrew = false;
 try { engine.upsert({ name: 'ср', response: 'хак' }); } catch { srNameThrew = true; }

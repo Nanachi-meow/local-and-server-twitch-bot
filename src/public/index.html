@@ -367,8 +367,39 @@
           <div class="evcard">
             <label><input type="checkbox" id="sg-enabled" /> музыка включена</label>
             <label>макс. длина, мин <input type="number" id="sg-maxlen-min" min="0" max="600" style="width:70px" /></label>
+            <label>мин. просмотры у трека <input type="number" id="sg-minviews" min="0" max="1000000000" style="width:90px" title="0 = не проверять" /></label>
             <label>шаблон «сейчас играет» <input type="text" id="sg-template" class="wide" maxlength="200" placeholder="♪ {title} — заказал {by}" /></label>
             <div class="row"><button class="act" id="sg-save">Сохранить</button></div>
+          </div>
+          <h2>🎫 Как зрители заказывают</h2>
+          <div class="evcard">
+            <label>способ
+              <select id="sg-mode">
+                <option value="command">командой !ср</option>
+                <option value="reward">наградой за баллы канала</option>
+              </select>
+            </label>
+            <label id="sg-reward-row" class="hidden">название награды на Twitch <input type="text" id="sg-reward-name" maxlength="100" placeholder="заказать песню" title="создай награду с этим названием на панели Twitch" /></label>
+            <label id="sg-cd-row">кулдаун на юзера, мин <input type="number" id="sg-cd" min="0" max="1440" style="width:70px" title="0 = без кулдауна" /></label>
+            <label>макс. суммарная длина треков юзера, мин <input type="number" id="sg-usermax" min="0" max="600" style="width:70px" title="0 = без лимита" /></label>
+            <p class="hint">Заказы не прошли проверку (чс/длина/кулдаун) — при заказе наградой баллы возвращаются автоматически.</p>
+            <div class="rp-row label hint">кому можно заказывать (для команды)</div>
+            <div class="rp-row">
+              <label class="hint"><input type="checkbox" class="sg-role" value="everyone" /> 🎭 все</label>
+              <label class="hint"><input type="checkbox" class="sg-role" value="sub" /> 💜 сабы</label>
+              <label class="hint"><input type="checkbox" class="sg-role" value="vip" /> 💎 випы</label>
+              <label class="hint"><input type="checkbox" class="sg-role" value="follower" /> ❤️ фолловеры</label>
+              <label class="hint"><input type="checkbox" class="sg-role" value="mod" /> 🛡 моды</label>
+            </div>
+            <p class="hint">👑 Стример может всегда. Для награды роли Twitch не видны — там работают «фолловеры» и личный список.</p>
+            <label>личный белый список — ники через запятую <input type="text" id="sg-allowusers" class="wide" maxlength="500" placeholder="krolik_nya, cumsya" /></label>
+            <div class="row"><button class="act" id="sg-order-save">Сохранить правила</button></div>
+          </div>
+          <h2>🚫 Чёрный список треков</h2>
+          <div id="sg-bl-list"></div>
+          <div class="addrow" style="margin-top:8px">
+            <input id="sg-bl-add" class="wide" placeholder="вставь ссылку YouTube…" />
+            <button class="act" id="sg-bl-add-btn">🚫 Заблокировать</button>
           </div>
           <h2>📋 Очередь и текущий трек</h2>
           <div id="sg-current" class="hint">Ничего не играет</div>

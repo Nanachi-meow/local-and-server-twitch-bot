@@ -1747,9 +1747,12 @@ function __sgApplyState(st) {
   $('#sg-body').innerHTML = (st.queue ?? []).map((song, i) => `
     <tr data-index="${i}">
       <td>${i + 1}</td>
-      <td class="cellresp">${esc(song.title)}</td>
+      <td class="cellresp"><span class="sg-title-link" data-id="${esc(song.id)}" title="клик — скопировать ссылку">${esc(song.title)}</span></td>
       <td class="cellname">${esc(song.byName || song.by)}</td>
-      <td><button class="act ghost sg-remove" title="убрать из очереди">🗑</button></td>
+      <td>
+        <button class="act ghost sg-bl" data-id="${esc(song.id)}" data-title="${esc(song.title)}" title="в чёрный список (и убрать из очереди)">🚫</button>
+        <button class="act ghost sg-remove" title="убрать из очереди">🗑</button>
+      </td>
     </tr>`).join('') || '<tr><td colspan="4" class="hint">Очередь пуста</td></tr>';
 
   // кнопка паузы меняет вид: играет → «⏸ Пауза» (ghost), на паузе → «▶ Продолжить» (акцент)
@@ -1794,9 +1797,67 @@ async function loadSongsTab() {
   $('#sg-enabled').checked = Boolean(s.enabled);
   // длина — в минутах в панели, в секундах на сервере
   $('#sg-maxlen-min').value = Math.round((s.maxLenSec ?? 600) / 60);
+  $('#sg-minviews').value = s.minViews ?? 0;
   $('#sg-template').value = s.nowTemplate ?? '♪ {title} — заказал {by}';
+  // правила заказов
+  $('#sg-mode').value = s.requestMode ?? 'command';
+  $('#sg-reward-name').value = s.rewardName ?? '';
+  $('#sg-cd').value = Math.round((s.commandCooldown ?? 0) / 60);
+  $('#sg-usermax').value = Math.round((s.userMaxLengthSec ?? 0) / 60);
+  $('#sg-allowusers').value = (s.allowUsers ?? []).join(', ');
+  document.querySelectorAll('.sg-role').forEach((cb) => { cb.checked = (s.allow ?? []).includes(cb.value); });
+  sgSyncModeRows();
+  renderBlacklist(s.blacklist ?? []);
   __sgApplyState(st);
 }
+
+/** видимость полей зависит от способа заказов: награда — имя, команда — кулдаун */
+function sgSyncModeRows() {
+  const mode = $('#sg-mode').value;
+  $('#sg-reward-row').classList.toggle('hidden', mode !== 'reward');
+  $('#sg-cd-row').classList.toggle('hidden', mode !== 'command');
+}
+$('#sg-mode').addEventListener('change', sgSyncModeRows);
+
+/** список чёрного списка: просмотр + копия ссылки + убрать из ЧС */
+function renderBlacklist(list) {
+  const box = $('#sg-bl-list');
+  if (!box) return;
+  box.innerHTML = (list || []).map((x) => `
+    <div class="chips" style="margin-bottom:6px">
+      <span class="chip" title="клик — скопировать ссылку" style="cursor:pointer" data-bl-copy="${esc(x.id)}">🚫 ${esc(x.title || `youtu.be/${x.id}`)}</span>
+      <button class="act ghost bl-del" data-id="${esc(x.id)}" title="убрать из чёрного списка">✕</button>
+    </div>`).join('') || '<p class="hint">Пусто — заблокированных треков нет. Кнопка 🚫 в очереди добавляет их сюда одним кликом.</p>';
+}
+
+$('#sg-bl-list').addEventListener('click', async (e) => {
+  const copy = e.target.closest('[data-bl-copy]');
+  if (copy) {
+    try { await navigator.clipboard.writeText(`https://youtu.be/${copy.dataset.blCopy}`); toast('Ссылка скопирована'); } catch {}
+    return;
+  }
+  const del = e.target.closest('.bl-del');
+  if (!del) return;
+  try {
+    await api('/api/songs', { method: 'POST', body: JSON.stringify({ op: 'blacklist-remove', id: del.dataset.id }) });
+    toast('Убрано из чёрного списка');
+    loadSongsTab();
+  } catch (err) { toast(err.message, true); }
+});
+
+// вручную вставить ссылку в чёрный список
+$('#sg-bl-add-btn').addEventListener('click', async () => {
+  const url = $('#sg-bl-add').value.trim();
+  if (!url) { toast('Вставь ссылку YouTube', true); return; }
+  try {
+    const r = await api('/api/songs', { method: 'POST', body: JSON.stringify({ op: 'blacklist-add', url }) });
+    if (r.error) { toast(r.error, true); return; }
+    $('#sg-bl-add').value = '';
+    toast('Трек заблокирован 🚫');
+    loadSongsTab();
+  } catch (err) { toast(err.message, true); }
+});
+$('#sg-bl-add').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#sg-bl-add-btn').click(); });
 
 $('#music-copy').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText($('#music-url-field').value); toast('Скопировано ✅'); }
@@ -1809,11 +1870,32 @@ $('#sg-save').addEventListener('click', async () => {
       songs: {
         enabled: $('#sg-enabled').checked,
         maxLenSec: Math.round((Number($('#sg-maxlen-min').value) || 10) * 60),
+        minViews: Math.max(0, Number($('#sg-minviews').value) || 0),
         volume: Number($('#sg-volume').value) || 0,
         nowTemplate: $('#sg-template').value,
       },
     });
     toast('Настройки музыки сохранены ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+// правила заказов: способ, кулдаун, лимиты, доступ
+$('#sg-order-save').addEventListener('click', async () => {
+  const allow = [...document.querySelectorAll('.sg-role:checked')].map((cb) => cb.value);
+  if (allow.includes('everyone')) allow.length = 0; // «все» = пустой список
+  const allowUsers = $('#sg-allowusers').value.split(',').map((s) => s.trim()).filter(Boolean);
+  try {
+    await putSettings({
+      songs: {
+        requestMode: $('#sg-mode').value,
+        rewardName: $('#sg-reward-name').value.trim(),
+        commandCooldown: Math.round((Number($('#sg-cd').value) || 0) * 60),
+        userMaxLengthSec: Math.round((Number($('#sg-usermax').value) || 0) * 60),
+        allow,
+        allowUsers,
+      },
+    });
+    toast('Правила заказов сохранены ✅');
   } catch (e) { toast(e.message, true); }
 });
 
@@ -1856,6 +1938,24 @@ $('#sg-stop').addEventListener('click', () => {
 $('#sg-refresh').addEventListener('click', () => loadSongsTab().catch(() => {}));
 
 $('#sg-body').addEventListener('click', async (e) => {
+  // клик по названию — скопировать ссылку на трек
+  const link = e.target.closest('.sg-title-link');
+  if (link) {
+    try { await navigator.clipboard.writeText(`https://youtu.be/${link.dataset.id}`); toast('Ссылка на трек скопирована 🔗'); } catch {}
+    return;
+  }
+  // 🚫 — в чёрный список одним нажатием (сервер сам выкинет трек из очереди)
+  const bl = e.target.closest('.sg-bl');
+  if (bl) {
+    if (!confirm(`Заблокировать трек «${bl.dataset.title || bl.dataset.id}»? Он исчезнет из очереди, и его больше нельзя заказать.`)) return;
+    try {
+      const r = await api('/api/songs', { method: 'POST', body: JSON.stringify({ op: 'blacklist-add', url: bl.dataset.id }) });
+      if (r.error) { toast(r.error, true); return; }
+      toast('Трек заблокирован 🚫');
+      loadSongsTab();
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
   const row = e.target.closest('tr[data-index]');
   if (!row || !e.target.classList.contains('sg-remove')) return;
   try {

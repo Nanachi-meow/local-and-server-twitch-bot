@@ -8,6 +8,7 @@ import { BROADCASTER_TOKENS_FILE, loadJson, saveJson } from '../store.js';
  */
 export const BROADCASTER_SCOPES = [
   'channel:read:redemptions',
+  'channel:manage:redemptions', // отмена списания — возврат баллов зрителю при отказе заказа
   'user:read:chat',
 ];
 
