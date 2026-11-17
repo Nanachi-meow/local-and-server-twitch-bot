@@ -1696,17 +1696,51 @@ $('#tts-test').addEventListener('click', () => {
 
 // ---------------- музыка (заказы YouTube) ----------------
 
-async function loadSongsTab() {
-  const st = await api('/api/songs');
-  const s = (await api('/api/settings')).songs ?? {};
-  $('#music-url').textContent = `${location.origin}/music`;
-  $('#music-url-field').value = `${location.origin}/music`;
-  $('#music-open').href = `${location.origin}/music`;
-  $('#sg-enabled').checked = Boolean(s.enabled);
-  $('#sg-maxlen').value = s.maxLenSec ?? 600;
-  $('#sg-peruser').value = s.perUser ?? 2;
-  $('#sg-volume').value = s.volume ?? 60;
-  $('#sg-template').value = s.nowTemplate ?? '♪ {title} — заказал {by}';
+// YouTube-плеер в панели: превью без звука, состояние приезжает по SSE (та же шина, что у OBS-плеера)
+let sgYt = null;
+let sgYtWanted = null; // видео, которое хотим показать (пока API грузится)
+let sgYtBooted = false;
+let __songsPaused = false;
+
+function sgEnsureYt() {
+  if (sgYtBooted) return;
+  sgYtBooted = true;
+  const tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+  window.onYouTubeIframeAPIReady = () => {
+    sgYt = new YT.Player('sg-player', {
+      width: '100%', height: '100%',
+      playerVars: { playsinline: 1, rel: 0, modestbranding: 1 },
+      events: {
+        onReady: () => {
+          try { sgYt.mute(); } catch {}
+          if (sgYtWanted) sgLoadVideo(sgYtWanted);
+        },
+      },
+    });
+  };
+}
+
+function sgLoadVideo(id) {
+  sgYtWanted = id;
+  if (!sgYt || !sgYt.loadVideoById) return;
+  try {
+    if (sgYt.getVideoData?.()?.video_id !== id) {
+      sgYt.loadVideoById(id);
+      sgYt.mute(); // в панели только превью — звук живёт в OBS-плеере
+    }
+  } catch {}
+}
+
+function sgPauseVideo() { try { sgYt?.pauseVideo?.(); } catch {} }
+function sgPlayVideo() { try { sgYt?.playVideo?.(); } catch {} }
+function sgStopVideo() { try { sgYt?.stopVideo?.(); sgYtWanted = null; } catch {} }
+
+// применяем состояние плеера/очереди к вкладке (из /api/songs или живьём из SSE)
+function __sgApplyState(st) {
+  if (!st) return;
+  __songsPaused = Boolean(st.paused);
   $('#sg-current').innerHTML = st.current
     ? `▶ <b>${esc(st.current.title)}</b> — заказал ${esc(st.current.byName || st.current.by)}${st.paused ? ' · <b>на паузе</b>' : ''}`
     : 'Ничего не играет';
@@ -1717,6 +1751,51 @@ async function loadSongsTab() {
       <td class="cellname">${esc(song.byName || song.by)}</td>
       <td><button class="act ghost sg-remove" title="убрать из очереди">🗑</button></td>
     </tr>`).join('') || '<tr><td colspan="4" class="hint">Очередь пуста</td></tr>';
+
+  // кнопка паузы меняет вид: играет → «⏸ Пауза» (ghost), на паузе → «▶ Продолжить» (акцент)
+  const toggle = $('#sg-toggle');
+  if (toggle) {
+    toggle.textContent = __songsPaused ? '▶ Продолжить' : '⏸ Пауза';
+    toggle.classList.toggle('ghost', !__songsPaused);
+  }
+
+  // громкость: обновляем, если юзер не тянет ползунок прямо сейчас
+  const vol = $('#sg-volume');
+  if (vol && document.activeElement !== vol) {
+    vol.value = st.volume ?? 60;
+    $('#sg-volume-val').textContent = String(st.volume ?? 60);
+  }
+
+  // превью-плеер повторяет состояние OBS-плеера
+  sgEnsureYt();
+  if (st.current?.id) {
+    sgLoadVideo(st.current.id);
+    if (__songsPaused) sgPauseVideo();
+  } else {
+    sgStopVideo();
+  }
+}
+
+// живое зеркало: слушаем ту же SSE-шину, что и оверлей/плеер в OBS
+const sgFeed = new EventSource('/overlay/feed');
+sgFeed.onmessage = (m) => {
+  try {
+    const ev = JSON.parse(m.data);
+    if (ev?.kind === 'sr') __sgApplyState(ev);
+  } catch {}
+};
+
+async function loadSongsTab() {
+  const st = await api('/api/songs');
+  const s = (await api('/api/settings')).songs ?? {};
+  $('#music-url').textContent = `${location.origin}/music`;
+  $('#music-url-field').value = `${location.origin}/music`;
+  $('#music-open').href = `${location.origin}/music`;
+  $('#sg-enabled').checked = Boolean(s.enabled);
+  // длина — в минутах в панели, в секундах на сервере
+  $('#sg-maxlen-min').value = Math.round((s.maxLenSec ?? 600) / 60);
+  $('#sg-template').value = s.nowTemplate ?? '♪ {title} — заказал {by}';
+  __sgApplyState(st);
 }
 
 $('#music-copy').addEventListener('click', async () => {
@@ -1729,9 +1808,8 @@ $('#sg-save').addEventListener('click', async () => {
     await putSettings({
       songs: {
         enabled: $('#sg-enabled').checked,
-        maxLenSec: Number($('#sg-maxlen').value) || 600,
-        perUser: Number($('#sg-peruser').value) || 2,
-        volume: Number($('#sg-volume').value) || 60,
+        maxLenSec: Math.round((Number($('#sg-maxlen-min').value) || 10) * 60),
+        volume: Number($('#sg-volume').value) || 0,
         nowTemplate: $('#sg-template').value,
       },
     });
@@ -1739,13 +1817,38 @@ $('#sg-save').addEventListener('click', async () => {
   } catch (e) { toast(e.message, true); }
 });
 
+// громкость: слайдер применяется сразу (дебаунс), без «Сохранить»
+let sgVolTimer = null;
+$('#sg-volume').addEventListener('input', () => {
+  $('#sg-volume-val').textContent = $('#sg-volume').value;
+  clearTimeout(sgVolTimer);
+  sgVolTimer = setTimeout(async () => {
+    try {
+      await putSettings({ songs: { volume: Math.max(0, Math.min(100, Number($('#sg-volume').value) || 0)) } });
+      toast(`Громкость плеера: ${$('#sg-volume').value}%`);
+    } catch (e) { toast(e.message, true); }
+  }, 500);
+});
+
 $('#sg-skip').addEventListener('click', async () => {
-  try { await api('/api/actions/srnext', { method: 'POST', body: '{}' }); toast('Трек скипнут ⏭'); loadSongsTab(); }
+  try { await api('/api/actions/srnext', { method: 'POST', body: '{}' }); toast('Трек скипнут ⏭'); }
   catch (e) { toast(e.message, true); }
 });
 
-$('#sg-pause').addEventListener('click', () => api('/api/actions/srcontrol', { method: 'POST', body: JSON.stringify({ op: 'pause' }) }).then(() => loadSongsTab()).catch((e) => toast(e.message, true)));
-$('#sg-resume').addEventListener('click', () => api('/api/actions/srcontrol', { method: 'POST', body: JSON.stringify({ op: 'resume' }) }).then(() => loadSongsTab()).catch((e) => toast(e.message, true)));
+// пауза/продолжить — одна кнопка, вид зависит от состояния
+$('#sg-toggle').addEventListener('click', () => {
+  const op = __songsPaused ? 'resume' : 'pause';
+  api('/api/actions/srcontrol', { method: 'POST', body: JSON.stringify({ op }) })
+    .then(() => {
+      __songsPaused = op === 'pause';
+      // кнопку переворачиваем сразу; полное состояние приедет по SSE
+      const toggle = $('#sg-toggle');
+      toggle.textContent = __songsPaused ? '▶ Продолжить' : '⏸ Пауза';
+      toggle.classList.toggle('ghost', !__songsPaused);
+    })
+    .catch((e) => toast(e.message, true));
+});
+
 $('#sg-stop').addEventListener('click', () => {
   if (!confirm('Остановить музыку и очистить очередь?')) return;
   api('/api/actions/srcontrol', { method: 'POST', body: JSON.stringify({ op: 'stop' }) }).then(() => loadSongsTab()).catch((e) => toast(e.message, true));

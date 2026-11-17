@@ -209,6 +209,19 @@ nav {
   pointer-events: none; z-index: 70;
 }
 
+/* вкладка Музыка: плеер слева, настройки/очередь справа */
+.sg-grid { display: grid; grid-template-columns: minmax(320px, 6fr) minmax(280px, 5fr); gap: 12px; align-items: start; }
+@media (max-width: 900px) { .sg-grid { grid-template-columns: 1fr; } }
+.sg-player-wrap {
+  position: relative; width: 100%; aspect-ratio: 16 / 9;
+  border-radius: 12px; overflow: hidden; background: rgba(0, 0, 0, .4);
+  border: 1px solid var(--line);
+}
+.sg-player-wrap iframe, .sg-player-wrap #sg-player { width: 100%; height: 100%; border: 0; display: block; }
+.sg-volume-row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+.sg-volume-row input[type='range'] { flex: 1; accent-color: var(--accent); }
+.sg-right .evcard { margin-bottom: 12px; }
+
 /* выключенная встроенная команда — приглушена */
 tr.off td { opacity: .45; }
 

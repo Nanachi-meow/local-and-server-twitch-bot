@@ -512,6 +512,8 @@ const app = {
       if (a.perUser !== undefined) cur.perUser = Math.max(1, Math.min(10, Number(a.perUser) || 2));
       if (a.volume !== undefined) cur.volume = Math.max(0, Math.min(100, Math.round(Number(a.volume) || 0)));
       if (a.nowTemplate !== undefined) cur.nowTemplate = String(a.nowTemplate).slice(0, 200);
+      // громкость/шаблон применяем к плееру в OBS сразу — SSE-событие доехает до /music
+      try { songs?._emit?.('update'); } catch {}
     }
     // прокси (для запросов к YouTube и подобным)
     if (patch.proxy && typeof patch.proxy === 'object') {

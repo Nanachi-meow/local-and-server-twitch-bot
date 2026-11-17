@@ -92,6 +92,10 @@
       nowTemplate = String(ev.nowTemplate || nowTemplate);
       current = ev.current ?? null;
       render();
+      // громкость применяется сразу (ползунок в панели), не только при загрузке трека
+      if (yt && typeof yt.setVolume === 'function') {
+        try { yt.setVolume(volume); } catch {}
+      }
       if (role !== 'player') return;
       ensureApi();
       if (ev.op === 'play' && yt && current) playCurrent();

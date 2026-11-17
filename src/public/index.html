@@ -345,30 +345,37 @@
           <a class="act ghost" id="music-open" target="_blank">Открыть плеер</a>
         </div>
       </div>
-      <div class="card">
-        <h2>⚙️ Настройки заказов</h2>
-        <div class="evcard">
-          <label><input type="checkbox" id="sg-enabled" /> музыка включена</label>
-          <label>макс. длина, сек <input type="number" id="sg-maxlen" min="0" max="36000" style="width:80px" /></label>
-          <label>треков на юзера в очереди <input type="number" id="sg-peruser" min="1" max="10" style="width:60px" /></label>
-          <label>громкость плеера <input type="number" id="sg-volume" min="0" max="100" style="width:60px" /></label>
-          <label>шаблон «сейчас играет» <input type="text" id="sg-template" class="wide" maxlength="200" placeholder="♪ {title} — заказал {by}" /></label>
-          <div class="row"><button class="act" id="sg-save">Сохранить</button></div>
+      <div class="sg-grid">
+        <div class="card sg-left">
+          <h2>▶️ Плеер</h2>
+          <div class="sg-player-wrap"><div id="sg-player"></div></div>
+          <div class="row" style="margin-top:10px">
+            <button class="act" id="sg-skip">⏭ Скип</button>
+            <button class="act ghost" id="sg-toggle">⏸ Пауза</button>
+            <button class="act ghost" id="sg-stop" title="остановить и очистить очередь">⏹ Стоп</button>
+            <button class="act ghost" id="sg-refresh" title="обновить состояние">⟳</button>
+          </div>
+          <div class="sg-volume-row">
+            <span class="hint">🔈</span>
+            <input type="range" id="sg-volume" min="0" max="100" value="60" />
+            <span class="hint" id="sg-volume-val">60</span>
+          </div>
+          <p class="hint">Видео здесь — превью без звука; громкость применяется к плееру в OBS (звук на стриме) сразу при перемещении ползунка.</p>
         </div>
-      </div>
-      <div class="card">
-        <h2>📋 Очередь и текущий трек</h2>
-        <div id="sg-current" class="hint">Ничего не играет</div>
-        <table class="cmds">
-          <thead><tr><th>#</th><th>Трек</th><th>Заказал</th><th></th></tr></thead>
-          <tbody id="sg-body"></tbody>
-        </table>
-        <div class="row" style="margin-top:10px">
-          <button class="act" id="sg-skip">⏭ Скип</button>
-          <button class="act ghost" id="sg-pause">⏸ Пауза</button>
-          <button class="act ghost" id="sg-resume">▶ Прод</button>
-          <button class="act ghost" id="sg-stop">⏹ Стоп+очистить</button>
-          <button class="act ghost" id="sg-refresh">⟳ Обновить</button>
+        <div class="card sg-right">
+          <h2>⚙️ Настройки заказов</h2>
+          <div class="evcard">
+            <label><input type="checkbox" id="sg-enabled" /> музыка включена</label>
+            <label>макс. длина, мин <input type="number" id="sg-maxlen-min" min="0" max="600" style="width:70px" /></label>
+            <label>шаблон «сейчас играет» <input type="text" id="sg-template" class="wide" maxlength="200" placeholder="♪ {title} — заказал {by}" /></label>
+            <div class="row"><button class="act" id="sg-save">Сохранить</button></div>
+          </div>
+          <h2>📋 Очередь и текущий трек</h2>
+          <div id="sg-current" class="hint">Ничего не играет</div>
+          <table class="cmds">
+            <thead><tr><th>#</th><th>Трек</th><th>Заказал</th><th></th></tr></thead>
+            <tbody id="sg-body"></tbody>
+          </table>
         </div>
       </div>
     </section>
