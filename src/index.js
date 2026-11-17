@@ -17,8 +17,10 @@ import {
   loadConfig, saveConfig, isConfigured, effectivePort,
 } from './config.js';
 import { SETTINGS_FILE, saveJson } from './store.js';
+import { createRequire } from 'node:module';
 
-const VERSION = '1.3.0';
+// версия — единственный источник правды package.json (его же читает апдейтер и GitHub)
+const VERSION = createRequire(import.meta.url)('../package.json').version;
 
 const state = {
   startedAt: Date.now(),
