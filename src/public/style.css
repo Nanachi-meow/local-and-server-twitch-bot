@@ -253,10 +253,20 @@ nav {
   background: var(--accent); border: 2px solid #fff; border-radius: 50%;
   cursor: nwse-resize;
 }
-/* направляющие «магнита»: линия подсвечивается, когда объект прилип */
-.plp-guide { position: absolute; background: var(--accent); opacity: .75; pointer-events: none; z-index: 99; }
-.plp-guide-v { top: 0; bottom: 0; width: 1px; }
-.plp-guide-h { left: 0; right: 0; height: 1px; }
+/* направляющие «магнита»: рисуются ТОЛЬКО при прилипании.
+   синий пунктир — к центральной оси сцены, оранжевый — к краю/центру объекта */
+.plp-guide { position: absolute; pointer-events: none; z-index: 99; }
+.plp-guide-v { top: 0; bottom: 0; width: 0; border-left: 1px dashed #3b82f6; }
+.plp-guide-h { left: 0; right: 0; height: 0; border-top: 1px dashed #3b82f6; }
+.plp-guide-v.plp-g-obj { border-left-color: #f59e0b; }
+.plp-guide-h.plp-g-obj { border-top-color: #f59e0b; }
+
+/* рамка выделения «как на рабочем столе» */
+#plp-band {
+  position: absolute; z-index: 98; pointer-events: none;
+  border: 1px dashed #3b82f6;
+  background: rgba(59, 130, 246, .12);
+}
 @keyframes plp-run { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 #plp-objects .chip { cursor: pointer; }
 #plp-objects .chip.sel { border-color: var(--accent); color: var(--text); font-weight: 600; }

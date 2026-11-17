@@ -1979,7 +1979,7 @@ $('#sg-test').addEventListener('click', async () => {
 // ---------------- 📐 редактор раскладки OBS-плеера (слои объектов) ----------------
 // всё в px сцены OBS 1920×1080; превью честно масштабируется: k = width/1920
 
-let plp = { objects: [], sel: 0 };
+let plp = { objects: [], sel: 0, selSet: new Set() }; // selSet — мультивыделение (shift+клик); sel — последний кликнутый
 
 const PLP_TYPE_RU = { video: '📺 видео', marquee: '🎬 строка', backdrop: '🟪 подложка', image: '🖼 картинка' };
 
@@ -2035,7 +2035,7 @@ function plpRenderStage() {
   stage.innerHTML = '';
   for (const { o, i } of sorted) {
     const div = document.createElement('div');
-    div.className = `plp-obj plp-${o.type}${i === plp.sel ? ' sel' : ''}`;
+    div.className = `plp-obj plp-${o.type}${plp.selSet.has(i) ? ' sel' : ''}`;
     div.dataset.i = i;
     div.style.left = `${o.x * k}px`;
     div.style.top = `${o.y * k}px`;
@@ -2066,7 +2066,7 @@ function plpRenderStage() {
       div.style.borderRadius = `${o.radius * k}px`;
       if (o.image) div.style.backgroundImage = `url(/media/${encodeURIComponent(o.image)})`;
     }
-    if (i === plp.sel) {
+    if (plp.selSet.size === 1 && i === plp.sel) {
       const h = document.createElement('div');
       h.className = 'plp-resize';
       div.appendChild(h);
@@ -2079,19 +2079,19 @@ function plpRenderStage() {
 const PLP_SNAP = 14; // зона магнита, px сцены
 
 function plpSnap(nx, ny, self) {
-  const others = plp.objects.filter((_, j) => j !== plp.sel);
+  const others = plp.objects.filter((_, j) => !plp.selSet.has(j));
   const anchorsX = [nx, nx + self.w / 2, nx + self.w]; // левый/центр/правый край
   const anchorsY = [ny, ny + self.h / 2, ny + self.h];
-  const targetsX = [960, ...others.flatMap((t) => [t.x, t.x + t.w / 2, t.x + t.w])]; // ось сцены + края/центры других
-  const targetsY = [540, ...others.flatMap((t) => [t.y, t.y + t.h / 2, t.y + t.h])];
+  const targetsX = [{ pos: 960, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.x, kind: 'obj' }, { pos: t.x + t.w / 2, kind: 'obj' }, { pos: t.x + t.w, kind: 'obj' }])]; // ось сцены + края/центры других
+  const targetsY = [{ pos: 540, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.y, kind: 'obj' }, { pos: t.y + t.h / 2, kind: 'obj' }, { pos: t.y + t.h, kind: 'obj' }])];
   let bestX = null;
   for (const a of anchorsX) for (const t of targetsX) {
-    const d = t - a;
+    const d = t.pos - a;
     if (Math.abs(d) <= PLP_SNAP && (!bestX || Math.abs(d) < Math.abs(bestX.shift))) bestX = { shift: d, target: t };
   }
   let bestY = null;
   for (const a of anchorsY) for (const t of targetsY) {
-    const d = t - a;
+    const d = t.pos - a;
     if (Math.abs(d) <= PLP_SNAP && (!bestY || Math.abs(d) < Math.abs(bestY.shift))) bestY = { shift: d, target: t };
   }
   return {
@@ -2101,90 +2101,211 @@ function plpSnap(nx, ny, self) {
   };
 }
 
+// направляющие: синий пунктир — прилипание к оси сцены, оранжевый — к объекту.
+// рисуются ТОЛЬКО когда реально прилипли
 function plpGuides({ v, h }) {
   $('#plp-guide-v')?.remove();
   $('#plp-guide-h')?.remove();
-  if (v === null && h === null) return;
+  if (!v && !h) return;
   const stage = $('#plp-stage');
   const k = plpK();
-  if (v !== null) {
+  if (v) {
     const g = document.createElement('div');
     g.id = 'plp-guide-v';
-    g.className = 'plp-guide plp-guide-v';
-    g.style.left = `${v * k}px`;
+    g.className = `plp-guide plp-guide-v ${v.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
+    g.style.left = `${v.pos * k}px`;
     stage.appendChild(g);
   }
-  if (h !== null) {
+  if (h) {
     const g = document.createElement('div');
     g.id = 'plp-guide-h';
-    g.className = 'plp-guide plp-guide-h';
-    g.style.top = `${h * k}px`;
+    g.className = `plp-guide plp-guide-h ${h.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
+    g.style.top = `${h.pos * k}px`;
     stage.appendChild(g);
   }
 }
 
-// ---------- drag/resize мышкой прямо в превью ----------
+// ---------- drag/resize/рамка мышкой прямо в превью ----------
 (() => {
   const stage = $('#plp-stage');
-  let mode = null; // 'move' | 'resize'
-  let idx = -1;
+  let mode = null; // 'move' | 'resize' | 'band' (рамка как на рабочем столе)
+  let idx = -1; // объект, за который взялись (якорь для магнита)
   let grabX = 0, grabY = 0;
-  let start = null;
+  let starts = null; // снимок позиций ВЫДЕЛЕННЫХ (группа тащится целиком)
+  let band = null; // rect рамки в координатах превью
+  let bandShift = false;
+  let moved = false;
+
+  function snapshot() {
+    starts = new Map();
+    for (const i of plp.selSet) starts.set(i, { ...plp.objects[i] });
+  }
 
   stage.addEventListener('pointerdown', (e) => {
     const handle = e.target.closest('.plp-resize');
     const obj = e.target.closest('.plp-obj');
-    if (!obj) return;
+    grabX = e.clientX; grabY = e.clientY;
+    moved = false;
+    stage.setPointerCapture?.(e.pointerId);
+
+    if (!obj) {
+      // пустое место: короткий клик очистит выделение, потянешь — рамка «как в винде»
+      mode = 'band';
+      bandShift = e.shiftKey;
+      band = { x: e.clientX, y: e.clientY, w: 0, h: 0 };
+      plpGuides({ v: null, h: null });
+      e.preventDefault();
+      return;
+    }
+
     idx = Number(obj.dataset.i);
     plp.sel = idx;
-    if (handle) mode = 'resize'; else { mode = 'move'; obj.setPointerCapture?.(e.pointerId); }
-    stage.setPointerCapture?.(e.pointerId);
-    grabX = e.clientX; grabY = e.clientY;
-    start = { ...plp.objects[idx] };
-    plpGuides({ v: null, h: null });
+    if (e.shiftKey) {
+      // шифт+клик: добавить/убрать в выделение без очистки
+      if (plp.selSet.has(idx)) plp.selSet.delete(idx);
+      else plp.selSet.add(idx);
+    } else if (!plp.selSet.has(idx)) {
+      plp.selSet = new Set([idx]);
+    }
+    if (!plp.selSet.size) plp.selSet = new Set([idx]);
+    plp.sel = plp.selSet.has(idx) ? idx : [...plp.selSet][0];
+
+    if (handle && plp.selSet.size === 1) mode = 'resize';
+    else mode = 'move';
+    snapshot();
     plpRenderStage();
     plpRenderProps();
     e.preventDefault();
   });
 
+  function bandRect(e) {
+    const r = stage.getBoundingClientRect();
+    const x0 = Math.min(grabX, e.clientX) - r.left;
+    const y0 = Math.min(grabY, e.clientY) - r.top;
+    const x1 = Math.max(grabX, e.clientX) - r.left;
+    const y1 = Math.max(grabY, e.clientY) - r.top;
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }
+
   stage.addEventListener('pointermove', (e) => {
     if (!mode) return;
     const k = plpK();
-    const o = plp.objects[idx];
+    moved = true;
+
+    if (mode === 'band') {
+      band = bandRect(e);
+      $('#plp-band')?.remove();
+      const b = document.createElement('div');
+      b.id = 'plp-band';
+      b.style.left = `${band.x}px`;
+      b.style.top = `${band.y}px`;
+      b.style.width = `${band.w}px`;
+      b.style.height = `${band.h}px`;
+      stage.appendChild(b);
+      return;
+    }
+
     const dx = (e.clientX - grabX) / k;
     const dy = (e.clientY - grabY) / k;
+
     if (mode === 'move') {
-      let nx = start.x + dx;
-      let ny = start.y + dy;
-      const snap = plpSnap(nx, ny, start); // магнит: центры/края → оси и другие объекты
-      nx = snap.x;
-      ny = snap.y;
+      const anchor = starts.get(idx);
+      if (!anchor) return;
+      const rawX = anchor.x + dx;
+      const rawY = anchor.y + dy;
+      const snap = plpSnap(rawX, rawY, anchor); // магнит считаем по якорю
       plpGuides(snap.guides);
-      o.x = Math.round(Math.max(-500, Math.min(2500, nx)));
-      o.y = Math.round(Math.max(-500, Math.min(2500, ny)));
+      const shiftX = snap.x - rawX; // прилипание переносим всей группе — она едет монолитно
+      const shiftY = snap.y - rawY;
+      for (const [i, s] of starts) {
+        const o = plp.objects[i];
+        o.x = Math.round(Math.max(-500, Math.min(2500, s.x + dx + shiftX)));
+        o.y = Math.round(Math.max(-500, Math.min(2500, s.y + dy + shiftY)));
+      }
     } else {
-      o.w = Math.round(Math.max(20, Math.min(2500, start.w + dx)));
+      const o = plp.objects[idx];
+      const s = starts.get(idx);
+      o.w = Math.round(Math.max(20, Math.min(2500, s.w + dx)));
       if (o.type === 'video') o.h = Math.round(o.w * 9 / 16); // форма не меняется
-      else o.h = Math.round(Math.max(20, Math.min(2500, start.h + dy)));
+      else o.h = Math.round(Math.max(20, Math.min(2500, s.h + dy)));
       if (o.type === 'marquee') o.h = o.fontSize + 16;
     }
     plpRenderStage();
     plpRenderProps();
   });
 
-  const stop = () => { mode = null; plpGuides({ v: null, h: null }); };
+  const stop = (e) => {
+    if (mode === 'band') {
+      $('#plp-band')?.remove();
+      // клик по пустому (без движения) — снять выделение; потянули — выбрать рамкой
+      if (!moved && !bandShift) {
+        plp.selSet = new Set();
+        plp.sel = -1;
+      } else if (band && (band.w > 3 || band.h > 3)) {
+        if (!bandShift) plp.selSet = new Set();
+        const k = plpK();
+        for (const [i, o] of plp.objects.entries()) {
+          const r = { x: o.x * k, y: o.y * k, w: o.w * k, h: o.h * k };
+          if (r.x < band.x + band.w && r.x + r.w > band.x && r.y < band.y + band.h && r.y + r.h > band.y) plp.selSet.add(i);
+        }
+        if (plp.selSet.size) plp.sel = [...plp.selSet].at(-1);
+      }
+      plpRenderStage();
+      plpRenderProps();
+    }
+    mode = null;
+    starts = null;
+    band = null;
+    plpGuides({ v: null, h: null });
+  };
   stage.addEventListener('pointerup', stop);
   stage.addEventListener('pointercancel', stop);
 })();
 
-// ---------- свойства выбранного объекта ----------
+// ---------- свойства выделенного (одного или группы) ----------
 function plpRenderProps() {
   const chips = $('#plp-objects');
   const props = $('#plp-props');
   if (!chips || !props) return;
   chips.innerHTML = plp.objects.map((o, i) =>
-    `<span class="chip${i === plp.sel ? ' sel' : ''}" data-i="${i}">${PLP_TYPE_RU[o.type] ?? o.type}${o.type === 'image' && o.image ? ` · ${esc(o.image)}` : ''}</span>`
+    `<span class="chip${plp.selSet.has(i) ? ' sel' : ''}" data-i="${i}">${PLP_TYPE_RU[o.type] ?? o.type}${o.type === 'image' && o.image ? ` · ${esc(o.image)}` : ''}</span>`
   ).join('') || '<span class="hint">объектов нет</span>';
+
+  if (!plp.selSet.size) {
+    props.innerHTML = '<p class="hint">Клик — выделить объект · shift+клик — несколько · потяни по пустому месту — рамка выделения, как на рабочем столе. Выделенное двигается вместе.</p>';
+    return;
+  }
+
+  // группа: общие поля без деталей
+  if (plp.selSet.size > 1) {
+    props.innerHTML = `
+      <p class="hint">выделено: ${plp.selSet.size} — тащатся вместе, магнит считается по тому, за который взялся</p>
+      <label>прозрачность всем
+        <div class="am-sound-row"><input type="range" id="plp-op" min="0" max="100" value="${plp.objects[plp.sel]?.opacity ?? 100}" /><span class="hint" id="plp-op-val">${plp.objects[plp.sel]?.opacity ?? 100}%</span></div>
+      </label>
+      <div class="rp-row">
+        <button class="act ghost" id="plp-zup" title="поднять всем">▲ слой</button>
+        <button class="act ghost" id="plp-zdown" title="опустить всем">▼ слой</button>
+        <button class="act ghost" id="plp-del">🗑 удалить выбранное</button>
+      </div>`;
+    $('#plp-op').addEventListener('input', () => {
+      const v = Number($('#plp-op').value);
+      $('#plp-op-val').textContent = `${v}%`;
+      for (const i of plp.selSet) plp.objects[i].opacity = v;
+      plpRenderStage();
+    });
+    $('#plp-zup').addEventListener('click', () => { for (const i of plp.selSet) plp.objects[i].z = Math.min(30, plp.objects[i].z + 1); plpRenderStage(); plpRenderProps(); });
+    $('#plp-zdown').addEventListener('click', () => { for (const i of plp.selSet) plp.objects[i].z = Math.max(0, plp.objects[i].z - 1); plpRenderStage(); plpRenderProps(); });
+    $('#plp-del').addEventListener('click', () => {
+      plp.objects = plp.objects.filter((_, i) => !plp.selSet.has(i));
+      plp.selSet = new Set();
+      plp.sel = -1;
+      plpRenderStage();
+      plpRenderProps();
+    });
+    return;
+  }
+
   const o = plp.objects[plp.sel];
   if (!o) { props.innerHTML = ''; return; }
 
@@ -2268,7 +2389,15 @@ function plpRenderProps() {
 $('#plp-objects').addEventListener('click', (e) => {
   const chip = e.target.closest('.chip[data-i]');
   if (!chip) return;
-  plp.sel = Number(chip.dataset.i);
+  const i = Number(chip.dataset.i);
+  if (e.shiftKey) {
+    if (plp.selSet.has(i)) plp.selSet.delete(i);
+    else plp.selSet.add(i);
+    plp.sel = plp.selSet.has(i) ? i : plp.sel;
+  } else {
+    plp.selSet = new Set([i]);
+    plp.sel = i;
+  }
   plpRenderStage();
   plpRenderProps();
 });
@@ -2335,6 +2464,7 @@ $('#plp-save').addEventListener('click', async () => {
 function plpLoad(cfg, songsState) {
   plp = plpNorm(cfg);
   plp.sel = 0;
+  plp.selSet = new Set(plp.objects.length ? [0] : []);
   window.__songsState = songsState ?? null;
   plpRenderStage();
   plpRenderProps();
