@@ -127,7 +127,7 @@ nav {
   align-items: flex-start;
 }
 .credit-card h3 { margin: 0; }
-.credit-card .act { text-decoration: none; }
+.credit-card .act { text-decoration: none; margin-top: auto; } /* все кнопки прижаты к низу — на одном уровне во всей сетке */
 
 /* модальное окно настройки алерта */
 .modal-wrap {
