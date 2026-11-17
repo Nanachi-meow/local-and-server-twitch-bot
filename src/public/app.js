@@ -2075,6 +2075,54 @@ function plpRenderStage() {
   }
 }
 
+// ---------- «магнит»: прилипание центров/краёв к осям и к другим объектам ----------
+const PLP_SNAP = 14; // зона магнита, px сцены
+
+function plpSnap(nx, ny, self) {
+  const others = plp.objects.filter((_, j) => j !== plp.sel);
+  const anchorsX = [nx, nx + self.w / 2, nx + self.w]; // левый/центр/правый край
+  const anchorsY = [ny, ny + self.h / 2, ny + self.h];
+  const targetsX = [960, ...others.flatMap((t) => [t.x, t.x + t.w / 2, t.x + t.w])]; // ось сцены + края/центры других
+  const targetsY = [540, ...others.flatMap((t) => [t.y, t.y + t.h / 2, t.y + t.h])];
+  let bestX = null;
+  for (const a of anchorsX) for (const t of targetsX) {
+    const d = t - a;
+    if (Math.abs(d) <= PLP_SNAP && (!bestX || Math.abs(d) < Math.abs(bestX.shift))) bestX = { shift: d, target: t };
+  }
+  let bestY = null;
+  for (const a of anchorsY) for (const t of targetsY) {
+    const d = t - a;
+    if (Math.abs(d) <= PLP_SNAP && (!bestY || Math.abs(d) < Math.abs(bestY.shift))) bestY = { shift: d, target: t };
+  }
+  return {
+    x: nx + (bestX ? bestX.shift : 0),
+    y: ny + (bestY ? bestY.shift : 0),
+    guides: { v: bestX ? bestX.target : null, h: bestY ? bestY.target : null },
+  };
+}
+
+function plpGuides({ v, h }) {
+  $('#plp-guide-v')?.remove();
+  $('#plp-guide-h')?.remove();
+  if (v === null && h === null) return;
+  const stage = $('#plp-stage');
+  const k = plpK();
+  if (v !== null) {
+    const g = document.createElement('div');
+    g.id = 'plp-guide-v';
+    g.className = 'plp-guide plp-guide-v';
+    g.style.left = `${v * k}px`;
+    stage.appendChild(g);
+  }
+  if (h !== null) {
+    const g = document.createElement('div');
+    g.id = 'plp-guide-h';
+    g.className = 'plp-guide plp-guide-h';
+    g.style.top = `${h * k}px`;
+    stage.appendChild(g);
+  }
+}
+
 // ---------- drag/resize мышкой прямо в превью ----------
 (() => {
   const stage = $('#plp-stage');
@@ -2093,6 +2141,7 @@ function plpRenderStage() {
     stage.setPointerCapture?.(e.pointerId);
     grabX = e.clientX; grabY = e.clientY;
     start = { ...plp.objects[idx] };
+    plpGuides({ v: null, h: null });
     plpRenderStage();
     plpRenderProps();
     e.preventDefault();
@@ -2105,8 +2154,14 @@ function plpRenderStage() {
     const dx = (e.clientX - grabX) / k;
     const dy = (e.clientY - grabY) / k;
     if (mode === 'move') {
-      o.x = Math.round(Math.max(-500, Math.min(2500, start.x + dx)));
-      o.y = Math.round(Math.max(-500, Math.min(2500, start.y + dy)));
+      let nx = start.x + dx;
+      let ny = start.y + dy;
+      const snap = plpSnap(nx, ny, start); // магнит: центры/края → оси и другие объекты
+      nx = snap.x;
+      ny = snap.y;
+      plpGuides(snap.guides);
+      o.x = Math.round(Math.max(-500, Math.min(2500, nx)));
+      o.y = Math.round(Math.max(-500, Math.min(2500, ny)));
     } else {
       o.w = Math.round(Math.max(20, Math.min(2500, start.w + dx)));
       if (o.type === 'video') o.h = Math.round(o.w * 9 / 16); // форма не меняется
@@ -2117,7 +2172,7 @@ function plpRenderStage() {
     plpRenderProps();
   });
 
-  const stop = () => { mode = null; };
+  const stop = () => { mode = null; plpGuides({ v: null, h: null }); };
   stage.addEventListener('pointerup', stop);
   stage.addEventListener('pointercancel', stop);
 })();
