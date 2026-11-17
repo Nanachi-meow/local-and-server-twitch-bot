@@ -128,6 +128,17 @@ nav {
 }
 .credit-card h3 { margin: 0; }
 .credit-card .act { text-decoration: none; margin-top: auto; } /* все кнопки прижаты к низу — на одном уровне во всей сетке */
+/* цитата в карточке благодарности */
+.credit-quote {
+  margin: 0;
+  padding: 8px 14px;
+  border-left: 3px solid var(--accent);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 0 10px 10px 0;
+  font-style: italic;
+  color: var(--text);
+  font-size: 15px;
+}
 
 /* модальное окно настройки алерта */
 .modal-wrap {
