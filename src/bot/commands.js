@@ -826,7 +826,7 @@ export class CommandEngine {
       bot: {
         level: 'everyone', label: 'кто я', desc: 'кто такой бот',
         async run(session) {
-          await engine.say(session, 'Я локальный бот, живу на компе стримера. Настройки на её стороне 😎 Никаких облаков!');
+          await engine.say(session, 'Я локальный бот, работаю с ПК стримера. Ссылка на проект — https://github.com/Nanachi-meow/local-and-server-twitch-bot');
         },
       },
     };
