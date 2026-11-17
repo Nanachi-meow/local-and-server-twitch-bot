@@ -147,28 +147,31 @@ async function onSongRedemption(event) {
 
   const { parseVideoId, requestAllowed, cancelRedemption } = await import('./bot/songs.js');
   const videoId = parseVideoId(String(event?.user_input ?? ''));
+  // возвраты баллов включаются/выключаются раздельно: «не подошёл» и «лимит юзера»
+  const refundOnReject = scfg.refundOnReject !== false;
+  const refundOnLimit = scfg.refundOnLimit !== false;
   if (!videoId) {
     await sayToChat('пришли ссылку YouTube в поле ввода награды 🎵');
-    await refund();
+    if (refundOnReject) await refund();
     return;
   }
   // доступ: у редемпции нет бейджей — проверяем личный список/фолловеров; остальное пускает баллы
   const gate = await requestAllowed(scfg, { level: 'everyone', login, userId: event?.user_id, broadcasterId, helix });
   if (!gate.ok) {
     await sayToChat('заказывать музыку пока нельзя — спроси у стримера');
-    await refund();
+    if (refundOnReject) await refund();
     return;
   }
   const left = songs.orderCooldownLeft(login);
   if (left > 0) {
     await sayToChat(`следующий заказ через ${left} сек ⏳`);
-    await refund();
+    if (refundOnReject) await refund();
     return;
   }
   const r = await songs.add({ videoId, by: login, byName });
   if (r.error) {
     if (!r.silent) await sayToChat(r.error);
-    await refund();
+    if (r.silent ? refundOnLimit : refundOnReject) await refund(); // лимит и «не подошёл» — разными тумблерами
     return;
   }
   const pos = r.position === 0 ? 'включаю сейчас! 🎵' : `в очереди на ${r.position}-м месте`;
@@ -593,6 +596,9 @@ const app = {
         else logSystem(`Имя команды музыки «${n}» не принято: некорректное или занято`, 'warn');
       }
       if (a.commandCooldown !== undefined) cur.commandCooldown = Math.max(0, Math.min(86_400, Math.round(Number(a.commandCooldown) || 0)));
+      // возврат баллов: отдельно для «не подошёл трек» и для «лимит юзера»
+      if (a.refundOnReject !== undefined) cur.refundOnReject = Boolean(a.refundOnReject);
+      if (a.refundOnLimit !== undefined) cur.refundOnLimit = Boolean(a.refundOnLimit);
       if (a.minViews !== undefined) cur.minViews = Math.max(0, Math.min(1_000_000_000, Math.round(Number(a.minViews) || 0)));
       if (Array.isArray(a.allow)) {
         cur.allow = [...new Set(a.allow.map((r) => String(r).toLowerCase()))]

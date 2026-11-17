@@ -1035,6 +1035,8 @@ export function loadSettings() {
         rewardName: '',        // название награды-заказа (для requestMode='reward')
         commandCooldown: 0,    // сек между заказами одного зрителя (0 = без кулдауна)
         commandName: 'ср',     // имя команды заказа — меняется в панели (синоим «ср»)
+        refundOnReject: true,  // возвращать баллы, если трек не подошёл (чс/длина/просмотры/доступ)
+        refundOnLimit: true,   // возвращать баллы при исчерпанном лимите юзера
         minViews: 0,           // минимум просмотров у трека (0 = не проверять)
         allow: [],             // кому можно заказывать: everyone/sub/vip/follower/mod/broadcaster (пусто = все)
         allowUsers: [],        // персональный белый список ников

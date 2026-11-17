@@ -1834,6 +1834,8 @@ async function loadSongsTab() {
   $('#sg-mode').value = s.requestMode ?? 'command';
   $('#sg-reward-name').value = s.rewardName ?? '';
   $('#sg-cmdname').value = s.commandName ?? 'ср';
+  $('#sg-refund-reject').checked = s.refundOnReject !== false;
+  $('#sg-refund-limit').checked = s.refundOnLimit !== false;
   $('#sg-cd').value = Math.round((s.commandCooldown ?? 0) / 60);
   $('#sg-peruser').value = s.perUser ?? 2;
   $('#sg-allowusers').value = (s.allowUsers ?? []).join(', ');
@@ -1923,6 +1925,8 @@ $('#sg-order-save').addEventListener('click', async () => {
         requestMode: $('#sg-mode').value,
         rewardName: $('#sg-reward-name').value.trim(),
         commandName: $('#sg-cmdname').value.trim(),
+        refundOnReject: $('#sg-refund-reject').checked,
+        refundOnLimit: $('#sg-refund-limit').checked,
         commandCooldown: Math.round((Number($('#sg-cd').value) || 0) * 60),
         perUser: Math.max(1, Number($('#sg-peruser').value) || 2),
         allow,
