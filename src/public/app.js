@@ -58,6 +58,7 @@ $$('.tab').forEach((btn) => {
     $(`#tab-${btn.dataset.tab}`).classList.add('active');
     // вкладка была скрыта — превью раскладки музыки рисовалось с нулевой шириной; перерисуем
     if (btn.dataset.tab === 'songs') requestAnimationFrame(() => { plpRenderStage(); plpRenderProps(); });
+    if (btn.dataset.tab === 'autoso') requestAnimationFrame(() => { asoRenderStage(); asoRenderProps(); });
   });
 });
 
@@ -1222,6 +1223,7 @@ function renderAso() {
   $('#aso-enabled').checked = Boolean(a.enabled);
   $('#aso-cooldown').value = a.cooldownMinutes ?? 240;
   $('#aso-default').value = a.defaultTemplate ?? '';
+  asoLoad(window.__settings?.shoutoutOverlay);
   const body = $('#aso-body');
   body.innerHTML = (a.users ?? []).map((u) => `
     <tr data-login="${esc(u.login)}">
@@ -2567,6 +2569,512 @@ function plpLoad(cfg, songsState) {
   window.__songsState = songsState ?? null;
   plpRenderStage();
   plpRenderProps();
+}
+
+// ---------------- 📺 редактор оверлей-виджета шатаута (аватар + текст) ----------------
+// тот же UX, что у музыкального: drag, магнит, рамка, shift, ctrl+z/y/c/x/v
+
+let aso = { objects: [], sel: 0, selSet: new Set(), duration: 10 };
+const ASO_TYPE_RU = { avatar: '👤 аватар', text: '📝 текст', backdrop: '🟪 подложка', image: '🖼 картинка' };
+const asoHist = [];
+const asoRedoStack = [];
+let asoLastPush = 0;
+let asoClipboard = [];
+
+function asoDefault() {
+  const W = 160;
+  return [
+    { id: 'backdrop-0', type: 'backdrop', x: 680, y: 400, w: 560, h: 260, opacity: 100, z: 1, color: '#0c0a19', radius: 20, image: '' },
+    { id: 'avatar-0', type: 'avatar', x: (1920 - W) / 2, y: 420, w: W, h: W, opacity: 100, z: 3, radius: 80 },
+    { id: 'text-0', type: 'text', x: 700, y: 610, w: 520, h: 120, opacity: 100, z: 4, color: '#ffffff', fontSize: 26, radius: 0 },
+  ];
+}
+
+function asoNorm(raw) {
+  const c = raw ?? {};
+  const objects = (Array.isArray(c.objects) && c.objects.length
+    ? c.objects.filter((o) => o && ['avatar', 'text', 'backdrop', 'image'].includes(o.type))
+    : asoDefault())
+    .map((o, i) => ({
+      id: o.id || `${o.type}-${i}`,
+      type: o.type,
+      x: Number(o.x) || 0, y: Number(o.y) || 0,
+      w: Math.max(20, Number(o.w) || 300), h: Math.max(20, Number(o.h) || 300),
+      opacity: Math.max(0, Math.min(100, Number(o.opacity ?? 100))),
+      z: Math.max(0, Math.min(30, Number(o.z ?? 1))),
+      image: String(o.image || ''),
+      color: String(o.color || ''),
+      radius: Math.max(0, Number(o.radius) || 0),
+      fontSize: Math.max(10, Number(o.fontSize) || 22),
+    }));
+  return {
+    v: 1,
+    objects,
+    duration: Math.max(2, Math.min(60, Number(c.duration) || 10)),
+  };
+}
+
+function asoK() { const s = $('#aso-stage'); return s ? s.clientWidth / 1920 : 0.25; }
+
+function asoPush() {
+  asoHist.push(JSON.stringify(aso.objects));
+  if (asoHist.length > 60) asoHist.shift();
+  asoRedoStack.length = 0;
+  asoLastPush = Date.now();
+}
+function asoPushThrottled() { if (Date.now() - asoLastPush > 600) asoPush(); }
+
+function asoUndo() {
+  if (!asoHist.length) { toast('Отменять нечего'); return; }
+  asoRedoStack.push(JSON.stringify(aso.objects));
+  aso.objects = JSON.parse(asoHist.pop());
+  aso.selSet = new Set();
+  aso.sel = -1;
+  asoRenderStage();
+  asoRenderProps();
+}
+function asoRedo() {
+  if (!asoRedoStack.length) { toast('Повторять нечего'); return; }
+  asoHist.push(JSON.stringify(aso.objects));
+  aso.objects = JSON.parse(asoRedoStack.pop());
+  aso.selSet = new Set();
+  aso.sel = -1;
+  asoRenderStage();
+  asoRenderProps();
+}
+
+function asoText() {
+  return window.__settings?.autoShoutouts?.defaultTemplate || 'Стример {target} у нас в чате! Поддержим: twitch.tv/{target_login} ❤️';
+}
+
+function asoRenderStage() {
+  const stage = $('#aso-stage');
+  if (!stage) return;
+  const k = asoK();
+  const sorted = aso.objects.map((o, i) => ({ o, i })).sort((a, b) => (a.o.z ?? 0) - (b.o.z ?? 0));
+  stage.innerHTML = '';
+  for (const { o, i } of sorted) {
+    const div = document.createElement('div');
+    div.className = `plp-obj plp-${o.type}${aso.selSet.has(i) ? ' sel' : ''}`;
+    div.dataset.i = i;
+    div.style.left = `calc(50% + ${Math.round((o.x - 960) * k)}px)`;
+    div.style.top = `calc(50% + ${Math.round((o.y - 540) * k)}px)`;
+    div.style.width = `${o.w * k}px`;
+    div.style.height = `${o.h * k}px`;
+    div.style.opacity = String(o.opacity / 100);
+    div.style.borderRadius = `${o.radius * k}px`;
+    if (o.type === 'avatar') {
+      div.style.background = 'rgba(139, 92, 246, .25)';
+      div.style.display = 'flex';
+      div.style.alignItems = 'center';
+      div.style.justifyContent = 'center';
+      div.style.fontSize = `${Math.min(o.w, o.h) * k * 0.5}px`;
+      div.innerHTML = '🧑';
+    } else if (o.type === 'text') {
+      div.style.color = o.color || '#ffffff';
+      div.style.fontSize = `${o.fontSize * k}px`;
+      div.style.fontWeight = '700';
+      div.style.display = 'flex';
+      div.style.alignItems = 'center';
+      div.style.overflow = 'hidden';
+      div.style.whiteSpace = 'pre-wrap';
+      div.textContent = asoText();
+    } else if (o.type === 'backdrop') {
+      if (o.image) div.style.backgroundImage = `url(/media/${encodeURIComponent(o.image)})`;
+      else div.style.backgroundColor = o.color || '#0c0a19';
+    } else if (o.type === 'image') {
+      if (o.image) div.style.backgroundImage = `url(/media/${encodeURIComponent(o.image)})`;
+    }
+    if (aso.selSet.size === 1 && i === aso.sel) {
+      const h = document.createElement('div');
+      h.className = 'plp-resize';
+      div.appendChild(h);
+    }
+    stage.appendChild(div);
+  }
+}
+
+function asoSnap(nx, ny, self) {
+  const others = aso.objects.filter((_, j) => !aso.selSet.has(j));
+  const anchorsX = [nx, nx + self.w / 2, nx + self.w];
+  const anchorsY = [ny, ny + self.h / 2, ny + self.h];
+  const targetsX = [{ pos: 960, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.x, kind: 'obj' }, { pos: t.x + t.w / 2, kind: 'obj' }, { pos: t.x + t.w, kind: 'obj' }])];
+  const targetsY = [{ pos: 540, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.y, kind: 'obj' }, { pos: t.y + t.h / 2, kind: 'obj' }, { pos: t.y + t.h, kind: 'obj' }])];
+  let bestX = null;
+  for (const a of anchorsX) for (const t of targetsX) {
+    const d = t.pos - a;
+    if (Math.abs(d) <= 14 && (!bestX || Math.abs(d) < Math.abs(bestX.shift))) bestX = { shift: d, target: t };
+  }
+  let bestY = null;
+  for (const a of anchorsY) for (const t of targetsY) {
+    const d = t.pos - a;
+    if (Math.abs(d) <= 14 && (!bestY || Math.abs(d) < Math.abs(bestY.shift))) bestY = { shift: d, target: t };
+  }
+  return { x: nx + (bestX ? bestX.shift : 0), y: ny + (bestY ? bestY.shift : 0), guides: { v: bestX ? bestX.target : null, h: bestY ? bestY.target : null } };
+}
+
+function asoGuides({ v, h }) {
+  $('#aso-guide-v')?.remove();
+  $('#aso-guide-h')?.remove();
+  if (!v && !h) return;
+  const stage = $('#aso-stage');
+  const k = asoK();
+  if (v) {
+    const g = document.createElement('div');
+    g.id = 'aso-guide-v';
+    g.className = `plp-guide plp-guide-v ${v.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
+    g.style.left = `${v.pos * k}px`;
+    stage.appendChild(g);
+  }
+  if (h) {
+    const g = document.createElement('div');
+    g.id = 'aso-guide-h';
+    g.className = `plp-guide plp-guide-h ${h.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
+    g.style.top = `${h.pos * k}px`;
+    stage.appendChild(g);
+  }
+}
+
+function asoRenderProps() {
+  const chips = $('#aso-objects');
+  const props = $('#aso-props');
+  if (!chips || !props) return;
+  chips.innerHTML = aso.objects.map((o, i) =>
+    `<span class="chip${aso.selSet.has(i) ? ' sel' : ''}" data-i="${i}">${ASO_TYPE_RU[o.type] ?? o.type}${o.type === 'image' && o.image ? ` · ${esc(o.image)}` : ''}</span>`
+  ).join('');
+  if (!aso.selSet.size) {
+    props.innerHTML = '<p class="hint">Клик — выделить · shift+клик — несколько · рамка по пустому месту. Хоткеи: ctrl+z/y/c/x/v. На стриме виджет всплывает при шатауте и исчезает сам.</p>';
+    return;
+  }
+  if (aso.selSet.size > 1) {
+    props.innerHTML = `
+      <p class="hint">выделено: ${aso.selSet.size} — тащатся вместе</p>
+      <div class="rp-row">
+        <button class="act ghost" id="aso-zup">▲ слой</button>
+        <button class="act ghost" id="aso-zdown">▼ слой</button>
+        <button class="act ghost" id="aso-del">🗑 удалить выбранное</button>
+      </div>`;
+    $('#aso-zup').addEventListener('click', () => { for (const i of aso.selSet) aso.objects[i].z = Math.min(30, aso.objects[i].z + 1); asoRenderStage(); asoRenderProps(); });
+    $('#aso-zdown').addEventListener('click', () => { for (const i of aso.selSet) aso.objects[i].z = Math.max(0, aso.objects[i].z - 1); asoRenderStage(); asoRenderProps(); });
+    $('#aso-del').addEventListener('click', () => {
+      asoPush();
+      aso.objects = aso.objects.filter((_, i) => !aso.selSet.has(i));
+      aso.selSet = new Set();
+      aso.sel = -1;
+      asoRenderStage();
+      asoRenderProps();
+    });
+    return;
+  }
+  const o = aso.objects[aso.sel];
+  if (!o) { props.innerHTML = ''; return; }
+  const row = (label, html) => `<label>${label}<div class="am-sound-row">${html}</div></label>`;
+  let html = `
+    ${row(`ширина, px <span class="hint" id="aso-w-val">${o.w}</span>`, `<input type="range" id="aso-w" min="20" max="2000" value="${o.w}" />`)}
+    ${row('прозрачность', `<input type="range" id="aso-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="aso-op-val">${o.opacity}%</span></div>`)}
+    <div class="rp-row">
+      <label class="hint">слой:</label>
+      <button class="act ghost" id="aso-zup" title="поднять">▲</button>
+      <span class="hint">z=${o.z}</span>
+      <button class="act ghost" id="aso-zdown" title="опустить">▼</button>`;
+  if (o.type === 'text') {
+    html += row('текст', `<span class="hint">цвет</span><input type="color" id="aso-color" value="${esc(o.color || '#ffffff')}" /><span class="hint">шрифт</span><input type="number" id="aso-fs" min="10" max="60" value="${o.fontSize}" style="width:56px" />`);
+  }
+  html += row('закругление', `<input type="number" id="aso-radius" min="0" max="120" value="${o.radius}" style="width:56px" />`);
+  if (o.type === 'backdrop' || o.type === 'image') {
+    html += o.type === 'backdrop' ? row('цвет', `<input type="color" id="aso-bcolor" value="${esc(o.color || '#0c0a19')}" />`) : '';
+    html += `<label>картинка <select id="aso-img"></select></label>
+      <div class="am-sound-row"><input type="file" id="aso-img-file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="max-width:220px" /><button class="act ghost" id="aso-img-up">⬆</button></div>`;
+  }
+  html += `<button class="act ghost" id="aso-del">🗑 Удалить объект</button></div>`;
+  props.innerHTML = html;
+
+  $('#aso-w').addEventListener('pointerdown', asoPushThrottled);
+  $('#aso-w').addEventListener('input', () => {
+    o.w = Number($('#aso-w').value);
+    if (o.type === 'avatar') o.h = o.w; // аватар квадратный
+    $('#aso-w-val').textContent = String(o.w);
+    asoRenderStage();
+  });
+  $('#aso-op').addEventListener('input', () => {
+    o.opacity = Number($('#aso-op').value);
+    $('#aso-op-val').textContent = `${o.opacity}%`;
+    asoRenderStage();
+  });
+  $('#aso-zup').addEventListener('click', () => { o.z = Math.min(30, o.z + 1); asoRenderStage(); asoRenderProps(); });
+  $('#aso-zdown').addEventListener('click', () => { o.z = Math.max(0, o.z - 1); asoRenderStage(); asoRenderProps(); });
+  $('#aso-color')?.addEventListener('input', () => { o.color = $('#aso-color').value; asoRenderStage(); });
+  $('#aso-fs')?.addEventListener('pointerdown', asoPushThrottled);
+  $('#aso-fs')?.addEventListener('input', () => { o.fontSize = Number($('#aso-fs').value) || 22; asoRenderStage(); });
+  $('#aso-radius')?.addEventListener('pointerdown', asoPushThrottled);
+  $('#aso-radius')?.addEventListener('input', () => { o.radius = Number($('#aso-radius').value) || 0; asoRenderStage(); });
+  $('#aso-bcolor')?.addEventListener('input', () => { o.color = $('#aso-bcolor').value; asoRenderStage(); });
+  $('#aso-del').addEventListener('click', () => {
+    asoPush();
+    aso.objects.splice(aso.sel, 1);
+    aso.sel = Math.max(-1, aso.sel - 1);
+    aso.selSet = aso.sel >= 0 ? new Set([aso.sel]) : new Set();
+    asoRenderStage();
+    asoRenderProps();
+  });
+
+  const imgSel = $('#aso-img');
+  if (imgSel) {
+    api('/api/media').then(({ files }) => {
+      const images = files.filter((f) => ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'apng'].includes(fileExt(f)));
+      imgSel.innerHTML = ['<option value="">— не задано —</option>',
+        ...images.map((f) => `<option value="${esc(f)}" ${o.image === f ? 'selected' : ''}>${esc(f)}</option>`)].join('');
+    }).catch(() => {});
+    imgSel.addEventListener('change', () => { asoPush(); o.image = imgSel.value; asoRenderStage(); asoRenderProps(); });
+    $('#aso-img-up').addEventListener('click', async () => {
+      const file = $('#aso-img-file')?.files?.[0];
+      if (!file) { toast('Сначала выбери картинку', true); return; }
+      const r = await fetch(`/api/media/upload?name=${encodeURIComponent(file.name)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(j.error || `HTTP ${r.status}`, true); return; }
+      asoPush();
+      o.image = file.name;
+      toast('Картинка загружена ✅');
+      asoRenderStage();
+      asoRenderProps();
+    });
+  }
+}
+
+// drag/рамка/магнит — как у редактора музыки, на своей сцене
+(() => {
+  const stage = $('#aso-stage');
+  if (!stage) return;
+  let mode = null;
+  let idx = -1;
+  let grabX = 0, grabY = 0;
+  let starts = null;
+  let band = null;
+  let bandShift = false;
+  let moved = false;
+  let pendingGuides = null;
+
+  const snapshot = () => {
+    starts = new Map();
+    for (const i of aso.selSet) starts.set(i, { ...aso.objects[i] });
+  };
+
+  stage.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.plp-resize');
+    const obj = e.target.closest('.plp-obj');
+    grabX = e.clientX; grabY = e.clientY;
+    moved = false;
+    stage.setPointerCapture?.(e.pointerId);
+    if (!obj) {
+      mode = 'band';
+      bandShift = e.shiftKey;
+      band = { x: e.clientX, y: e.clientY, w: 0, h: 0 };
+      asoGuides({ v: null, h: null });
+      e.preventDefault();
+      return;
+    }
+    idx = Number(obj.dataset.i);
+    aso.sel = idx;
+    if (e.shiftKey) {
+      if (aso.selSet.has(idx)) aso.selSet.delete(idx);
+      else aso.selSet.add(idx);
+    } else if (!aso.selSet.has(idx)) {
+      aso.selSet = new Set([idx]);
+    }
+    if (!aso.selSet.size) aso.selSet = new Set([idx]);
+    aso.sel = aso.selSet.has(idx) ? idx : [...aso.selSet][0];
+    mode = (handle && aso.selSet.size === 1) ? 'resize' : 'move';
+    snapshot();
+    asoPush();
+    asoRenderStage();
+    asoRenderProps();
+    e.preventDefault();
+  });
+
+  stage.addEventListener('pointermove', (e) => {
+    if (!mode) return;
+    const k = asoK();
+    moved = true;
+    if (mode === 'band') {
+      const r = stage.getBoundingClientRect();
+      band = {
+        x: Math.min(grabX, e.clientX) - r.left,
+        y: Math.min(grabY, e.clientY) - r.top,
+        w: Math.abs(e.clientX - grabX),
+        h: Math.abs(e.clientY - grabY),
+      };
+      $('#aso-band')?.remove();
+      const b = document.createElement('div');
+      b.id = 'aso-band';
+      b.style.left = `${band.x}px`;
+      b.style.top = `${band.y}px`;
+      b.style.width = `${band.w}px`;
+      b.style.height = `${band.h}px`;
+      stage.appendChild(b);
+      return;
+    }
+    const dx = (e.clientX - grabX) / k;
+    const dy = (e.clientY - grabY) / k;
+    if (mode === 'move') {
+      const anchor = starts.get(idx);
+      if (!anchor) return;
+      const snap = asoSnap(anchor.x + dx, anchor.y + dy, anchor);
+      const shiftX = snap.x - (anchor.x + dx);
+      const shiftY = snap.y - (anchor.y + dy);
+      for (const [i, s] of starts) {
+        const o = aso.objects[i];
+        o.x = Math.round(Math.max(-500, Math.min(2500, s.x + dx + shiftX)));
+        o.y = Math.round(Math.max(-500, Math.min(2500, s.y + dy + shiftY)));
+      }
+      pendingGuides = snap.guides;
+    } else {
+      const o = aso.objects[idx];
+      const s = starts.get(idx);
+      o.w = Math.round(Math.max(20, Math.min(2500, s.w + dx)));
+      o.h = o.type === 'avatar' ? o.w : Math.round(Math.max(20, Math.min(2500, s.h + dy)));
+    }
+    asoRenderStage();
+    asoRenderProps();
+    if (pendingGuides) { asoGuides(pendingGuides); pendingGuides = null; }
+  });
+
+  const stop = () => {
+    if (mode === 'band') {
+      $('#aso-band')?.remove();
+      if (!moved && !bandShift) {
+        aso.selSet = new Set();
+        aso.sel = -1;
+      } else if (band && (band.w > 3 || band.h > 3)) {
+        aso.selSet = new Set();
+        const k = asoK();
+        for (const [i, o] of aso.objects.entries()) {
+          const r = { x: o.x * k, y: o.y * k, w: o.w * k, h: o.h * k };
+          if (r.x < band.x + band.w && r.x + r.w > band.x && r.y < band.y + band.h && r.y + r.h > band.y) aso.selSet.add(i);
+        }
+        if (aso.selSet.size) aso.sel = [...aso.selSet].at(-1);
+      }
+      asoRenderStage();
+      asoRenderProps();
+    }
+    mode = null;
+    starts = null;
+    band = null;
+    asoGuides({ v: null, h: null });
+  };
+  stage.addEventListener('pointerup', stop);
+  stage.addEventListener('pointercancel', stop);
+})();
+
+$('#aso-objects').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip[data-i]');
+  if (!chip) return;
+  const i = Number(chip.dataset.i);
+  if (e.shiftKey) {
+    if (aso.selSet.has(i)) aso.selSet.delete(i);
+    else aso.selSet.add(i);
+  } else aso.selSet = new Set([i]);
+  aso.sel = i;
+  asoRenderStage();
+  asoRenderProps();
+});
+
+$('#aso-props').addEventListener('pointerdown', asoPushThrottled);
+
+function asoCopy(cut = false) {
+  if (!aso.selSet.size) { toast('Сначала выдели объект(ы)', true); return; }
+  asoClipboard = [...aso.selSet].map((i) => JSON.parse(JSON.stringify(aso.objects[i])));
+  if (cut) {
+    asoPush();
+    aso.objects = aso.objects.filter((_, i) => !aso.selSet.has(i));
+    aso.selSet = new Set();
+    aso.sel = -1;
+    asoRenderStage();
+    asoRenderProps();
+    toast(`Вырезано: ${asoClipboard.length}`);
+  } else toast(`Скопировано: ${asoClipboard.length}`);
+}
+function asoPaste() {
+  if (!asoClipboard?.length) { toast('Буфер пуст', true); return; }
+  asoPush();
+  const pasted = [];
+  for (const [n, o] of asoClipboard.entries()) {
+    const c = { ...o, x: o.x + 30, y: o.y + 30 };
+    c.id = `${c.type}-${Date.now()}-${n}`;
+    aso.objects.push(c);
+    pasted.push(aso.objects.length - 1);
+  }
+  aso.selSet = new Set(pasted);
+  aso.sel = pasted.at(-1);
+  asoRenderStage();
+  asoRenderProps();
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!$('#tab-autoso')?.classList.contains('active')) return;
+  if (e.target.closest('input, textarea, select')) return;
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const key = String(e.key || '').toLowerCase();
+  if (key === 'z' && !e.shiftKey) { e.preventDefault(); asoUndo(); }
+  else if (key === 'y' || (key === 'z' && e.shiftKey)) { e.preventDefault(); asoRedo(); }
+  else if (key === 'c') { e.preventDefault(); asoCopy(); }
+  else if (key === 'x') { e.preventDefault(); asoCopy(true); }
+  else if (key === 'v') { e.preventDefault(); asoPaste(); }
+});
+
+$('#aso-widget-test').addEventListener('click', async () => {
+  try {
+    await api('/api/actions/soshouttest', { method: 'POST', body: '{}' });
+    toast('Тестовый шатаут отправлен — смотри оверлей (страница должна быть открыта)');
+  } catch (e) { toast(e.message, true); }
+});
+$('#aso-widget-add').addEventListener('click', () => $('#aso-image-file').click());
+$('#aso-image-file').addEventListener('change', async () => {
+  const file = $('#aso-image-file')?.files?.[0];
+  if (!file) return;
+  try {
+    const r = await fetch(`/api/media/upload?name=${encodeURIComponent(file.name)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    const zMax = Math.max(0, ...aso.objects.map((o) => o.z));
+    asoPush();
+    aso.objects.push({ id: `image-${Date.now()}`, type: 'image', x: 700, y: 350, w: 500, h: 320, opacity: 100, z: zMax + 1, image: file.name, radius: 0 });
+    aso.sel = aso.objects.length - 1;
+    aso.selSet = new Set([aso.sel]);
+    $('#aso-image-file').value = '';
+    asoRenderStage();
+    asoRenderProps();
+    toast('Элемент добавлен 🖼');
+  } catch (e) { toast(e.message, true); }
+});
+$('#aso-widget-save').addEventListener('click', async () => {
+  try {
+    await putSettings({ shoutoutOverlay: { v: 1, duration: Number($('#aso-duration').value) || 10, objects: aso.objects } });
+    toast('Раскладка виджета шатаута сохранена ✅');
+  } catch (e) { toast(e.message, true); }
+});
+$('#aso-widget-reset').addEventListener('click', () => {
+  asoPush();
+  aso.objects = asoDefault();
+  aso.sel = 0;
+  aso.selSet = new Set([0]);
+  asoRenderStage();
+  asoRenderProps();
+  toast('Дефолтная раскладка (не забудь сохранить)');
+});
+
+function asoLoad(cfg) {
+  const n = asoNorm(cfg);
+  aso.objects = n.objects;
+  aso.duration = n.duration;
+  aso.sel = 0;
+  aso.selSet = new Set(aso.objects.length ? [0] : []);
+  $('#aso-duration').value = aso.duration;
+  asoRenderStage();
+  asoRenderProps();
 }
 
 $('#sg-body').addEventListener('click', async (e) => {

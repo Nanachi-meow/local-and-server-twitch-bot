@@ -441,7 +441,17 @@ export class CommandEngine {
             session, args, targetLogin: user.login, extra: { target: user.display_name },
           });
           const template = engine.settings.so?.template || 'Залетайте поддержать {target}: twitch.tv/{target_login} ❤️';
-          await engine.say(session, renderTemplate(template, vars));
+          const rendered = renderTemplate(template, vars);
+          // оверлей-виджет шатаута: аватарка + текст (аватар отдаёт Helix, gif тоже покажется)
+          overlay.push({
+            kind: 'shoutout',
+            channel: session.channel,
+            login: user.login,
+            user: user.display_name,
+            avatar: String(user.profile_image_url || ''),
+            text: rendered,
+          });
+          await engine.say(session, rendered);
         },
       },
       pin: {
@@ -944,6 +954,13 @@ export function loadSettings() {
       defaultTemplate: 'Стример {target} у нас в чате! Поддержим: twitch.tv/{target_login} ❤️',
       users: [],
       ...(stored.autoShoutouts ?? {}),
+    },
+    // оверлей-виджет автошатаута: аватарка + текст, раскладка как у плеера музыки
+    shoutoutOverlay: {
+      v: 1,
+      duration: 10,       // сколько висит плашка, сек
+      objects: [],        // пусто = дефолт: аватар сверху, текст ниже
+      ...(stored.shoutoutOverlay ?? {}),
     },
     autoPin: {
       enabled: true,

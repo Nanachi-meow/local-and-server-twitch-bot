@@ -70,6 +70,16 @@
     font-size: 13px; color: rgba(255, 255, 255, .45);
     text-shadow: 0 1px 3px #000;
   }
+  /* виджет шатаута: объекты раскладки (аватар/текст/подложка/декор) */
+  .so-obj { position: absolute; }
+  .so-obj-avatar { overflow: hidden; background: rgba(10, 8, 20, .85); }
+  .so-obj-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .so-obj-text { color: #fff; font-weight: 700; text-shadow: 0 2px 8px rgba(0, 0, 0, .8); white-space: pre-wrap; overflow: hidden; display: flex; align-items: center; }
+  .so-obj-backdrop { background-size: 100% 100%; background-position: center; }
+  .so-obj-image { background-size: 100% 100%; background-position: center; }
+  .so-obj-image img { width: 100%; height: 100%; display: block; }
+  #so-widget { position: fixed; inset: 0; opacity: 0; transition: opacity .35s ease; pointer-events: none; }
+  #so-widget.on { opacity: 1; }
   /* подсказка: браузер запретил автозвук до первого клика по странице */
   #mute-hint {
     position: fixed; left: 10px; bottom: 30px;
@@ -98,8 +108,7 @@
 <script>
   const EMOJI = { follow: '💜', sub: '🎉', resub: '💖', subgift: '🎁', raid: '🚀', meme: '🎬', wheel: '🎡', redemption: '👑' };
   const SUBLINE = { follow: 'новый фолловер', sub: 'новая подписка', resub: 'продление подписки', subgift: 'подаренная подписка', raid: 'рейд на канал', meme: 'мем', wheel: 'колесо', redemption: 'награда канала' };
-  const KINDS = ['follow', 'sub', 'resub', 'subgift', 'raid', 'meme', 'wheel', 'redemption'];
-  // громкость 0-100 → 0-1 (единая для звука алерта и звука видео)
+  const KINDS = ['follow', 'sub', 'resub', 'subgift', 'raid', 'meme', 'wheel', 'redemption'];  // громкость 0-100 → 0-1 (единая для звука алерта и звука видео)
   const vol = (v) => Math.max(0, Math.min(1, (Number(v) / 100))) || 0;
   const MEDIA_TYPE = (name) => {
     const ext = String(name || '').split('.').pop().toLowerCase();
@@ -120,9 +129,12 @@
   async function loadCfg() {
     try {
       const r = await fetch('/api/settings');
-      cfg = (await r.json()).alerts ?? { enabled: true };
+      const st = await r.json();
+      cfg = st.alerts ?? { enabled: true };
+      soCfg = st.shoutoutOverlay ?? soCfg;
     } catch {}
     applyEventListCfg();
+    soRenderScene();
   }
   setInterval(loadCfg, 60_000);
 
@@ -279,6 +291,119 @@
     while (queue.length && active < MAX_ACTIVE) show(queue.shift());
   }
 
+  // ---------- виджет шатаута: аватарка + текст по раскладке (как у плеера музыки) ----------
+  let soCfg = { v: 1, duration: 10, objects: [] };
+  const soWidget = document.createElement('div');
+  soWidget.id = 'so-widget';
+  document.body.appendChild(soWidget);
+  const soNodes = new Map(); // id → DOM-узел
+  let soHideTimer = null;
+  let soEv = null; // текущий шатаут (аватар/текст)
+
+  function soDefaultObjects() {
+    // аватар 160×160 сверху, текст ниже (на всю ширину карточки ~560)
+    const W = 160;
+    return [
+      { id: 'backdrop-0', type: 'backdrop', x: 680, y: 400, w: 560, h: 260, opacity: 100, z: 1, color: '#0c0a19', radius: 20, image: '' },
+      { id: 'avatar-0', type: 'avatar', x: (1920 - W) / 2, y: 420, w: W, h: W, opacity: 100, z: 3, radius: 80 },
+      { id: 'text-0', type: 'text', x: 700, y: 610, w: 520, h: 120, opacity: 100, z: 4, color: '#ffffff', fontSize: 26, radius: 0 },
+    ];
+  }
+  function soNormalize(raw) {
+    const c = raw ?? {};
+    if (Array.isArray(c.objects) && c.objects.length) {
+      return {
+        v: 1,
+        duration: Math.max(2, Math.min(60, Number(c.duration) || 10)),
+        objects: c.objects
+          .filter((o) => o && ['avatar', 'text', 'backdrop', 'image'].includes(o.type))
+          .map((o) => ({
+            id: String(o.id || `${o.type}-x`),
+            type: o.type,
+            x: Number(o.x) || 0, y: Number(o.y) || 0,
+            w: Math.max(20, Number(o.w) || 300), h: Math.max(20, Number(o.h) || 300),
+            opacity: Math.max(0, Math.min(100, Number(o.opacity ?? 100))),
+            z: Math.max(0, Math.min(30, Number(o.z ?? 1))),
+            image: String(o.image || ''),
+            color: String(o.color || ''),
+            radius: Math.max(0, Number(o.radius) || 0),
+            fontSize: Math.max(10, Number(o.fontSize) || 22),
+          })),
+      };
+    }
+    return { v: 1, duration: Math.max(2, Math.min(60, Number(c.duration) || 10)), objects: soDefaultObjects() };
+  }
+
+  function soRenderScene() {
+    soCfg = soNormalize(soCfg);
+    const k = (window.innerWidth || 1920) / 1920;
+    const key = JSON.stringify(soCfg.objects.map((o) => [o.id, o.type, o.image, o.z]));
+    const orphan = soCfg.objects.some((o) => !soNodes.get(o.id));
+    if (soRenderScene.key !== key || orphan) {
+      soRenderScene.key = key;
+      soWidget.innerHTML = '';
+      soNodes.clear();
+      const sorted = [...soCfg.objects].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
+      for (const o of sorted) {
+        const div = document.createElement('div');
+        div.className = `so-obj so-obj-${o.type}`;
+        if (o.type === 'avatar') div.innerHTML = '<img alt="">';
+        if (o.type === 'image' && o.image) div.innerHTML = `<img src="/media/${encodeURIComponent(o.image)}" alt="">`;
+        soWidget.appendChild(div);
+        soNodes.set(o.id, div);
+      }
+    }
+    for (const o of soCfg.objects) {
+      const div = soNodes.get(o.id);
+      if (!div) continue;
+      div.style.left = `calc(50% + ${Math.round((o.x - 960) * k)}px)`;
+      div.style.top = `calc(50% + ${Math.round((o.y - 540) * k)}px)`;
+      div.style.width = `${o.w * k}px`;
+      div.style.height = `${o.h * k}px`;
+      div.style.zIndex = String(o.z ?? 1);
+      div.style.opacity = String(o.opacity / 100);
+      if (o.type === 'avatar') {
+        div.style.borderRadius = `${o.radius * k}px`;
+        const img = div.querySelector('img');
+        if (img && img.src !== (soEv?.avatar || '')) img.src = soEv?.avatar || '';
+        if (!soEv?.avatar) div.style.backgroundColor = 'rgba(139, 92, 246, .25)'; // тест без аватарки
+      } else if (o.type === 'text') {
+        div.style.color = o.color || '#ffffff';
+        div.style.fontSize = `${o.fontSize * k}px`;
+        div.style.borderRadius = `${o.radius * k}px`;
+        if (div.dataset.text !== (soEv?.text || '')) {
+          div.textContent = soEv?.text || '';
+          div.dataset.text = soEv?.text || '';
+        }
+      } else if (o.type === 'backdrop') {
+        div.style.borderRadius = `${o.radius * k}px`;
+        if (o.image) {
+          div.style.backgroundImage = `url("/media/${encodeURIComponent(o.image)}")`;
+          div.style.backgroundColor = 'transparent';
+        } else {
+          div.style.backgroundImage = 'none';
+          const m = String(o.color || '#0c0a19').match(/^#?([0-9a-f]{6})$/i);
+          div.style.backgroundColor = m
+            ? `rgba(${parseInt(m[1].slice(0, 2), 16)}, ${parseInt(m[1].slice(2, 4), 16)}, ${parseInt(m[1].slice(4, 6), 16)}, 1)`
+            : (o.color || '#0c0a19');
+        }
+      } else if (o.type === 'image') {
+        div.style.borderRadius = `${o.radius * k}px`;
+      }
+    }
+  }
+
+  function soShow(ev) {
+    soEv = ev;
+    soRenderScene();
+    soWidget.classList.add('on');
+    clearTimeout(soHideTimer);
+    soHideTimer = setTimeout(() => {
+      soWidget.classList.remove('on');
+      soEv = null;
+    }, Math.max(2, Number(soCfg.duration) || 10) * 1000);
+  }
+
   // ---------- звук видео: браузер требует клик до первого автовоспроизведения со звуком ----------
   // в OBS Browser Source обычно можно и так; в обычном браузере — до первого клика глушим,
   // потом включаем всем играющим видео их целевую громкость
@@ -310,6 +435,7 @@
     try {
       const ev = JSON.parse(m.data);
       if (ev.kind === 'sr') { window.srPlayer?.onEvent?.(ev); return; }
+      if (ev.kind === 'shoutout') { soShow(ev); return; }
       if (KINDS.includes(ev.kind)) {
         queue.push(ev);
         pump();

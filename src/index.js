@@ -540,6 +540,39 @@ const app = {
         cur.eventList = mergeEventList(cur.eventList, a.eventList);
       }
     }
+    // раскладка оверлей-виджета автошатаута (аватар/текст/свой декор)
+    if (patch.shoutoutOverlay !== undefined && patch.shoutoutOverlay !== null && typeof patch.shoutoutOverlay === 'object') {
+      const cur = settings.shoutoutOverlay ??= { v: 1, objects: [] };
+      const a = patch.shoutoutOverlay;
+      if (a.duration !== undefined) cur.duration = Math.max(2, Math.min(60, Math.round(Number(a.duration) || 10)));
+      if (Array.isArray(a.objects)) {
+        const num = (v, min, max, dflt) => {
+          const n = Number(v);
+          return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : dflt;
+        };
+        cur.objects = a.objects
+          .filter((o) => o && ['avatar', 'text', 'backdrop', 'image'].includes(o.type))
+          .slice(0, 20)
+          .map((o) => {
+            const base = {
+              id: String(o.id || '').slice(0, 40),
+              type: o.type,
+              x: num(o.x, -500, 2500, 0),
+              y: num(o.y, -500, 2500, 0),
+              w: num(o.w, 20, 2500, 300),
+              h: num(o.h, 20, 2500, 300),
+              opacity: num(o.opacity, 0, 100, 100),
+              z: num(o.z, 0, 30, 1),
+              image: String(o.image || '').replace(/[\\/]/g, '').slice(0, 120),
+              color: String(o.color || '').slice(0, 20),
+              radius: num(o.radius, 0, 120, 0),
+              fontSize: num(o.fontSize, 10, 60, 22),
+            };
+            if (o.type === 'avatar') base.h = base.w; // аватар — квадратный
+            return base;
+          });
+      }
+    }
     // награды канала (редемпции): таблица мэппингов + кулдаун
     if (patch.redemptions && typeof patch.redemptions === 'object') {
       const a = patch.redemptions;
@@ -804,6 +837,18 @@ const app = {
           sound: '',
         });
         return { tested: 'redemption' };
+      }
+      case 'soshouttest': {
+        // тест оверлей-виджета шатаута (аватар + текст), без отправки в чат
+        overlay.push({
+          kind: 'shoutout',
+          channel: channels.list()[0]?.login ?? null,
+          login: 'test',
+          user: 'ТестовыйСтример',
+          avatar: '',
+          text: 'Стример ТестовыйСтример у нас в чате! Поддержим: twitch.tv/test ❤️',
+        });
+        return { tested: 'shoutout' };
       }
       case 'obstest': {
         // значения из формы (если юзер ещё не сохранил) поверх сохранённых

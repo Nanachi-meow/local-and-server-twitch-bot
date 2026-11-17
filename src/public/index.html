@@ -298,6 +298,25 @@
           <button class="act" id="aso-add-btn">Добавить</button>
         </div>
       </div>
+      <details class="guide-box">
+        <summary><b>📺 Оверлей-виджет шатаута: аватар + текст (нажми — редактор раскладки)</b></summary>
+        <div class="guide-body">
+          <p class="hint">При срабатывании шатаута (авто или <code>!so</code>) на оверлее всплывает плашка: аватарка стримера (гиф — анимируется) и текст шатаута. Раскладка та же, что у плеера музыки: тащи объекты мышкой, уголок — размер, shift+клик и рамка — выделение, ctrl+z/y/c/x/v, магнитное прилипание.</p>
+          <div class="rp-row" style="margin-bottom:8px">
+            <button class="act ghost" id="aso-widget-test" title="показать тестовый шатаут в открытом оверлее">🧪 Тест виджета</button>
+            <button class="act ghost" id="aso-widget-add" title="своя картинка-декор поверх">🖼 + картинка</button>
+            <label class="hint">висит, сек <input type="number" id="aso-duration" min="2" max="60" style="width:56px" /></label>
+            <button class="act" id="aso-widget-save">💾 Сохранить раскладку</button>
+            <button class="act ghost" id="aso-widget-reset" title="вернуть дефолтную раскладку">↺ Дефолт</button>
+          </div>
+          <input type="file" id="aso-image-file" class="hidden" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" />
+          <div id="aso-stage"></div>
+          <div class="evcard" style="margin-top:10px">
+            <div class="chips" id="aso-objects"></div>
+            <div id="aso-props"></div>
+          </div>
+        </div>
+      </details>
     </section>
 
     <!-- ============ ТАЙМЕРЫ ============ -->

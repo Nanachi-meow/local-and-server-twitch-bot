@@ -491,6 +491,15 @@ ok('автошатаут: человек не из списка не тригг�
 await processor3.autoShoutoutFor('200', { login: 'friend', text: '' }, { force: true });
 ok('автошатаут: принудительный тест берёт дефолтный шаблон', sentSo.at(-1)?.text === 'def → friend');
 
+// оверлей-виджет шатаута: событие с аватаром и текстом уходит в шину
+const { overlay: overlaySo } = await import('../src/bot/alerts.js');
+const soOv = [];
+overlaySo.clients.add({ write: (s) => soOv.push(String(s)) });
+await processor3.autoShoutoutFor('200', { login: 'friend', text: 'Визит {target}!' }, { force: true });
+ok('шатаут-оверлей: событие в шине', soOv.some((s) => s.includes('"kind":"shoutout"') && s.includes('Визит Friend!')));
+ok('шатаут-оверлей: аватар передаётся (гиф или png)', soOv.some((s) => s.includes('"avatar"')));
+overlaySo.clients.clear();
+
 // ---------- автозакреп ----------
 const sentPin = [];
 const pinCalls = [];

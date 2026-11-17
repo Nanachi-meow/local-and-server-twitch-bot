@@ -393,6 +393,15 @@ export class EventProcessor {
       target: displayName,
       target_login: login,
     });
+    // 3) оверлей-виджет шатаута: аватарка + текст (раскладка как у плеера музыки)
+    overlay.push({
+      kind: 'shoutout',
+      channel,
+      login,
+      user: displayName,
+      avatar: String(user?.profile_image_url || ''),
+      text,
+    });
     try {
       await this.helix.sendMessage({
         broadcasterId,
