@@ -123,7 +123,8 @@ export class SongsManager {
     } else {
       if (this.queue.some((x) => x.id === id) || this.current?.id === id) return { error: 'этот трек уже в очереди' };
       const mine = this.queue.filter((x) => String(x.by).toLowerCase() === byLogin).length;
-      if (mine >= perUser) return { error: `у тебя уже ${mine} ${mine === 1 ? 'трек' : 'трека'} в очереди — дождись, пока один сыграет (или закажет кто-то другой)` };
+      // лимит исчерпан: молча (без сообщения в чат) — при заказе наградой баллы вернутся автоматически
+      if (mine >= perUser) return { error: `у тебя уже ${mine} ${mine === 1 ? 'трек' : 'трека'} в очереди`, silent: true };
     }
     let title = '';
     let author = '';

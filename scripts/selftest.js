@@ -306,11 +306,21 @@ const okViews = await sm.add({ videoId: 'qqq111qqqq3', by: 'Vova', byName: 'Vova
 ok('музыка: хватает просмотров — принимается', !okViews.error);
 songsSettings.songs.minViews = 0;
 
-// лимит на юзера: подряд в очереди (perUser), пока один не сыграет — новых нельзя
+// лимит на юзера: подряд в очереди (perUser), пока один не сыграет — новых нельзя.
+// отказ молчаливый: бот не пишет в чат (баллы награды возвращаются)
 songsSettings.songs.perUser = 1;
 const blocked = await sm.add({ videoId: 'qqq111qqqq4', by: 'Vova', byName: 'Vova' });
-ok('музыка: лимит треков юзера подряд — отклоняется', Boolean(blocked.error) && blocked.error.includes('дождись'));
+ok('музыка: лимит треков юзера подряд — отклоняется', Boolean(blocked.error) && blocked.silent === true);
 songsSettings.songs.perUser = 2;
+
+// переименование команды заказа (settings.songs.commandName) — синоим «ср»
+settings.songs = { commandName: 'трек' };
+const beforeRename = sent.length;
+await engine.handleChatMessage({ userId: '60', login: 'renamergirl', displayName: 'RenamerGirl', text: '!трек это-не-ссылка', badges: [] });
+ok('музыка: переименованная команда работает', sent.length > beforeRename && sent.at(-1).includes('не похоже'));
+await engine.handleChatMessage({ userId: '60', login: 'renamergirl', displayName: 'RenamerGirl', text: '!ср это-не-ссылка', badges: [] });
+ok('музыка: старое имя тоже живо (алиас)', sent.at(-1).includes('не похоже'));
+delete settings.songs;
 
 // кулдаун заказов на юзера
 songsSettings.songs.commandCooldown = 3600;

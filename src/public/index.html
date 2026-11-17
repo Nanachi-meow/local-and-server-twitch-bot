@@ -391,10 +391,11 @@
           <div class="evcard">
             <label>способ
               <select id="sg-mode">
-                <option value="command">командой !ср</option>
+                <option value="command">командой</option>
                 <option value="reward">наградой за баллы канала</option>
               </select>
             </label>
+            <label>имя команды <input type="text" id="sg-cmdname" maxlength="34" placeholder="ср" title="как зрители будут заказывать: !имя" /></label>
             <label id="sg-reward-row" class="hidden">название награды на Twitch <input type="text" id="sg-reward-name" maxlength="100" placeholder="заказать песню" title="создай награду с этим названием на панели Twitch" /></label>
             <label id="sg-cd-row">кулдаун на юзера, мин <input type="number" id="sg-cd" min="0" max="1440" style="width:70px" title="0 = без кулдауна" /></label>
             <label>треков юзера в очереди подряд <input type="number" id="sg-peruser" min="1" max="10" style="width:56px" title="пока один не сыграет — новых заказать нельзя" /></label>

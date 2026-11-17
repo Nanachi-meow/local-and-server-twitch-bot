@@ -225,7 +225,10 @@ export class CommandEngine {
     if (!name) return false;
 
     const custom = this.custom.find((c) => c.name === name && c.enabled !== false);
-    const builtin = this.builtinEnabled(name) ? this.builtins[name] : null;
+    // команда музыки может быть переименована в панели (settings.songs.commandName) — синоним «ср»
+    const songCmd = String(this.settings?.songs?.commandName || 'ср').toLowerCase().replace(/^!/, '');
+    const lookup = name !== 'ср' && name === songCmd ? 'ср' : name;
+    const builtin = this.builtinEnabled(lookup) ? this.builtins[lookup] : null;
     // команда от модуля — если ни кастомной, ни встроенной нет; кастомная всегда сильнее
     const modCmd = (!custom && !builtin && this.modules) ? this.modules.findCommand(name) : null;
     const cmd = custom ?? builtin ?? modCmd;
@@ -240,7 +243,7 @@ export class CommandEngine {
       displayName: displayName || login,
       level: userLevelName, // уровень вызвавшего — для субкоманд со своей проверкой прав (!цитата добавить, !ставка открыть)
     };
-    if (!this.canUse(cmd, userLevelName, { builtinName: builtin ? name : null })) {
+    if (!this.canUse(cmd, userLevelName, { builtinName: builtin ? lookup : null })) {
       return false; // молча игнорируем тех, кому нельзя
     }
 
@@ -382,7 +385,8 @@ export class CommandEngine {
         async run(session) {
           const names = engine.custom.filter((c) => c.enabled !== false).map((c) => `!${c.name}`);
           const modNames = (engine.modules?.commandNames() ?? []).map((n) => `!${n}`);
-          const base = ['so', 'uptime', 'game', 'followage']
+          const songCmd = String(engine.settings?.songs?.commandName || 'ср').toLowerCase().replace(/^!/, '');
+          const base = ['so', 'uptime', 'game', 'followage', songCmd]
             .filter((n) => engine.builtinEnabled(n))
             .map((n) => `!${n}`);
           const all = [...base, ...names, ...modNames].join(', ');
@@ -665,7 +669,7 @@ export class CommandEngine {
           if (!videoId) { await engine.say(session, `@${session.login}, это не похоже на ссылку YouTube. Пример: !ср https://youtu.be/dQw4w9WgXcQ`); return; }
           const r = await engine.songs.add({ videoId, by: session.login, byName: session.displayName });
           if (r.error) {
-            await engine.say(session, `@${session.login}, ${r.error}`);
+            if (!r.silent) await engine.say(session, `@${session.login}, ${r.error}`);
             return;
           }
           const pos = r.position === 0 ? 'включаю сейчас! 🎵' : `в очереди на ${r.position}-м месте`;
@@ -1030,6 +1034,7 @@ export function loadSettings() {
         requestMode: 'command', // 'command' (через !ср) | 'reward' (наградой за баллы)
         rewardName: '',        // название награды-заказа (для requestMode='reward')
         commandCooldown: 0,    // сек между заказами одного зрителя (0 = без кулдауна)
+        commandName: 'ср',     // имя команды заказа — меняется в панели (синоим «ср»)
         minViews: 0,           // минимум просмотров у трека (0 = не проверять)
         allow: [],             // кому можно заказывать: everyone/sub/vip/follower/mod/broadcaster (пусто = все)
         allowUsers: [],        // персональный белый список ников

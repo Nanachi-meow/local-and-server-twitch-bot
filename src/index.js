@@ -167,7 +167,7 @@ async function onSongRedemption(event) {
   }
   const r = await songs.add({ videoId, by: login, byName });
   if (r.error) {
-    await sayToChat(r.error);
+    if (!r.silent) await sayToChat(r.error);
     await refund();
     return;
   }
@@ -583,6 +583,15 @@ const app = {
       // способ заказов + ограничения + доступ
       if (a.requestMode !== undefined) cur.requestMode = a.requestMode === 'reward' ? 'reward' : 'command';
       if (a.rewardName !== undefined) cur.rewardName = String(a.rewardName).trim().slice(0, 100);
+      // имя команды заказа: буквы/цифры/_/-, без конфликтов с другими встроенными и кастомными
+      if (a.commandName !== undefined) {
+        const n = String(a.commandName || '').toLowerCase().replace(/^!/, '').trim();
+        const ok = /^[A-Za-zА-Яа-яЁё0-9_\-]{1,32}$/.test(n);
+        const conflict = [...Object.keys(commands.builtins), ...commands.list().map((c) => c.name)]
+          .some((x) => x !== 'ср' && x === n);
+        if (ok && !conflict) cur.commandName = n;
+        else logSystem(`Имя команды музыки «${n}» не принято: некорректное или занято`, 'warn');
+      }
       if (a.commandCooldown !== undefined) cur.commandCooldown = Math.max(0, Math.min(86_400, Math.round(Number(a.commandCooldown) || 0)));
       if (a.minViews !== undefined) cur.minViews = Math.max(0, Math.min(1_000_000_000, Math.round(Number(a.minViews) || 0)));
       if (Array.isArray(a.allow)) {
