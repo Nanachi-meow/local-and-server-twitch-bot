@@ -379,6 +379,48 @@ const pinSettings = {
   autoPin: { enabled: true, mode: 'stream', template: 'закреп {channel}' },
 };
 const processor4 = new EventProcessor({ helix: fakeHelixPin, auth: fakeAuth, logs, settings: pinSettings, state: { counters: {} }, channels: registry });
+
+// ---------- автоопределение начала/конца стрима (LiveTracker) ----------
+const { LiveTracker } = await import('../src/bot/live.js');
+const liveBefore = logs.events.items.length;
+const liveWatch = [];
+const fakeHelixLive = {
+  // alpha в эфире, beta нет — для сверки
+  getStreamsByLogins: async (logins) => (logins.includes('alpha')
+    ? [{ user_id: '100', user_login: 'alpha', started_at: new Date(Date.now() - 1800_000).toISOString(), title: 'Весёлый стрим', game_name: 'Just Chatting' }]
+    : []),
+};
+const tracker = new LiveTracker({ helix: fakeHelixLive, channels: registry, logs, watcher: (k, e) => liveWatch.push([k, e.login]) });
+
+ok('эфир: переход в online — true', tracker.markOnline('100', { title: 'Весёлый стрим', game: 'Just Chatting', startedAt: Date.now() - 600_000 }) === true);
+ok('эфир: повторное online — не переход', tracker.markOnline('100', {}) === false);
+ok('эфир: isLive/snapshot', tracker.isLive('100') && tracker.snapshot().alpha.live === true && tracker.snapshot().alpha.title === 'Весёлый стрим');
+ok('эфир: длительность считается', (tracker.snapshot().alpha.durationMs ?? 0) > 500_000);
+ok('эфир: watcher получил online', liveWatch.some(([k, l]) => k === 'online' && l === 'alpha'));
+const onlineLogs = logs.events.items.slice(liveBefore).filter((l) => l.kind === 'online');
+ok('эфир: «начался» в ленте один раз', onlineLogs.length === 1 && onlineLogs[0].text.includes('Весёлый стрим'));
+
+ok('эфир: переход в offline — true', tracker.markOffline('100') === true);
+ok('эфир: повторное offline — не переход', tracker.markOffline('100') === false);
+ok('эфир: watcher получил offline', liveWatch.some(([k, l]) => k === 'offline' && l === 'alpha'));
+ok('эфир: после offline не live и без длительности', tracker.isLive('100') === false && tracker.snapshot().alpha.live === false);
+const offlineLogs = logs.events.items.slice(liveBefore).filter((l) => l.kind === 'offline');
+ok('эфир: «закончился» в ленте с длительностью', offlineLogs.length === 1 && offlineLogs[0].text.includes('мин'));
+
+// тихая первичная сверка: бот поднялся посреди эфира — состояние есть, «начался» НЕ пишется
+const tracker2 = new LiveTracker({ helix: fakeHelixLive, channels: registry, logs });
+await tracker2.sync({ quiet: true });
+ok('эфир: тихая сверка ставит состояние', tracker2.isLive('100') && tracker2.snapshot().alpha.title === 'Весёлый стрим');
+ok('эфир: тихая сверка молчит в ленте', logs.events.items.slice(liveBefore).every((l) => l.kind !== 'online' || l.text.includes('Весёлый')));
+ok('эфир: тихая сверка видит и оффлайн-канал', tracker2.isLive('200') === false);
+
+// страховочная сверка ловит пропущенный EventSub (transition без quiet)
+const tracker3 = new LiveTracker({ helix: fakeHelixLive, channels: registry, logs });
+tracker3.markOnline('200', {}); // beta «в эфире» по нашим данным, Helix говорит: нет
+await tracker3.sync();
+ok('эфир: сверка ловит пропущенный конец', tracker3.isLive('200') === false);
+
+// обработчики EventProcessor гоняют трекер
 await processor4.onStreamOnline({ broadcaster_user_id: '200' });
 ok('автозакреп: сообщение ушло', sentPin.at(-1)?.text === 'закреп beta' && sentPin.at(-1)?.broadcasterId === '200');
 ok('автозакреп: режим «до конца стрима» (без duration)', pinCalls.length === 1 && pinCalls[0].messageId === 'pin-1' && pinCalls[0].durationSeconds === undefined);

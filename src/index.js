@@ -8,6 +8,7 @@ import { TimerRunner } from './bot/timers.js';
 import { ModuleManager } from './bot/modules.js';
 import { QuotesManager } from './bot/quotes.js';
 import { ObsClient } from './bot/obs.js';
+import { LiveTracker } from './bot/live.js';
 import { SongsManager } from './bot/songs.js';
 import { RedemptionRouter } from './bot/redemptions.js';
 import { overlay } from './bot/alerts.js';
@@ -64,6 +65,10 @@ const processor = new EventProcessor({ helix, auth, logs, settings, state, chann
 commands.setChannels(channels);
 processor.setChannels(channels);
 processor.setCommands(commands);
+
+// автоопределение начала/конца стрима: EventSub мгновенно + страховочная сверка с Helix
+const live = new LiveTracker({ helix, channels, logs, pollMs: 60_000 });
+processor.setLive(live);
 
 const timers = new TimerRunner({ helix, auth, logs, settings, channels });
 
@@ -221,6 +226,10 @@ async function startRuntime() {
     timers.touchAll(); // после запуска таймеры стреляют только по полному интервалу
     logSystem(`Бот ${auth.tokens.login} подключается к каналам: ${channels.list().map((c) => c.login).join(', ')}`, 'info');
 
+    // эфир: первичная сверка (тихая — бот мог подняться посреди стрима) + страховочный поллинг раз в минуту
+    await live.sync({ quiet: true }).catch(() => {});
+    live.start();
+
     // если бот стартовал прямо во время стрима — обновим автозакреп там, где закрепа нет
     if (settings.autoPin?.enabled) {
       for (const c of channels.list()) {
@@ -244,6 +253,7 @@ async function startRuntime() {
 
 async function stopRuntime() {
   state.running = false;
+  live.stop(); // ссвечка эфира гаснет вместе с рантаймом
   await broadcasterSocket?.stop(); // сокет стримера гасим первым
   await socket.stop();
 }
@@ -336,6 +346,8 @@ const app = {
         channels: state.channels.map((c) => c.login),
         eventsub: { ...socket.status(), broadcaster: broadcasterSocket?.status() ?? null },
       },
+      // автоопределение эфира: { [канал]: { live, startedAt, durationMs, title, game } }
+      live: live.snapshot(),
       counters: state.counters,
     };
   },

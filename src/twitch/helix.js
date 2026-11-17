@@ -28,7 +28,10 @@ export class Helix {
     const url = new URL(API + path);
     if (query) {
       for (const [k, v] of Object.entries(query)) {
-        if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
+        if (v === undefined || v === null) continue;
+        if (Array.isArray(v)) {
+          for (const item of v) url.searchParams.append(k, String(item)); // повторяющиеся ключи (user_login=a&user_login=b)
+        } else url.searchParams.set(k, String(v));
       }
     }
     const doFetch = async () => {
@@ -78,6 +81,14 @@ export class Helix {
     this._streamCache = this._streamCache ?? new Map();
     this._streamCache.set(key, { at: Date.now(), stream });
     return stream;
+  }
+
+  /** Несколько каналов одним запросом: [{ user_id, user_login, started_at, title, game_name }…]. Без кэша — для трекера эфира. */
+  async getStreamsByLogins(logins) {
+    const items = (Array.isArray(logins) ? logins : [logins]).map((l) => String(l || '')).filter(Boolean);
+    if (!items.length) return [];
+    const json = await this.call('GET', '/streams', { query: { user_login: items.map((l) => l.toLowerCase()) } });
+    return json?.data ?? [];
   }
 
   // ---------- chat ----------

@@ -44,6 +44,11 @@ export class EventProcessor {
     this.commands = engine;
   }
 
+  /** Трекер эфира (LiveTracker): фиксирует начало/конец стрима, хранит состояние для панели. */
+  setLive(tracker) {
+    this.live = tracker;
+  }
+
   _isOurChannel(bId) {
     if (!bId) return false;
     if (this.channels) return Boolean(this.channels.get(bId));
@@ -263,7 +268,16 @@ export class EventProcessor {
     const bId = e?.broadcaster_user_id;
     if (!this._isOurChannel(bId)) return;
     const channel = this.channels?.loginOf(bId) ?? this.ctx.channel;
-    this.logs.events.push({ kind: 'online', channel, text: 'Стрим начался! 🟢' });
+    if (this.live) {
+      // фиксируем в трекере: он дедупит, пишет в ленту и хранит метаданные эфира
+      this.live.markOnline(bId, {
+        title: e?.title,
+        game: e?.category_name,
+        startedAt: Date.parse(e?.started_at) || Date.now(),
+      });
+    } else {
+      this.logs.events.push({ kind: 'online', channel, text: 'Стрим начался! 🟢' });
+    }
     await this.autoPin(bId);
   }
 
@@ -271,8 +285,12 @@ export class EventProcessor {
     const bId = e?.broadcaster_user_id;
     if (!this._isOurChannel(bId)) return;
     const channel = this.channels?.loginOf(bId) ?? this.ctx.channel;
-    // закреп Twitch снимается сам по окончании стрима
-    this.logs.events.push({ kind: 'offline', channel, text: 'Стрим закончился 🌙' });
+    if (this.live) {
+      this.live.markOffline(bId);
+    } else {
+      // закреп Twitch снимается сам по окончании стрима
+      this.logs.events.push({ kind: 'offline', channel, text: 'Стрим закончился 🌙' });
+    }
   }
 
   /**
