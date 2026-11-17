@@ -67,8 +67,8 @@
     function defaultObjects() {
       const W = 320, H = 180; // микро-экран 40% от 800
       return [
-        { type: 'video', x: (SCENE_W - W) / 2, y: (SCENE_H - H) / 2, w: W, h: H, opacity: 100, z: 3, hideOnIdle: true },
-        { type: 'marquee', x: SCENE_W / 2 - 224, y: (SCENE_H + H) / 2 + 12, w: 448, h: 38, opacity: 100, z: 4, hideOnIdle: true, color: '#ffffff', fontSize: 22, speed: 30 },
+        { id: 'video-0', type: 'video', x: (SCENE_W - W) / 2, y: (SCENE_H - H) / 2, w: W, h: H, opacity: 100, z: 3, hideOnIdle: true },
+        { id: 'marquee-0', type: 'marquee', x: SCENE_W / 2 - 224, y: (SCENE_H + H) / 2 + 12, w: 448, h: 38, opacity: 100, z: 4, hideOnIdle: true, color: '#ffffff', fontSize: 22, speed: 30 },
       ];
     }
     function normalizeCfg(raw) {
@@ -78,7 +78,8 @@
           v: 2,
           objects: c.objects
             .filter((o) => o && ['video', 'marquee', 'backdrop', 'image'].includes(o.type))
-            .map((o) => ({
+            .map((o, i) => ({
+              id: o.id || `${o.type}-${i}`,
               type: o.type,
               x: Number(o.x) || 0, y: Number(o.y) || 0,
               w: Math.max(20, Number(o.w) || 400), h: Math.max(20, Number(o.h) || 300),
@@ -108,9 +109,11 @@
     }
 
     function renderScene() {
-      const k = window.innerWidth / SCENE_W;
+      // clientWidth у только что созданного источника OBS может прийти 0 — подстрахуемся
+      const vw = window.innerWidth || document.documentElement.clientWidth || SCENE_W;
+      const k = vw / SCENE_W;
       // полностью перестраиваем DOM при изменении списка объектов
-      const key = JSON.stringify(cfg.objects.map((o) => [o.type, o.image, o.z]));
+      const key = JSON.stringify(cfg.objects.map((o) => [o.id, o.type, o.image, o.z]));
       if (renderScene.key !== key) {
         renderScene.key = key;
         stage.innerHTML = '';
@@ -136,12 +139,12 @@
             div.innerHTML = `<img src="/media/${encodeURIComponent(o.image)}" alt="">`;
           }
           stage.appendChild(div);
-          nodes.set(o, div);
+          nodes.set(o.id, div);
         }
       }
-      // позиции/размеры/стили — каждый кадр события
+      // позиции/размеры/стили — каждый кадр события (id стабилен: конфиг прилетает новыми объектами)
       for (const o of cfg.objects) {
-        const div = nodes.get(o);
+        const div = nodes.get(o.id);
         if (!div) continue;
         div.style.left = `${o.x * k}px`;
         div.style.top = `${o.y * k}px`;
@@ -185,7 +188,7 @@
         : current;
       for (const o of cfg.objects) {
         if (o.type !== 'marquee') continue;
-        const track = nodes.get(o)?.querySelector('.pl-track');
+        const track = nodes.get(o.id)?.querySelector('.pl-track');
         if (!track) continue;
         if (!src) continue; // текст не трогаем: объект скрыт при простое
         const text = nowTemplate
@@ -313,6 +316,11 @@
 
     window.addEventListener('resize', renderScene);
     loadState();
+    // CEF в OBS может поднять страницу раньше, чем источник получит финальный размер —
+    // перерисуем раскладку ещё раз после кадра и через секунду
+    requestAnimationFrame(() => renderScene());
+    setTimeout(renderScene, 250);
+    setTimeout(renderScene, 1000);
   })();
 </script>
 </body>

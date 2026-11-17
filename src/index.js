@@ -615,6 +615,7 @@ const app = {
             .slice(0, 20)
             .map((o) => {
               const base = {
+                id: String(o.id || '').slice(0, 40),
                 type: o.type,
                 x: num(o.x, -500, 2500, 0),
                 y: num(o.y, -500, 2500, 0),

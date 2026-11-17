@@ -1990,7 +1990,8 @@ function plpNorm(raw) {
       v: 2,
       objects: c.objects
         .filter((o) => o && ['video', 'marquee', 'backdrop', 'image'].includes(o.type))
-        .map((o) => ({
+        .map((o, i) => ({
+          id: o.id || `${o.type}-${i}`,
           type: o.type,
           x: Number(o.x) || 0, y: Number(o.y) || 0,
           w: Math.max(20, Number(o.w) || 400), h: Math.max(20, Number(o.h) || 300),
@@ -2135,6 +2136,7 @@ function plpGuides({ v, h }) {
   let band = null; // rect рамки в координатах превью
   let bandShift = false;
   let moved = false;
+  let pendingGuides = null; // направляющие рисуем после перерисовки превью
 
   function snapshot() {
     starts = new Map();
@@ -2214,7 +2216,7 @@ function plpGuides({ v, h }) {
       const rawX = anchor.x + dx;
       const rawY = anchor.y + dy;
       const snap = plpSnap(rawX, rawY, anchor); // магнит считаем по якорю
-      plpGuides(snap.guides);
+      pendingGuides = snap.guides; // нарисуем ПОСЛЕ перерисовки, иначе innerHTML их сотрёт
       const shiftX = snap.x - rawX; // прилипание переносим всей группе — она едет монолитно
       const shiftY = snap.y - rawY;
       for (const [i, s] of starts) {
@@ -2232,6 +2234,7 @@ function plpGuides({ v, h }) {
     }
     plpRenderStage();
     plpRenderProps();
+    if (pendingGuides) { plpGuides(pendingGuides); pendingGuides = null; }
   });
 
   const stop = (e) => {
@@ -2425,7 +2428,7 @@ $('#plp-image-file').addEventListener('change', async () => {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
     const zMax = Math.max(0, ...plp.objects.map((o) => o.z));
-    plp.objects.push({ type: 'image', x: 660, y: 340, w: 600, h: 400, opacity: 100, z: zMax + 1, hideOnIdle: false, image: file.name, radius: 0 });
+    plp.objects.push({ id: `image-${Date.now()}`, type: 'image', x: 660, y: 340, w: 600, h: 400, opacity: 100, z: zMax + 1, hideOnIdle: false, image: file.name, radius: 0 });
     plp.sel = plp.objects.length - 1;
     $('#plp-image-file').value = '';
     plpRenderStage();
