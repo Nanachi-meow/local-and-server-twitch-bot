@@ -1769,8 +1769,9 @@ function __sgApplyState(st) {
     $('#sg-volume-val').textContent = String(st.volume ?? 60);
   }
 
-  // превью-плеер повторяет состояние OBS-плеера
+  // превью-плеер повторяет состояние OBS-плеера (обычные треки — без звука; тест включает его сам)
   sgEnsureYt();
+  try { sgYt?.mute?.(); } catch {}
   if (st.current?.id) {
     sgLoadVideo(st.current.id);
     if (__songsPaused) sgPauseVideo();
@@ -1784,9 +1785,23 @@ const sgFeed = new EventSource('/overlay/feed');
 sgFeed.onmessage = (m) => {
   try {
     const ev = JSON.parse(m.data);
+    if (ev?.kind === 'srtest') { sgPlayTest(ev); return; }
     if (ev?.kind === 'sr') __sgApplyState(ev);
   } catch {}
 };
+
+// тест плеера: трек играет ЗДЕСЬ со звуком (громкость слайдера) и в OBS-плеере
+function sgPlayTest(ev) {
+  sgEnsureYt();
+  if (ev?.id) sgLoadVideo(ev.id);
+  try {
+    if (sgYt?.unMute) {
+      sgYt.unMute();
+      sgYt.setVolume(Math.max(0, Math.min(100, Number($('#sg-volume')?.value) || 60)));
+      sgYt.playVideo();
+    }
+  } catch {}
+}
 
 async function loadSongsTab() {
   const st = await api('/api/songs');
@@ -1936,6 +1951,15 @@ $('#sg-stop').addEventListener('click', () => {
   api('/api/actions/srcontrol', { method: 'POST', body: JSON.stringify({ op: 'stop' }) }).then(() => loadSongsTab()).catch((e) => toast(e.message, true));
 });
 $('#sg-refresh').addEventListener('click', () => loadSongsTab().catch(() => {}));
+
+// 🧪 тест плеера: первый раз в жизни — сюрприз 👀, дальше Bad Apple
+$('#sg-test').addEventListener('click', async () => {
+  try {
+    const r = await api('/api/songs', { method: 'POST', body: JSON.stringify({ op: 'test' }) });
+    if (r.error) { toast(r.error, true); return; }
+    toast(r.first ? 'Тест запущен — смотри плеер 👀' : `Тест: ${r.title} 🍎`);
+  } catch (e) { toast(e.message, true); }
+});
 
 $('#sg-body').addEventListener('click', async (e) => {
   // клик по названию — скопировать ссылку на трек

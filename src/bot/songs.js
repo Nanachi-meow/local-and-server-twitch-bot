@@ -5,6 +5,12 @@ import { httpGet } from './proxy.js';
 
 const VID_RE = /^[A-Za-z0-9_-]{11}$/;
 
+/** Тест-треки плеера: первая попытка рикроллит, дальше — Bad Apple (счётчик навсегда в data/songs.json). */
+const TEST_TRACKS = {
+  first: { id: 'dQw4w9WgXcQ', title: 'Rick Astley — Never Gonna Give You Up' },
+  next: { id: 'FtutLA63Cp8', title: 'Bad Apple!!' },
+};
+
 /** Вытащить ID видео из любых ссылок YouTube (youtu.be, watch?v=, shorts, music, live, голый ID). */
 export function parseVideoId(input) {
   const raw = String(input || '').trim();
@@ -59,6 +65,7 @@ export class SongsManager {
     this.history = Array.isArray(stored.history) ? stored.history : [];
     this.current = stored.current ?? null;
     this.paused = Boolean(stored.paused);
+    this.testCount = Number(stored.testCount) || 0; // сколько раз жали «Тест плеера»
     this._dirty = false;
     this._lastOrder = new Map(); // login -> ts последнего успешного заказа (кулдаун)
   }
@@ -74,6 +81,7 @@ export class SongsManager {
         history: this.history.slice(-50),
         current: this.current,
         paused: this.paused,
+        testCount: this.testCount || 0,
       });
       this._dirty = false;
     } catch (e) {
@@ -283,6 +291,27 @@ export class SongsManager {
     const last = this._lastOrder.get(String(by || '').toLowerCase()) || 0;
     if (!last) return 0;
     return Math.max(0, Math.ceil((cd * 1000 - (Date.now() - last)) / 1000));
+  }
+
+  /**
+   * «Тест плеера»: пушит специальное событие srtest — все плееры (OBS /music и превью в панели)
+   * проигрывают трек, НЕ трогая очередь/текущий трек. Первая попытка в жизни бота — рикрол,
+   * дальше — Bad Apple. Счётчик навсегда в data/songs.json.
+   */
+  test() {
+    const cfg = this.cfg();
+    if (!cfg.enabled) return { error: 'музыка выключена 🎵❌' };
+    this.testCount = (Number(this.testCount) || 0) + 1;
+    this.saveNow();
+    const track = this.testCount === 1 ? TEST_TRACKS.first : TEST_TRACKS.next;
+    overlay.push({
+      kind: 'srtest',
+      id: track.id,
+      title: track.title,
+      volume: cfg.volume ?? 60,
+      first: this.testCount === 1,
+    });
+    return { id: track.id, title: track.title, first: this.testCount === 1 };
   }
 }
 

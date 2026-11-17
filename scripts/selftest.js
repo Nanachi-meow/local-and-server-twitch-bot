@@ -352,6 +352,18 @@ ok('музыка: возврат баллов — CANCELED через helix ст
 const refundBad = await cancelRedemption({ broadcasterId: '', rewardId: 'x', redemptionId: 'y', helix: fakeBcHelixRefund });
 ok('музыка: возврат без данных — понятная ошибка', Boolean(refundBad.error));
 
+// тест плеера: первая попытка — рикрол, дальше Bad Apple, счётчик навсегда в файле
+const t1 = await sm.test();
+ok('музыка: тест плеера — первый раз рикрол', t1.first === true && t1.id === 'dQw4w9WgXcQ');
+const t2 = await sm.test();
+ok('музыка: тест плеера — дальше Bad Apple', t2.first === false && t2.id === 'FtutLA63Cp8');
+const storedTest = JSON.parse(fs.readFileSync(songsFile, 'utf8'));
+ok('музыка: тест плеера — счётчик в файле', storedTest.testCount === 2);
+songsSettings.songs.enabled = false;
+const t3 = await sm.test();
+ok('музыка: тест плеера — выключенная музыка не тестируется', Boolean(t3.error));
+songsSettings.songs.enabled = true;
+
 let srNameThrew = false;
 try { engine.upsert({ name: 'ср', response: 'хак' }); } catch { srNameThrew = true; }
 ok('музыка: имена зарезервированы', srNameThrew && RESERVED.has('ср') && RESERVED.has('музыка'));

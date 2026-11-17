@@ -87,6 +87,20 @@
       if (role === 'player') ensureApi();
     },
     onEvent(ev) {
+      // тест плеера: играет трек мимо очереди (событие сервиса, не заказа)
+      if (ev?.kind === 'srtest') {
+        if (role !== 'player') return;
+        volume = Math.max(0, Math.min(100, Number(ev.volume ?? volume)));
+        ensureApi();
+        if (yt && ev.id) {
+          try {
+            yt.loadVideoById(ev.id);
+            yt.setVolume(volume);
+            yt.playVideo();
+          } catch {}
+        }
+        return;
+      }
       if (!ev || ev.kind !== 'sr') return;
       volume = Math.max(0, Math.min(100, Number(ev.volume ?? volume)));
       nowTemplate = String(ev.nowTemplate || nowTemplate);
