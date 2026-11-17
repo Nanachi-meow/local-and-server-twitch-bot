@@ -599,23 +599,41 @@ const app = {
           .filter((x) => x.id)
           .slice(0, 300);
       }
-      // раскладка и оформление OBS-плеера (редактор в панели: Музыка → «Раскладка»)
-      if (a.playerCfg && typeof a.playerCfg === 'object') {
+      // раскладка-оверлей OBS-плеера: объекты (видео/строка/подложка/свои картинки)
+      // двигаются/масштабируются в редакторе панели; всё в px сцены 1920×1080
+      if (a.playerCfg !== undefined && a.playerCfg !== null && typeof a.playerCfg === 'object') {
         const curCfg = cur.playerCfg ??= {};
         const p = a.playerCfg;
-        if (p.scale !== undefined) curCfg.scale = Math.max(15, Math.min(100, Math.round(Number(p.scale) || 40)));
-        if (p.marqueeDx !== undefined) curCfg.marqueeDx = Math.max(-1200, Math.min(1200, Math.round(Number(p.marqueeDx) || 0)));
-        if (p.marqueeDy !== undefined) curCfg.marqueeDy = Math.max(-600, Math.min(600, Math.round(Number(p.marqueeDy) || 0)));
-        if (p.marqueeWidth !== undefined) curCfg.marqueeWidth = Math.max(40, Math.min(250, Math.round(Number(p.marqueeWidth) || 140)));
-        if (p.marqueeFontSize !== undefined) curCfg.marqueeFontSize = Math.max(10, Math.min(60, Math.round(Number(p.marqueeFontSize) || 22)));
-        if (p.marqueeSpeed !== undefined) curCfg.marqueeSpeed = Math.max(5, Math.min(300, Math.round(Number(p.marqueeSpeed) || 30)));
-        if (p.marqueeColor !== undefined) curCfg.marqueeColor = String(p.marqueeColor).slice(0, 20);
-        if (p.backdrop !== undefined) curCfg.backdrop = Boolean(p.backdrop);
-        if (p.backdropColor !== undefined) curCfg.backdropColor = String(p.backdropColor).slice(0, 20);
-        if (p.backdropOpacity !== undefined) curCfg.backdropOpacity = Math.max(0, Math.min(100, Math.round(Number(p.backdropOpacity) || 0)));
-        if (p.backdropImage !== undefined) curCfg.backdropImage = String(p.backdropImage).replace(/[\\/]/g, '').slice(0, 120);
-        if (p.backdropRadius !== undefined) curCfg.backdropRadius = Math.max(0, Math.min(80, Math.round(Number(p.backdropRadius) || 18)));
-        if (p.backdropPadding !== undefined) curCfg.backdropPadding = Math.max(0, Math.min(120, Math.round(Number(p.backdropPadding) || 14)));
+        if (p.v !== undefined) curCfg.v = 2;
+        if (Array.isArray(p.objects)) {
+          const num = (v, min, max, dflt) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : dflt;
+          };
+          curCfg.objects = p.objects
+            .filter((o) => o && ['video', 'marquee', 'backdrop', 'image'].includes(o.type))
+            .slice(0, 20)
+            .map((o) => {
+              const base = {
+                type: o.type,
+                x: num(o.x, -500, 2500, 0),
+                y: num(o.y, -500, 2500, 0),
+                w: num(o.w, 20, 2500, 400),
+                h: num(o.h, 20, 2500, 300),
+                opacity: num(o.opacity, 0, 100, 100),
+                z: num(o.z, 0, 30, 1),
+                hideOnIdle: Boolean(o.hideOnIdle),
+                image: String(o.image || '').replace(/[\\/]/g, '').slice(0, 120),
+                color: String(o.color || '').slice(0, 20),
+                radius: num(o.radius, 0, 120, 0),
+                fontSize: num(o.fontSize, 10, 60, 22),
+                speed: num(o.speed, 5, 300, 30),
+              };
+              if (o.type === 'video') base.h = Math.round(base.w * 9 / 16); // форма 16:9 не меняется
+              if (o.type === 'marquee') base.h = base.fontSize + 16;
+              return base;
+            });
+        }
       }
       // громкость/шаблон применяем к плееру в OBS сразу — SSE-событие доехает до /music
       try { songs?._emit?.('update'); } catch {}

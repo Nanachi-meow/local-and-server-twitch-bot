@@ -1976,211 +1976,313 @@ $('#sg-test').addEventListener('click', async () => {
   } catch (e) { toast(e.message, true); }
 });
 
-// ---------------- 📐 редактор раскладки OBS-плеера ----------------
-// превью в честном масштабе сцены 1920×1080: k = ширина превью / 1920
+// ---------------- 📐 редактор раскладки OBS-плеера (слои объектов) ----------------
+// всё в px сцены OBS 1920×1080; превью честно масштабируется: k = width/1920
 
-const PLP_DEFAULTS = {
-  scale: 40, marqueeDx: 0, marqueeDy: 8, marqueeWidth: 140,
-  marqueeFontSize: 22, marqueeSpeed: 30, marqueeColor: '#ffffff',
-  backdrop: false, backdropColor: '#0c0a19', backdropOpacity: 55, backdropImage: '',
-  backdropRadius: 18, backdropPadding: 14,
-};
-let plpCfg = { ...PLP_DEFAULTS };
+let plp = { objects: [], sel: 0 };
 
-function plpGeom() {
-  // геометрия в px сцены OBS (и пропорционально — в превью через k)
-  const W = Math.max(120, Math.round(800 * plpCfg.scale / 100));
-  const H = Math.round(W * 9 / 16);
-  const MW = Math.max(Math.round(W * 0.4), Math.round(W * plpCfg.marqueeWidth / 100));
-  const MH = plpCfg.marqueeFontSize + 16;
+const PLP_TYPE_RU = { video: '📺 видео', marquee: '🎬 строка', backdrop: '🟪 подложка', image: '🖼 картинка' };
+
+function plpNorm(raw) {
+  const c = raw ?? {};
+  if (Array.isArray(c.objects) && c.objects.length) {
+    return {
+      v: 2,
+      objects: c.objects
+        .filter((o) => o && ['video', 'marquee', 'backdrop', 'image'].includes(o.type))
+        .map((o) => ({
+          type: o.type,
+          x: Number(o.x) || 0, y: Number(o.y) || 0,
+          w: Math.max(20, Number(o.w) || 400), h: Math.max(20, Number(o.h) || 300),
+          opacity: Math.max(0, Math.min(100, Number(o.opacity ?? 100))),
+          z: Math.max(0, Math.min(30, Number(o.z ?? 1))),
+          hideOnIdle: Boolean(o.hideOnIdle),
+          image: String(o.image || ''),
+          color: String(o.color || ''),
+          radius: Math.max(0, Number(o.radius) || 0),
+          fontSize: Math.max(10, Number(o.fontSize) || 22),
+          speed: Math.max(5, Number(o.speed) || 30),
+        })),
+    };
+  }
+  // пусто/легаси → дефолт: микро-экран по центру + строка ниже
+  const W = 320, H = 180;
   return {
-    sw: 1920, sh: 1080,
-    vx: (1920 - W) / 2, vy: (1080 - H) / 2, vw: W, vh: H,
-    gap: 12,
-    MW, MH,
-    mx: 1920 / 2 + plpCfg.marqueeDx - MW / 2,
-    my: (1080 + H) / 2 + 12 + plpCfg.marqueeDy,
+    v: 2,
+    objects: [
+      { type: 'video', x: (1920 - W) / 2, y: (1080 - H) / 2, w: W, h: H, opacity: 100, z: 3, hideOnIdle: true },
+      { type: 'marquee', x: 960 - 224, y: (1080 + H) / 2 + 12, w: 448, h: 38, opacity: 100, z: 4, hideOnIdle: true, color: '#ffffff', fontSize: 22, speed: 30 },
+    ],
   };
 }
 
-function plpRender(withText = true) {
+function plpK() { const s = $('#plp-stage'); return s ? s.clientWidth / 1920 : 0.25; }
+
+function plpMarqueeText() {
+  const cur = window.__songsState?.current;
+  if (cur) return (window.__settings?.songs?.nowTemplate || '♪ {title} — заказал {by}')
+    .replaceAll('{title}', cur.title || '')
+    .replaceAll('{by}', cur.byName || cur.by || '')
+    .replaceAll('{author}', cur.author || '');
+  return '♪ так будет выглядеть бегущая строка — заказал кто-то';
+}
+
+function plpRenderStage() {
   const stage = $('#plp-stage');
   if (!stage) return;
-  const k = stage.clientWidth / 1920;
-  const g = plpGeom();
-  const q = (obj, x, y, w, h) => { obj.style.left = `${x * k}px`; obj.style.top = `${y * k}px`; obj.style.width = `${w * k}px`; obj.style.height = `${h * k}px`; };
-
-  const vid = $('#plp-video');
-  q(vid, g.vx, g.vy, g.vw, g.vh);
-  vid.style.borderRadius = `${Math.max(10, Math.round(g.vw * 0.055)) * k}px`;
-  // превью видео: превьюшка реального трека, если играет
-  const st = window.__songsState;
-  if (st?.current?.id) vid.style.backgroundImage = `url(https://i.ytimg.com/vi/${st.current.id}/hqdefault.jpg)`;
-  else vid.style.backgroundImage = '';
-
-  const now = $('#plp-marquee');
-  q(now, g.mx, g.my, g.MW, g.MH);
-  now.style.fontSize = `${plpCfg.marqueeFontSize * k}px`;
-  now.style.color = plpCfg.marqueeColor;
-  $('#plp-track').style.animationDuration = `${plpCfg.marqueeSpeed}s`;
-  if (withText) {
-    const t = window.__songsState?.current
-      ? (window.__settings?.songs?.nowTemplate || '♪ {title} — заказал {by}')
-          .replaceAll('{title}', window.__songsState.current.title || '')
-          .replaceAll('{by}', window.__songsState.current.byName || window.__songsState.current.by || '')
-          .replaceAll('{author}', window.__songsState.current.author || '')
-      : '♪ так будет выглядеть бегущая строка — заказал кто-то';
-    $('#plp-t1').textContent = t;
-    $('#plp-t2').textContent = t;
-  }
-
-  // подложка: охват видео+строки с отступом
-  const plate = $('#plp-backdrop-mock');
-  const pad = plpCfg.backdropPadding;
-  const lx = Math.min(g.vx, g.mx) - pad, ty = Math.min(g.vy, g.my) - pad;
-  const rx = Math.max(g.vx + g.vw, g.mx + g.MW) + pad, by = Math.max(g.vy + g.vh, g.my + g.MH) + pad;
-  q(plate, lx, ty, rx - lx, by - ty);
-  plate.classList.toggle('hidden', !plpCfg.backdrop);
-  plate.style.borderRadius = `${plpCfg.backdropRadius * k}px`;
-  if (plpCfg.backdropImage) {
-    plate.style.backgroundImage = `url(/media/${encodeURIComponent(plpCfg.backdropImage)})`;
-    plate.style.backgroundColor = 'transparent';
-  } else {
-    plate.style.backgroundImage = '';
-    const m = String(plpCfg.backdropColor).match(/^#?([0-9a-f]{6})$/i);
-    const a = plpCfg.backdropOpacity / 100;
-    plate.style.backgroundColor = m
-      ? `rgba(${parseInt(m[1].slice(0, 2), 16)}, ${parseInt(m[1].slice(2, 4), 16)}, ${parseInt(m[1].slice(4, 6), 16)}, ${a})`
-      : plpCfg.backdropColor;
+  const k = plpK();
+  const sorted = plp.objects.map((o, i) => ({ o, i })).sort((a, b) => (a.o.z ?? 0) - (b.o.z ?? 0));
+  stage.innerHTML = '';
+  for (const { o, i } of sorted) {
+    const div = document.createElement('div');
+    div.className = `plp-obj plp-${o.type}${i === plp.sel ? ' sel' : ''}`;
+    div.dataset.i = i;
+    div.style.left = `${o.x * k}px`;
+    div.style.top = `${o.y * k}px`;
+    div.style.width = `${o.w * k}px`;
+    div.style.height = `${o.h * k}px`;
+    div.style.opacity = String(o.opacity / 100);
+    if (o.type === 'video') {
+      div.style.borderRadius = `${Math.max(6, Math.round(o.w * 0.055)) * k}px`;
+      const cur = window.__songsState?.current;
+      div.style.backgroundImage = cur?.id ? `url(https://i.ytimg.com/vi/${cur.id}/hqdefault.jpg)` : '';
+    } else if (o.type === 'marquee') {
+      div.style.color = o.color || '#ffffff';
+      div.style.fontSize = `${o.fontSize * k}px`;
+      const t = plpMarqueeText();
+      div.innerHTML = `<div class="pl-track" style="animation-duration:${o.speed}s"><span>${esc(t)}</span><span>${esc(t)}</span></div>`;
+    } else if (o.type === 'backdrop') {
+      div.style.borderRadius = `${o.radius * k}px`;
+      if (o.image) {
+        div.style.backgroundImage = `url(/media/${encodeURIComponent(o.image)})`;
+      } else {
+        const m = String(o.color || '#0c0a19').match(/^#?([0-9a-f]{6})$/i);
+        div.style.backgroundColor = m
+          ? `rgba(${parseInt(m[1].slice(0, 2), 16)}, ${parseInt(m[1].slice(2, 4), 16)}, ${parseInt(m[1].slice(4, 6), 16)}, 1)`
+          : (o.color || '#0c0a19');
+        div.style.opacity = String(o.opacity / 100);
+      }
+    } else if (o.type === 'image') {
+      div.style.borderRadius = `${o.radius * k}px`;
+      if (o.image) div.style.backgroundImage = `url(/media/${encodeURIComponent(o.image)})`;
+    }
+    if (i === plp.sel) {
+      const h = document.createElement('div');
+      h.className = 'plp-resize';
+      div.appendChild(h);
+    }
+    stage.appendChild(div);
   }
 }
 
-// перетаскивание строки прямо в превью
+// ---------- drag/resize мышкой прямо в превью ----------
 (() => {
-  const marquee = $('#plp-marquee');
-  let dragging = false;
-  let grabX = 0, grabY = 0, startDx = 0, startDy = 0;
-  marquee.addEventListener('pointerdown', (e) => {
-    dragging = true;
-    marquee.setPointerCapture(e.pointerId);
+  const stage = $('#plp-stage');
+  let mode = null; // 'move' | 'resize'
+  let idx = -1;
+  let grabX = 0, grabY = 0;
+  let start = null;
+
+  stage.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.plp-resize');
+    const obj = e.target.closest('.plp-obj');
+    if (!obj) return;
+    idx = Number(obj.dataset.i);
+    plp.sel = idx;
+    if (handle) mode = 'resize'; else { mode = 'move'; obj.setPointerCapture?.(e.pointerId); }
+    stage.setPointerCapture?.(e.pointerId);
     grabX = e.clientX; grabY = e.clientY;
-    startDx = plpCfg.marqueeDx; startDy = plpCfg.marqueeDy;
+    start = { ...plp.objects[idx] };
+    plpRenderStage();
+    plpRenderProps();
+    e.preventDefault();
   });
-  marquee.addEventListener('pointermove', (e) => {
-    if (!dragging) return;
-    const k = $('#plp-stage').clientWidth / 1920;
-    plpCfg.marqueeDx = Math.round(Math.max(-960, Math.min(960, startDx + (e.clientX - grabX) / k)));
-    plpCfg.marqueeDy = Math.round(Math.max(-540, Math.min(540, startDy + (e.clientY - grabY) / k)));
-    plpRender(false);
+
+  stage.addEventListener('pointermove', (e) => {
+    if (!mode) return;
+    const k = plpK();
+    const o = plp.objects[idx];
+    const dx = (e.clientX - grabX) / k;
+    const dy = (e.clientY - grabY) / k;
+    if (mode === 'move') {
+      o.x = Math.round(Math.max(-500, Math.min(2500, start.x + dx)));
+      o.y = Math.round(Math.max(-500, Math.min(2500, start.y + dy)));
+    } else {
+      o.w = Math.round(Math.max(20, Math.min(2500, start.w + dx)));
+      if (o.type === 'video') o.h = Math.round(o.w * 9 / 16); // форма не меняется
+      else o.h = Math.round(Math.max(20, Math.min(2500, start.h + dy)));
+      if (o.type === 'marquee') o.h = o.fontSize + 16;
+    }
+    plpRenderStage();
+    plpRenderProps();
   });
-  marquee.addEventListener('pointerup', () => { dragging = false; });
+
+  const stop = () => { mode = null; };
+  stage.addEventListener('pointerup', stop);
+  stage.addEventListener('pointercancel', stop);
 })();
 
-// контролы → конфиг → превью
-$('#plp-size').addEventListener('input', () => {
-  plpCfg.scale = Number($('#plp-size').value);
-  $('#plp-size-val').textContent = `${plpCfg.scale}%`;
-  plpRender(false);
-});
-$('#plp-length').addEventListener('input', () => {
-  plpCfg.marqueeWidth = Number($('#plp-length').value);
-  $('#plp-length-val').textContent = `${plpCfg.marqueeWidth}%`;
-  plpRender(false);
-});
-$('#plp-color').addEventListener('input', () => { plpCfg.marqueeColor = $('#plp-color').value; plpRender(false); });
-$('#plp-font').addEventListener('input', () => { plpCfg.marqueeFontSize = Number($('#plp-font').value) || 22; plpRender(); });
-$('#plp-speed').addEventListener('input', () => { plpCfg.marqueeSpeed = Number($('#plp-speed').value) || 30; plpRender(true); });
-$('#plp-backdrop').addEventListener('change', () => {
-  plpCfg.backdrop = $('#plp-backdrop').checked;
-  $('#plp-bd-block').classList.toggle('hidden', !plpCfg.backdrop);
-  plpRender(false);
-});
-$('#plp-bd-color').addEventListener('input', () => { plpCfg.backdropColor = $('#plp-bd-color').value; plpRender(false); });
-$('#plp-bd-opacity').addEventListener('input', () => {
-  plpCfg.backdropOpacity = Number($('#plp-bd-opacity').value);
-  $('#plp-bd-opacity-val').textContent = `${plpCfg.backdropOpacity}%`;
-  plpRender(false);
-});
-$('#plp-bd-radius').addEventListener('input', () => { plpCfg.backdropRadius = Number($('#plp-bd-radius').value) || 0; plpRender(false); });
-$('#plp-bd-padding').addEventListener('input', () => { plpCfg.backdropPadding = Number($('#plp-bd-padding').value) || 0; plpRender(false); });
+// ---------- свойства выбранного объекта ----------
+function plpRenderProps() {
+  const chips = $('#plp-objects');
+  const props = $('#plp-props');
+  if (!chips || !props) return;
+  chips.innerHTML = plp.objects.map((o, i) =>
+    `<span class="chip${i === plp.sel ? ' sel' : ''}" data-i="${i}">${PLP_TYPE_RU[o.type] ?? o.type}${o.type === 'image' && o.image ? ` · ${esc(o.image)}` : ''}</span>`
+  ).join('') || '<span class="hint">объектов нет</span>';
+  const o = plp.objects[plp.sel];
+  if (!o) { props.innerHTML = ''; return; }
 
-async function plpRefreshImageList() {
-  const { files } = await api('/api/media');
-  const sel = $('#plp-bd-image');
-  const images = files.filter((f) => ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'apng'].includes(fileExt(f)));
-  sel.innerHTML = ['<option value="">— без картинки (цвет+прозрачность) —</option>',
-    ...images.map((f) => `<option value="${esc(f)}" ${plpCfg.backdropImage === f ? 'selected' : ''}>${esc(f)}</option>`)].join('');
+  const row = (label, html) => `<label>${label}<div class="am-sound-row">${html}</div></label>`;
+  let html = `
+    ${row(`ширина, px <span class="hint" id="plp-w-val">${o.w}</span>`, `<input type="range" id="plp-w" min="20" max="2000" value="${o.w}" />`)}
+    ${row('прозрачность', `<input type="range" id="plp-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="plp-op-val">${o.opacity}%</span>`)}
+    <div class="rp-row">
+      <label class="hint">слой: сверху 🡒</label>
+      <button class="act ghost" id="plp-zup" title="поднять слой">▲</button>
+      <span class="hint">z=${o.z}</span>
+      <button class="act ghost" id="plp-zdown" title="опустить слой">▼</button>
+      <label class="hint"><input type="checkbox" id="plp-idle" ${o.hideOnIdle ? 'checked' : ''} /> прятать, когда ничего не играет</label>
+    </div>`;
+  if (o.type === 'marquee') {
+    html += row('строка', `<span class="hint">цвет</span><input type="color" id="plp-color" value="${esc(o.color || '#ffffff')}" /><span class="hint">шрифт</span><input type="number" id="plp-fs" min="10" max="60" value="${o.fontSize}" style="width:56px" /><span class="hint">круг, сек</span><input type="number" id="plp-speed" min="5" max="300" value="${o.speed}" style="width:56px" />`);
+  }
+  if (o.type === 'backdrop' || o.type === 'image') {
+    html += row('вид', `<span class="hint">углы</span><input type="number" id="plp-radius" min="0" max="120" value="${o.radius}" style="width:56px" />${o.type === 'backdrop' ? `<span class="hint">цвет</span><input type="color" id="plp-bcolor" value="${esc(o.color || '#0c0a19')}" />` : ''}`);
+    html += `<label>картинка <select id="plp-img"></select></label>
+      <div class="am-sound-row"><input type="file" id="plp-img-file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="max-width:220px" /><button class="act ghost" id="plp-img-up" title="загрузить и поставить сюда">⬆</button></div>`;
+  }
+  if (o.type === 'image') {
+    html += `<div class="row"><button class="act ghost" id="plp-del" title="удалить этот элемент">🗑 Удалить элемент</button></div>`;
+  }
+  props.innerHTML = html;
+
+  // слушатели полей
+  $('#plp-w')?.addEventListener('input', () => {
+    o.w = Number($('#plp-w').value);
+    if (o.type === 'video') o.h = Math.round(o.w * 9 / 16);
+    $('#plp-w-val').textContent = String(o.w);
+    plpRenderStage();
+  });
+  $('#plp-op')?.addEventListener('input', () => {
+    o.opacity = Number($('#plp-op').value);
+    $('#plp-op-val').textContent = `${o.opacity}%`;
+    plpRenderStage();
+  });
+  $('#plp-zup')?.addEventListener('click', () => { o.z = Math.min(30, o.z + 1); plpRenderStage(); plpRenderProps(); });
+  $('#plp-zdown')?.addEventListener('click', () => { o.z = Math.max(0, o.z - 1); plpRenderStage(); plpRenderProps(); });
+  $('#plp-idle')?.addEventListener('change', () => { o.hideOnIdle = $('#plp-idle').checked; });
+  $('#plp-color')?.addEventListener('input', () => { o.color = $('#plp-color').value; plpRenderStage(); });
+  $('#plp-fs')?.addEventListener('input', () => { o.fontSize = Number($('#plp-fs').value) || 22; o.h = o.fontSize + 16; plpRenderStage(); });
+  $('#plp-speed')?.addEventListener('input', () => { o.speed = Number($('#plp-speed').value) || 30; plpRenderStage(); });
+  $('#plp-radius')?.addEventListener('input', () => { o.radius = Number($('#plp-radius').value) || 0; plpRenderStage(); });
+  $('#plp-bcolor')?.addEventListener('input', () => { o.color = $('#plp-bcolor').value; plpRenderStage(); });
+
+  const imgSel = $('#plp-img');
+  if (imgSel) {
+    api('/api/media').then(({ files }) => {
+      const images = files.filter((f) => ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'apng'].includes(fileExt(f)));
+      imgSel.innerHTML = ['<option value="">— не задано —</option>',
+        ...images.map((f) => `<option value="${esc(f)}" ${o.image === f ? 'selected' : ''}>${esc(f)}</option>`)].join('');
+    }).catch(() => {});
+    imgSel.addEventListener('change', () => { o.image = imgSel.value; plpRenderStage(); plpRenderProps(); });
+    $('#plp-img-up')?.addEventListener('click', async () => {
+      const file = $('#plp-img-file')?.files?.[0];
+      if (!file) { toast('Сначала выбери картинку', true); return; }
+      try {
+        const r = await fetch(`/api/media/upload?name=${encodeURIComponent(file.name)}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        o.image = file.name;
+        toast('Картинка загружена и поставлена на элемент ✅');
+        plpRenderStage();
+        plpRenderProps();
+      } catch (e) { toast(e.message, true); }
+    });
+  }
+  $('#plp-del')?.addEventListener('click', () => {
+    plp.objects.splice(plp.sel, 1);
+    plp.sel = Math.max(0, plp.sel - 1);
+    plpRenderStage();
+    plpRenderProps();
+  });
 }
-$('#plp-bd-image').addEventListener('change', () => { plpCfg.backdropImage = $('#plp-bd-image').value; plpRender(false); });
-$('#plp-bd-image-upload').addEventListener('click', async () => {
-  const file = $('#plp-bd-image-file')?.files?.[0];
-  if (!file) { toast('Сначала выбери картинку', true); return; }
+
+$('#plp-objects').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip[data-i]');
+  if (!chip) return;
+  plp.sel = Number(chip.dataset.i);
+  plpRenderStage();
+  plpRenderProps();
+});
+
+// ---------- тулбар редактора ----------
+$('#plp-skip').addEventListener('click', async () => {
+  try { await api('/api/actions/srnext', { method: 'POST', body: '{}' }); toast('Трек скипнут ⏭'); }
+  catch (e) { toast(e.message, true); }
+});
+$('#plp-toggle').addEventListener('click', () => {
+  const op = __songsPaused || window.__songsState?.paused ? 'resume' : 'pause';
+  api('/api/actions/srcontrol', { method: 'POST', body: JSON.stringify({ op }) })
+    .then(() => { __songsPaused = op === 'pause'; const b = $('#plp-toggle'); b.textContent = __songsPaused ? '▶' : '⏸'; })
+    .catch((e) => toast(e.message, true));
+});
+
+$('#plp-add-image').addEventListener('click', () => $('#plp-image-file').click());
+$('#plp-image-file').addEventListener('change', async () => {
+  const file = $('#plp-image-file')?.files?.[0];
+  if (!file) return;
   try {
     const r = await fetch(`/api/media/upload?name=${encodeURIComponent(file.name)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-    plpCfg.backdropImage = file.name;
-    $('#plp-bd-image-file').value = '';
-    await plpRefreshImageList();
-    plpRender(false);
-    toast('Картинка подложки загружена ✅');
+    const zMax = Math.max(0, ...plp.objects.map((o) => o.z));
+    plp.objects.push({ type: 'image', x: 660, y: 340, w: 600, h: 400, opacity: 100, z: zMax + 1, hideOnIdle: false, image: file.name, radius: 0 });
+    plp.sel = plp.objects.length - 1;
+    $('#plp-image-file').value = '';
+    plpRenderStage();
+    plpRenderProps();
+    toast('Элемент добавлен — двигай его в превью 🖼');
   } catch (e) { toast(e.message, true); }
 });
 
-// ⬇ SVG-шаблон подложки: честные размеры сцены, зоны видео и строки обведены
+// ⬇ SVG-шаблон: зоны всех объектов с честными размерами
 $('#plp-template').addEventListener('click', () => {
-  const g = plpGeom();
-  const pad = plpCfg.backdropPadding;
-  const lx = Math.min(g.vx, g.mx) - pad, ty = Math.min(g.vy, g.my) - pad;
-  const rx = Math.max(g.vx + g.vw, g.mx + g.MW) + pad, by = Math.max(g.vy + g.vh, g.my + g.MH) + pad;
+  const colors = { video: '#22c55e', marquee: '#eab308', backdrop: '#8b5cf6', image: '#38bdf8' };
+  const shapes = plp.objects.map((o) => `
+  <rect x="${o.x}" y="${o.y}" width="${o.w}" height="${o.h}" fill="none" stroke="${colors[o.type]}" stroke-width="4" stroke-dasharray="14 8" rx="${o.radius}"/>
+  <text x="${o.x + 8}" y="${Math.max(20, o.y - 8)}" fill="${colors[o.type]}" font-size="22" font-family="sans-serif">${PLP_TYPE_RU[o.type]} ${o.w}×${o.h} px, слой ${o.z}</text>`).join('');
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
-  <title>Шаблон подложки плеера музыки</title>
-  <!-- зона подложки: нарисуй здесь свой фон; всё за пределами — обрежется -->
-  <rect x="${lx}" y="${ty}" width="${rx - lx}" height="${by - ty}" fill="none" stroke="#8b5cf6" stroke-width="4" stroke-dasharray="16 10"/>
-  <text x="${lx + 10}" y="${ty - 10}" fill="#8b5cf6" font-size="24" font-family="sans-serif">подложка ${Math.round(rx - lx)}×${Math.round(by - ty)} px</text>
-  <!-- видео (не рисовать тут ничего — ляжет поверх) -->
-  <rect x="${g.vx}" y="${g.vy}" width="${g.vw}" height="${g.vh}" fill="none" stroke="#22c55e" stroke-width="4"/>
-  <text x="${g.vx + 10}" y="${g.vy - 10}" fill="#22c55e" font-size="24" font-family="sans-serif">видео ${g.vw}×${g.vh} px</text>
-  <!-- бегущая строка: держи эту зону читабельной -->
-  <rect x="${g.mx}" y="${g.my}" width="${g.MW}" height="${g.MH}" fill="none" stroke="#eab308" stroke-width="4" stroke-dasharray="10 6"/>
-  <text x="${g.mx + 10}" y="${g.my + g.MH - 8}" fill="#eab308" font-size="24" font-family="sans-serif">строка ${Math.round(g.MW)}×${g.MH} px</text>
+  <title>Шаблон оверлея плеера музыки</title>
+  ${shapes}
 </svg>`;
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'player-podlozhka-template.svg';
+  a.download = 'player-template.svg';
   a.click();
   URL.revokeObjectURL(url);
-  toast('Шаблон скачан: обведены подложка/видео/строка. Нарисуй свой вариант и загрузи его ⬆');
+  toast('Шаблон скачан: зоны всех объектов с их размерами');
 });
 
 $('#plp-save').addEventListener('click', async () => {
   try {
-    await putSettings({ songs: { playerCfg: { ...plpCfg } } });
+    await putSettings({ songs: { playerCfg: { v: 2, objects: plp.objects } } });
     toast('Раскладка сохранена — открытый плеер в OBS обновится сразу ✅');
   } catch (e) { toast(e.message, true); }
 });
 
-//  plpLoad(cfg): заполнить контролы и превью из настроек (вызывается из loadSongsTab)
 function plpLoad(cfg, songsState) {
-  plpCfg = { ...PLP_DEFAULTS, ...(cfg ?? {}) };
+  plp = plpNorm(cfg);
+  plp.sel = 0;
   window.__songsState = songsState ?? null;
-  $('#plp-size').value = plpCfg.scale; $('#plp-size-val').textContent = `${plpCfg.scale}%`;
-  $('#plp-length').value = plpCfg.marqueeWidth; $('#plp-length-val').textContent = `${plpCfg.marqueeWidth}%`;
-  $('#plp-color').value = plpCfg.marqueeColor;
-  $('#plp-font').value = plpCfg.marqueeFontSize;
-  $('#plp-speed').value = plpCfg.marqueeSpeed;
-  $('#plp-backdrop').checked = Boolean(plpCfg.backdrop);
-  $('#plp-bd-block').classList.toggle('hidden', !plpCfg.backdrop);
-  $('#plp-bd-color').value = plpCfg.backdropColor;
-  $('#plp-bd-opacity').value = plpCfg.backdropOpacity; $('#plp-bd-opacity-val').textContent = `${plpCfg.backdropOpacity}%`;
-  $('#plp-bd-radius').value = plpCfg.backdropRadius;
-  $('#plp-bd-padding').value = plpCfg.backdropPadding;
-  plpRefreshImageList().catch(() => {});
-  plpRender();
+  plpRenderStage();
+  plpRenderProps();
 }
 
 $('#sg-body').addEventListener('click', async (e) => {

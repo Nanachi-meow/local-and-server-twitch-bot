@@ -235,20 +235,27 @@ nav {
   background:
     repeating-conic-gradient(rgba(255,255,255,.05) 0% 25%, rgba(0,0,0,.25) 0% 50%) 0 0 / 24px 24px;
   border: 1px solid var(--line);
+  touch-action: none;
 }
-#plp-video {
-  position: absolute; background-color: #000; background-size: cover; background-position: center;
-  outline: 2px solid rgba(139, 92, 246, .55);
+.plp-obj { position: absolute; cursor: grab; }
+.plp-obj:active { cursor: grabbing; }
+.plp-obj.sel { outline: 2px solid var(--accent); }
+.plp-obj .plp-kind { pointer-events: none; }
+.plp-video { background-color: #000; background-size: cover; background-position: center; }
+.plp-marquee { overflow: hidden; white-space: nowrap; display: flex; align-items: center; background: transparent; }
+.plp-marquee .pl-track { display: inline-flex; width: max-content; animation: plp-run 30s linear infinite; pointer-events: none; }
+.plp-marquee .pl-track span { padding-right: 64px; text-shadow: 0 2px 8px rgba(0, 0, 0, .75); }
+.plp-backdrop { background-size: 100% 100%; background-position: center; pointer-events: auto; }
+.plp-image { background-size: 100% 100%; background-position: center; }
+.plp-image img { width: 100%; height: 100%; display: block; }
+.plp-resize {
+  position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px;
+  background: var(--accent); border: 2px solid #fff; border-radius: 50%;
+  cursor: nwse-resize;
 }
-#plp-backdrop-mock { position: absolute; background-size: 100% 100%; background-position: center; }
-#plp-marquee {
-  position: absolute; overflow: hidden; white-space: nowrap; display: flex; align-items: center;
-  cursor: grab; outline: 2px dashed rgba(139, 92, 246, .8);
-}
-#plp-marquee:active { cursor: grabbing; }
-#plp-track { display: inline-flex; width: max-content; animation: plp-run 30s linear infinite; }
-#plp-track span { padding-right: 64px; text-shadow: 0 2px 8px rgba(0, 0, 0, .75); }
 @keyframes plp-run { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+#plp-objects .chip { cursor: pointer; }
+#plp-objects .chip.sel { border-color: var(--accent); color: var(--text); font-weight: 600; }
 
 /* выключенная встроенная команда — приглушена */
 tr.off td { opacity: .45; }

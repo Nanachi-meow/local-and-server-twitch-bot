@@ -5,10 +5,12 @@
 <title>Плеер музыки — Twitch-бот</title>
 <style>
   /* ═══════════════════════════════════════════════════════════════════
-   *  Страница для OBS Browser Source: микро-экран (видео) и бегущая строка.
-   *  Ноль кнопок — управление в панели бота (🎵 Музыка → «📐 Раскладка»):
-   *  там размер, позиция строки, цвета, подложка, своя картинка.
-   *  Когда ничего не играет — страница полностью прозрачная.
+   *  Страница для OBS Browser Source — оверлей плеера музыки.
+   *  Раскладка (объекты: видео, бегущая строка, подложка, свои картинки,
+   *  позиции/размеры/прозрачность/слои) настраивается в панели бота:
+   *  🎵 Музыка → «📐 Раскладка плеера».
+   *  Видео и строка исчезают, когда ничего не играет (объекты с
+   *  «прятать при простое»); декор остаётся.
    *  Контракт (события/API) — в player/README.md
    * ═══════════════════════════════════════════════════════════════════ */
   html, body {
@@ -18,50 +20,37 @@
   #pl-stage { position: fixed; inset: 0; }
   .pl-hidden { visibility: hidden !important; }
 
-  /* подложка-плашка под видео и строкой (цвет/картинка настраиваются в панели) */
-  #pl-plate { position: absolute; background-size: 100% 100%; background-position: center; }
+  .pl-obj { position: absolute; }
 
-  /* микро-экран */
-  #pl-video {
-    position: absolute; background: #000; overflow: hidden;
-    box-shadow: none; border: 0;
-  }
-  #pl-video iframe { width: 100%; height: 100%; border: 0; display: block; }
+  /* видео */
+  .pl-obj-video { background: #000; overflow: hidden; }
+  .pl-obj-video iframe { width: 100%; height: 100%; border: 0; display: block; }
 
-  /* бегущая строка: длиннее может быть шире видео, текст без рамок */
-  #pl-now {
-    position: absolute; overflow: hidden; white-space: nowrap;
-    display: flex; align-items: center;
-  }
-  #pl-track {
-    display: inline-flex; width: max-content; will-change: transform;
-    animation: pl-run linear infinite;
-  }
-  #pl-track.paused { animation-play-state: paused; }
-  #pl-track span { padding-right: 64px; text-shadow: 0 2px 8px rgba(0, 0, 0, .75); }
+  /* бегущая строка: без рамок, две копии текста = бесшовный круг */
+  .pl-obj-marquee { overflow: hidden; white-space: nowrap; display: flex; align-items: center; }
+  .pl-obj-marquee .pl-track { display: inline-flex; width: max-content; will-change: transform; animation: pl-run 30s linear infinite; }
+  .pl-obj-marquee .pl-track.paused { animation-play-state: paused; }
+  .pl-obj-marquee .pl-track span { padding-right: 64px; text-shadow: 0 2px 8px rgba(0, 0, 0, .75); }
   @keyframes pl-run { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+  /* подложка и свои картинки */
+  .pl-obj-backdrop { background-size: 100% 100%; background-position: center; }
+  .pl-obj-image img { width: 100%; height: 100%; display: block; }
 </style>
 </head>
 <body>
-  <div id="pl-stage">
-    <div id="pl-plate" class="pl-hidden"></div>
-    <div id="pl-video" class="pl-hidden"></div>
-    <div id="pl-now" class="pl-hidden"><div id="pl-track"><span id="pl-t1"></span><span id="pl-t2"></span></div></div>
-  </div>
+  <div id="pl-stage"></div>
 <script>
   /**
-   * Плеер музыки для OBS — чистый дисплей без кнопок.
-   * Раскладка (размер видео, позиция/длина строки, подложка) приносит настройку
+   * Плеер музыки для OBS — чистый дисплей без кнопок, вся раскладка из панели.
    *   GET /api/songs  → { current, queue, paused, enabled, volume, nowTemplate, playerCfg }
    *   SSE /overlay/feed → { kind:'sr' | 'srtest', op:…, playerCfg } — применяется живьём
-   * «Трек закончился» → POST /api/songs {op:'ended'}
+   *   POST /api/songs {op:'ended'} — трек закончился
    */
   (() => {
+    const SCENE_W = 1920, SCENE_H = 1080;
     let yt = null;
-    let cfg = { scale: 40, marqueeDx: 0, marqueeDy: 8, marqueeWidth: 140, marqueeColor: '#ffffff',
-                marqueeFontSize: 22, marqueeSpeed: 30,
-                backdrop: false, backdropColor: '#0c0a19', backdropOpacity: 55,
-                backdropImage: '', backdropRadius: 18, backdropPadding: 14 };
+    let cfg = { v: 2, objects: [] };
     let current = null;
     let nowTemplate = '♪ {title} — заказал {by}';
     let volume = 60;
@@ -70,97 +59,141 @@
     let testingTitle = '';
     let pausedNow = false;
     let lastVideoId = null;
+    let pendingPlayerCfg = null;
 
-    const el = (id) => document.getElementById(id);
     const fmt = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
 
-    // ---------- раскладка: микро-экран по центру, строка плавает ----------
-    function layout() {
-      const sw = window.innerWidth, sh = window.innerHeight;
-      const W = Math.max(120, Math.round(800 * (Number(cfg.scale) || 40) / 100)); // 16:9 не меняется
-      const H = Math.round(W * 9 / 16);
-      const vid = el('pl-video');
-      const now = el('pl-now');
-      const plate = el('pl-plate');
-      const gap = 12;
-
-      vid.style.width = `${W}px`;
-      vid.style.height = `${H}px`;
-      vid.style.left = `${Math.round((sw - W) / 2)}px`;
-      vid.style.top = `${Math.round((sh - H) / 2)}px`;
-      vid.style.borderRadius = `${Math.max(10, Math.round(W * 0.055))}px`;
-
-      const MW = Math.max(W * 0.4, Math.round(W * (Number(cfg.marqueeWidth) || 140) / 100));
-      const FS = Math.max(10, Number(cfg.marqueeFontSize) || 22);
-      const MH = FS + 16;
-      const mx = Math.round(sw / 2 + (Number(cfg.marqueeDx) || 0) - MW / 2);
-      const my = Math.round((sh + H) / 2 + gap + (Number(cfg.marqueeDy) || 0));
-      now.style.width = `${MW}px`;
-      now.style.height = `${MH}px`;
-      now.style.left = `${mx}px`;
-      now.style.top = `${my}px`;
-      now.style.fontSize = `${FS}px`;
-      now.style.color = String(cfg.marqueeColor || '#ffffff');
-      el('pl-track').style.animationDuration = `${Math.max(5, Number(cfg.marqueeSpeed) || 30)}s`;
-
-      // подложка: охватывает видео + строку
-      const pad = Math.max(0, Number(cfg.backdropPadding) || 0);
-      const left = Math.min(sw / 2 - W / 2, mx) - pad;
-      const top = Math.min(sh / 2 - H / 2, my) - pad;
-      const right = Math.max(sw / 2 + W / 2, mx + MW) + pad;
-      const bottom = Math.max(sh / 2 + H / 2, my + MH) + pad;
-      plate.style.left = `${left}px`;
-      plate.style.top = `${top}px`;
-      plate.style.width = `${right - left}px`;
-      plate.style.height = `${bottom - top}px`;
-      plate.style.borderRadius = `${Number(cfg.backdropRadius) || 0}px`;
-
-      // что вообще показывать: музыка выключена или очередь пуста — страница прозрачная
-      const hasShow = enabled && Boolean(current || testing);
-      vid.classList.toggle('pl-hidden', !hasShow);
-      plate.classList.toggle('pl-hidden', !hasShow || !cfg.backdrop);
-      now.classList.toggle('pl-hidden', !hasShow || !(testing || current));
-      // скрытое видео не должно звук давать
-      if (!hasShow) { try { yt?.stopVideo?.(); lastVideoId = null; } catch {} }
+    // ---------- дефолт и нормализация раскладки ----------
+    function defaultObjects() {
+      const W = 320, H = 180; // микро-экран 40% от 800
+      return [
+        { type: 'video', x: (SCENE_W - W) / 2, y: (SCENE_H - H) / 2, w: W, h: H, opacity: 100, z: 3, hideOnIdle: true },
+        { type: 'marquee', x: SCENE_W / 2 - 224, y: (SCENE_H + H) / 2 + 12, w: 448, h: 38, opacity: 100, z: 4, hideOnIdle: true, color: '#ffffff', fontSize: 22, speed: 30 },
+      ];
+    }
+    function normalizeCfg(raw) {
+      const c = raw ?? {};
+      if (Array.isArray(c.objects) && c.objects.length) {
+        return {
+          v: 2,
+          objects: c.objects
+            .filter((o) => o && ['video', 'marquee', 'backdrop', 'image'].includes(o.type))
+            .map((o) => ({
+              type: o.type,
+              x: Number(o.x) || 0, y: Number(o.y) || 0,
+              w: Math.max(20, Number(o.w) || 400), h: Math.max(20, Number(o.h) || 300),
+              opacity: Math.max(0, Math.min(100, Number(o.opacity ?? 100))),
+              z: Math.max(0, Math.min(30, Number(o.z ?? 1))),
+              hideOnIdle: Boolean(o.hideOnIdle),
+              image: String(o.image || ''),
+              color: String(o.color || ''),
+              radius: Math.max(0, Number(o.radius) || 0),
+              fontSize: Math.max(10, Number(o.fontSize) || 22),
+              speed: Math.max(5, Number(o.speed) || 30),
+            })),
+        };
+      }
+      return { v: 2, objects: defaultObjects() };
     }
 
-    // ---------- бегущая строка: непрерывно, пока играет песня ----------
+    // ---------- рендер объектов ----------
+    const stage = document.getElementById('pl-stage');
+    const nodes = new Map(); // объект → DOM-узел (перестраиваем при смене списка)
+
+    function hexA(color, alpha) {
+      const m = String(color || '').match(/^#?([0-9a-f]{6})$/i);
+      if (!m) return color;
+      const n = m[1];
+      return `rgba(${parseInt(n.slice(0, 2), 16)}, ${parseInt(n.slice(2, 4), 16)}, ${parseInt(n.slice(4, 6), 16)}, ${Math.max(0, Math.min(1, alpha))})`;
+    }
+
+    function renderScene() {
+      const k = window.innerWidth / SCENE_W;
+      // полностью перестраиваем DOM при изменении списка объектов
+      const key = JSON.stringify(cfg.objects.map((o) => [o.type, o.image, o.z]));
+      if (renderScene.key !== key) {
+        renderScene.key = key;
+        stage.innerHTML = '';
+        nodes.clear();
+        const sorted = [...cfg.objects].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
+        for (const o of sorted) {
+          const div = document.createElement('div');
+          div.className = `pl-obj pl-obj-${o.type}`;
+          if (o.type === 'video') {
+            const holder = document.createElement('div');
+            holder.id = 'pl-video';
+            div.appendChild(holder);
+          } else if (o.type === 'marquee') {
+            div.innerHTML = '<div class="pl-track paused"><span></span><span></span></div>';
+          } else if (o.type === 'image' && o.image) {
+            div.innerHTML = `<img src="/media/${encodeURIComponent(o.image)}" alt="">`;
+          }
+          stage.appendChild(div);
+          nodes.set(o, div);
+        }
+        // YouTube-плеер привязывается к #pl-video заново
+        if (cfg.objects.some((o) => o.type === 'video') && !yt) ensureApi();
+      }
+      // позиции/размеры/стили — каждый кадр события
+      for (const o of cfg.objects) {
+        const div = nodes.get(o);
+        if (!div) continue;
+        div.style.left = `${o.x * k}px`;
+        div.style.top = `${o.y * k}px`;
+        div.style.width = `${o.w * k}px`;
+        div.style.height = `${o.h * k}px`;
+        div.style.zIndex = String(o.z ?? 1);
+        div.style.opacity = String(Math.max(0, Math.min(1, (Number(o.opacity ?? 100)) / 100)));
+        if (o.type === 'video') {
+          div.style.borderRadius = `${Math.max(6, Math.round(o.w * 0.055)) * k}px`;
+        } else if (o.type === 'marquee') {
+          div.style.color = o.color || '#ffffff';
+          div.style.fontSize = `${(Number(o.fontSize) || 22) * k}px`;
+          const track = div.querySelector('.pl-track');
+          if (track) {
+            track.style.animationDuration = `${Math.max(5, Number(o.speed) || 30)}s`;
+            track.classList.toggle('paused', pausedNow);
+          }
+        } else if (o.type === 'backdrop') {
+          div.style.borderRadius = `${Number(o.radius || 0) * k}px`;
+          if (o.image) {
+            div.style.backgroundImage = `url("/media/${encodeURIComponent(o.image)}")`;
+            div.style.backgroundColor = 'transparent';
+          } else {
+            div.style.backgroundImage = 'none';
+            div.style.backgroundColor = hexA(o.color || '#0c0a19', (Number(o.opacity ?? 100)) / 100);
+          }
+        } else if (o.type === 'image') {
+          div.style.borderRadius = `${Number(o.radius || 0) * k}px`;
+        }
+        // «прятать при простое»: видео/строка исчезают, когда ничего не играет
+        const idleHide = Boolean(o.hideOnIdle) && !(enabled && (current || testing));
+        div.classList.toggle('pl-hidden', idleHide);
+        if (idleHide && o.type === 'video') { try { yt?.stopVideo?.(); lastVideoId = null; } catch {} }
+      }
+    }
+
+    // ---------- бегущая строка ----------
     function renderNow() {
       const src = testing
         ? { title: `🧪 Тест: ${testingTitle}`, by: 'плеер', author: '', duration: 0 }
         : current;
-      if (!src) { layout(); return; }
-      const text = nowTemplate
-        .replaceAll('{title}', src.title || '')
-        .replaceAll('{by}', src.byName || src.by || '')
-        .replaceAll('{author}', src.author || '')
-        .replaceAll('{duration}', fmt(src.duration || 0));
-      // две копии текста = бесшовный круг: между ними нет пустых секунд
-      el('pl-t1').textContent = text;
-      el('pl-t2').textContent = text;
-      el('pl-track').classList.toggle('paused', pausedNow);
-      layout();
-    }
-
-    // подложка: цвет с прозрачностью или своя картинка (файл из overlay-media/)
-    function renderPlate() {
-      const plate = el('pl-plate');
-      const img = String(cfg.backdropImage || '');
-      if (img) {
-        plate.style.backgroundImage = `url("/media/${encodeURIComponent(img)}?t=${Date.now() // no-store нет — бустим кэш
-          }")`;
-        plate.style.backgroundColor = 'transparent';
-      } else {
-        plate.style.backgroundImage = 'none';
-        const color = String(cfg.backdropColor || '#0c0a19');
-        const a = Math.max(0, Math.min(1, (Number(cfg.backdropOpacity) || 0) / 100));
-        // hex → rgba
-        const m = color.match(/^#?([0-9a-f]{6})$/i);
-        if (m) {
-          const n = m[1];
-          plate.style.backgroundColor = `rgba(${parseInt(n.slice(0, 2), 16)}, ${parseInt(n.slice(2, 4), 16)}, ${parseInt(n.slice(4, 6), 16)}, ${a})`;
-        } else plate.style.backgroundColor = color;
+      for (const o of cfg.objects) {
+        if (o.type !== 'marquee') continue;
+        const track = nodes.get(o)?.querySelector('.pl-track');
+        if (!track) continue;
+        if (!src) continue; // текст не трогаем: объект скрыт при простое
+        const text = nowTemplate
+          .replaceAll('{title}', src.title || '')
+          .replaceAll('{by}', src.byName || src.by || '')
+          .replaceAll('{author}', src.author || '')
+          .replaceAll('{duration}', fmt(src.duration || 0));
+        const spans = track.querySelectorAll('span');
+        spans[0].textContent = text;
+        spans[1].textContent = text;
+        track.classList.toggle('paused', pausedNow);
       }
+      renderScene();
     }
 
     // ---------- YouTube ----------
@@ -170,39 +203,49 @@
       tag.src = 'https://www.youtube.com/iframe_api';
       document.head.appendChild(tag);
       window.onYouTubeIframeAPIReady = () => {
-        yt = new YT.Player('pl-video', {
-          width: '100%', height: '100%',
-          playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: 0, disablekb: 1 },
-          events: {
-            onReady: () => { renderNow(); applyState(); },
-            onStateChange: (e) => {
-              if (e.data === YT.PlayerState.ENDED && !testing && current) {
-                fetch('/api/songs', {
-                  method: 'POST', headers: { 'content-type': 'application/json' },
-                  body: JSON.stringify({ op: 'ended' }),
-                }).then((r) => r.json()).catch(() => {});
-              }
+        const mount = () => {
+          const holder = document.getElementById('pl-video');
+          if (!holder) return;
+          yt = new YT.Player(holder, {
+            width: '100%', height: '100%',
+            playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: 0, disablekb: 1 },
+            events: {
+              onReady: () => { renderNow(); playCurrent(); },
+              onStateChange: (e) => {
+                if (e.data === YT.PlayerState.ENDED && !testing && current) {
+                  fetch('/api/songs', {
+                    method: 'POST', headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ op: 'ended' }),
+                  }).then((r) => r.json()).catch(() => {});
+                }
+              },
             },
-          },
-        });
+          });
+        };
+        // DOM объектов мог ещё не построиться — ждём кадр
+        requestAnimationFrame(mount);
       };
     }
-    function playVideo(id) {
-      if (!yt || !id) return;
-      if (lastVideoId !== id) { yt.loadVideoById(id); lastVideoId = id; }
+    function playCurrent() {
+      if (!yt || !enabled) { try { yt?.stopVideo?.(); lastVideoId = null; } catch {} return; }
+      const id = current?.id;
+      if (!id && !testing) { try { yt?.stopVideo?.(); lastVideoId = null; } catch {} return; }
+      const want = testing ? (cfg.objects.some((o) => o.type === 'video') ? window.__plTestId : null) : id;
+      if (!want) return;
+      if (lastVideoId !== want) { yt.loadVideoById(want); lastVideoId = want; }
       yt.setVolume(volume);
       yt.playVideo();
     }
 
     function applyState() {
-      if (ev_playerCfg) { cfg = { ...cfg, ...ev_playerCfg }; ev_playerCfg = null; renderPlate(); }
-      ensureApi();
+      if (pendingPlayerCfg) {
+        cfg = normalizeCfg({ ...cfg, ...pendingPlayerCfg, v: 2 });
+        pendingPlayerCfg = null;
+      }
+      renderScene();
       renderNow();
-      if (!enabled) { try { yt?.stopVideo?.(); lastVideoId = null; } catch {} return; }
-      if (current?.id) playVideo(current.id);
-      else if (!testing) { try { yt?.stopVideo?.(); lastVideoId = null; } catch {} }
+      playCurrent();
     }
-    let ev_playerCfg = null;
 
     async function loadState() {
       try {
@@ -212,13 +255,12 @@
         nowTemplate = String(st.nowTemplate || nowTemplate);
         enabled = Boolean(st.enabled);
         pausedNow = Boolean(st.paused);
-        if (st.playerCfg) cfg = { ...cfg, ...st.playerCfg };
-        renderPlate();
+        if (st.playerCfg) cfg = normalizeCfg(st.playerCfg);
         applyState();
       } catch {}
     }
 
-    // ---------- SSE: всё то же, что слушают оверлей и панель ----------
+    // ---------- SSE ----------
     const es = new EventSource('/overlay/feed');
     es.onmessage = (m) => {
       try {
@@ -229,7 +271,7 @@
           current = ev.current ?? null;
           pausedNow = Boolean(ev.paused);
           testing = false;
-          if (ev.playerCfg) ev_playerCfg = ev.playerCfg;
+          if (ev.playerCfg) pendingPlayerCfg = ev.playerCfg;
           if (ev.op === 'pause') { pausedNow = true; try { yt?.pauseVideo?.(); } catch {} renderNow(); return; }
           if (ev.op === 'resume') { pausedNow = false; try { yt?.playVideo?.(); } catch {} renderNow(); return; }
           if (ev.op === 'stop') { current = null; testing = false; try { yt?.stopVideo?.(); lastVideoId = null; } catch {} renderNow(); return; }
@@ -238,15 +280,19 @@
           volume = Math.max(0, Math.min(100, Number(ev.volume ?? volume)));
           if (ev.op === 'play') {
             testing = true; pausedNow = false; testingTitle = String(ev.title || 'тест');
-            ensureApi(); playVideo(ev.id); renderNow();
+            window.__plTestId = ev.id;
+            ensureApi();
+            renderScene();
+            playCurrent();
+            renderNow();
           } else if (ev.op === 'pause') { pausedNow = true; try { yt?.pauseVideo?.(); } catch {} renderNow(); }
           else if (ev.op === 'resume') { pausedNow = false; try { yt?.playVideo?.(); } catch {} renderNow(); }
-          else if (ev.op === 'stop') { testing = false; try { yt?.stopVideo?.(); lastVideoId = null; } catch {} renderNow(); }
+          else if (ev.op === 'stop') { testing = false; window.__plTestId = null; try { yt?.stopVideo?.(); lastVideoId = null; } catch {} renderNow(); }
         }
       } catch {}
     };
 
-    window.addEventListener('resize', layout);
+    window.addEventListener('resize', renderScene);
     loadState();
   })();
 </script>

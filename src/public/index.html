@@ -363,49 +363,19 @@
           </div>
           <p class="hint">Видео здесь — превью без звука; громкость применяется к плееру в OBS (звук на стриме) сразу при перемещении ползунка.</p>
           <h3>📐 Раскладка плеера в OBS</h3>
-          <p class="hint">Превью в масштабе сцены: строку <b>перетиши прямо мышкой</b>. Пока ничего не играет — страница в OBS полностью прозрачная.</p>
-          <div id="plp-stage">
-            <div id="plp-backdrop-mock" class="pl-hidden"></div>
-            <div id="plp-video"></div>
-            <div id="plp-marquee"><div id="plp-track"><span id="plp-t1"></span><span id="plp-t2"></span></div></div>
+          <p class="hint">Всё двигается руками: берёшь объект мышкой тащишь, уголком — меняешь размер. Слои, прозрачность, свои элементы поверх плеера — в свойствах снизу. Превью в масштабе сцены 1920×1080 (шахматка = прозрачность OBS).</p>
+          <div class="rp-row" style="margin-bottom:8px">
+            <button class="act ghost" id="plp-skip" title="перескочить трек прямо тут">⏭</button>
+            <button class="act ghost" id="plp-toggle" title="пауза/продолжить">⏸</button>
+            <button class="act ghost" id="plp-add-image" title="свой элемент-картинка поверх плеера (пресет/рамка/декор)">🖼 + свой элемент</button>
+            <button class="act ghost" id="plp-template" title="скачать SVG-шаблон с зонами — нарисуй свой фон и загрузи">⬇ Шаблон</button>
+            <button class="act" id="plp-save">💾 Сохранить раскладку</button>
           </div>
-          <div class="evcard">
-            <label>размер видео <span class="hint">(форма 16:9 не меняется)</span>
-              <div class="am-sound-row"><input type="range" id="plp-size" min="15" max="100" value="40" /><span class="hint" id="plp-size-val">40%</span></div>
-            </label>
-            <label>длина бегущей строки
-              <div class="am-sound-row"><input type="range" id="plp-length" min="40" max="250" value="140" /><span class="hint" id="plp-length-val">140%</span></div>
-            </label>
-            <div class="rp-row">
-              <label>текст строки
-                <div class="am-sound-row"><span class="hint">цвет</span><input type="color" id="plp-color" /><span class="hint">шрифт</span><input type="number" id="plp-font" min="10" max="60" style="width:60px" /><span class="hint">круг, сек</span><input type="number" id="plp-speed" min="5" max="300" style="width:60px" /></div>
-              </label>
-            </div>
-            <label><input type="checkbox" id="plp-backdrop" /> подложка под плеером</label>
-            <div id="plp-bd-block" class="hidden">
-              <label>подложка
-                <div class="am-sound-row">
-                  <span class="hint">цвет</span><input type="color" id="plp-bd-color" />
-                  <span class="hint">прозрачность</span><input type="range" id="plp-bd-opacity" min="0" max="100" style="width:90px" /><span class="hint" id="plp-bd-opacity-val">55%</span>
-                </div>
-                <div class="am-sound-row">
-                  <span class="hint">углы</span><input type="number" id="plp-bd-radius" min="0" max="80" style="width:56px" />
-                  <span class="hint">отступ</span><input type="number" id="plp-bd-padding" min="0" max="120" style="width:56px" />
-                </div>
-              </label>
-              <label>своя картинка подложки
-                <select id="plp-bd-image"></select>
-              </label>
-              <div class="am-sound-row">
-                <input type="file" id="plp-bd-image-file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="max-width:220px" />
-                <button class="act ghost" id="plp-bd-image-upload">⬆</button>
-                <button class="act ghost" id="plp-template" title="скачать SVG-шаблон подложки — обведены зоны видео и строки; нарисуй свой вариант и загрузи его кнопкой ⬆">⬇ Шаблон</button>
-              </div>
-            </div>
-            <div class="row">
-              <button class="act" id="plp-save">💾 Сохранить раскладку</button>
-              <span class="hint" id="plp-hint">не забудь: строка перетаскивается в превью</span>
-            </div>
+          <input type="file" id="plp-image-file" class="hidden" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" />
+          <div id="plp-stage"></div>
+          <div class="evcard" style="margin-top:10px">
+            <div class="chips" id="plp-objects"></div>
+            <div id="plp-props"></div>
           </div>
         </div>
         <div class="card sg-right">
