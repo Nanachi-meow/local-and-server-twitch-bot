@@ -412,6 +412,12 @@
 
     <!-- ============ НАСТРОЙКИ ============ -->
     <section id="tab-settings" class="tabpane">
+      <div class="subtabs">
+        <button class="subtab active" data-subtab="settings-main">⚙️ Настройки</button>
+        <button class="subtab" data-subtab="settings-credits">💜 Благодарности</button>
+      </div>
+
+      <div id="sub-settings-main">
       <div class="card">
         <h2>🔌 Приложение и канал</h2>
 
@@ -550,6 +556,31 @@
           <button class="act ghost" id="obs-test">Проверить связь</button>
         </div>
         <p class="hint" id="obs-result"></p>
+      </div>
+      </div>
+
+      <div id="sub-settings-credits" class="hidden">
+        <div class="card">
+          <h2>💜 Благодарности</h2>
+          <p class="hint">Бот бесплатный и полностью локальный. Если он пригодился — звёздочка репозиторию и подписка стримерам решают 💜</p>
+          <div class="credits">
+            <div class="credit-card">
+              <h3>📦 Исходники</h3>
+              <p class="hint">Свободно, под MIT. Форкай, предлагай улучшения, сообщай о багах:</p>
+              <a class="act" href="https://github.com/Nanachi-meow/local-and-server-twitch-bot" target="_blank" rel="noreferrer">GitHub — local-and-server-twitch-bot</a>
+            </div>
+            <div class="credit-card">
+              <h3>👩‍💻 Разработчица</h3>
+              <p class="hint">Код, деньги из кармана и бессонные ночи:</p>
+              <a class="act" href="https://www.twitch.tv/krolik_nya" target="_blank" rel="noreferrer">twitch.tv/krolik_nya</a>
+            </div>
+            <div class="credit-card">
+              <h3>🧪 Бета-тестерша и главные идеи интерфейса</h3>
+              <p class="hint">Тестировала на живых стримах, теребила, требовала красиво — так панель стала удобной:</p>
+              <a class="act" href="https://www.twitch.tv/cumsya" target="_blank" rel="noreferrer">twitch.tv/cumsya</a>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   </main>

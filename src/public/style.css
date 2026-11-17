@@ -116,6 +116,19 @@ nav {
 }
 .evcard .ev-alert .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
+/* карточки на «Благодарностях» */
+.credits { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; margin-top: 12px; }
+.credit-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  display: flex; flex-direction: column; gap: 8px;
+  align-items: flex-start;
+}
+.credit-card h3 { margin: 0; }
+.credit-card .act { text-decoration: none; }
+
 /* модальное окно настройки алерта */
 .modal-wrap {
   position: fixed; inset: 0; z-index: 60;
