@@ -2574,26 +2574,26 @@ function plpLoad(cfg, songsState) {
 // ---------------- 📺 редактор оверлей-виджета шатаута (аватар + текст) ----------------
 // тот же UX, что у музыкального: drag, магнит, рамка, shift, ctrl+z/y/c/x/v
 
-let aso = { objects: [], sel: 0, selSet: new Set(), duration: 10 };
-const ASO_TYPE_RU = { avatar: '👤 аватар', text: '📝 текст', backdrop: '🟪 подложка', image: '🖼 картинка' };
+let aso = { objects: [], sel: 0, selSet: new Set(), duration: 8 };
+const ASO_TYPE_RU = { avatar: '👤 аватар', banner: '🏞 баннер', text: '📝 текст', backdrop: '🟪 подложка', image: '🖼 картинка' };
 const asoHist = [];
 const asoRedoStack = [];
 let asoLastPush = 0;
 let asoClipboard = [];
 
 function asoDefault() {
-  const W = 160;
+  // базовый шаблон (отредактирован стримером): подложка + круглая аватарка + текст ниже
   return [
-    { id: 'backdrop-0', type: 'backdrop', x: 680, y: 400, w: 560, h: 260, opacity: 100, z: 1, color: '#0c0a19', radius: 20, image: '' },
-    { id: 'avatar-0', type: 'avatar', x: (1920 - W) / 2, y: 420, w: W, h: W, opacity: 100, z: 3, radius: 80 },
-    { id: 'text-0', type: 'text', x: 700, y: 610, w: 520, h: 120, opacity: 100, z: 4, color: '#ffffff', fontSize: 26, radius: 0 },
+    { id: 'backdrop-0', type: 'backdrop', x: 680, y: 280, w: 560, h: 260, opacity: 100, z: 1, color: '#0c0a19', radius: 20, image: '' },
+    { id: 'avatar-0', type: 'avatar', x: 880, y: 330, w: 160, h: 160, opacity: 100, z: 3, radius: 80 },
+    { id: 'text-0', type: 'text', x: 705, y: 540, w: 510, h: 194, opacity: 100, z: 4, color: '#ffffff', fontSize: 26, radius: 0 },
   ];
 }
 
 function asoNorm(raw) {
   const c = raw ?? {};
   const objects = (Array.isArray(c.objects) && c.objects.length
-    ? c.objects.filter((o) => o && ['avatar', 'text', 'backdrop', 'image'].includes(o.type))
+    ? c.objects.filter((o) => o && ['avatar', 'banner', 'text', 'backdrop', 'image'].includes(o.type))
     : asoDefault())
     .map((o, i) => ({
       id: o.id || `${o.type}-${i}`,
@@ -2610,7 +2610,7 @@ function asoNorm(raw) {
   return {
     v: 1,
     objects,
-    duration: Math.max(2, Math.min(60, Number(c.duration) || 10)),
+    duration: Math.max(2, Math.min(60, Number(c.duration) || 8)),
   };
 }
 
@@ -2670,6 +2670,13 @@ function asoRenderStage() {
       div.style.justifyContent = 'center';
       div.style.fontSize = `${Math.min(o.w, o.h) * k * 0.5}px`;
       div.innerHTML = '🧑';
+    } else if (o.type === 'banner') {
+      div.style.background = 'rgba(139, 92, 246, .18)';
+      div.style.display = 'flex';
+      div.style.alignItems = 'center';
+      div.style.justifyContent = 'center';
+      div.style.fontSize = `${Math.min(o.w, o.h) * k * 0.5}px`;
+      div.innerHTML = '🏞';
     } else if (o.type === 'text') {
       div.style.color = o.color || '#ffffff';
       div.style.fontSize = `${o.fontSize * k}px`;
@@ -3028,6 +3035,16 @@ $('#aso-widget-test').addEventListener('click', async () => {
     await api('/api/actions/soshouttest', { method: 'POST', body: '{}' });
     toast('Тестовый шатаут отправлен — смотри оверлей (страница должна быть открыта)');
   } catch (e) { toast(e.message, true); }
+});
+$('#aso-widget-addbanner').addEventListener('click', () => {
+  asoPush();
+  const zMax = Math.max(0, ...aso.objects.map((o) => o.z));
+  aso.objects.push({ id: `banner-${Date.now()}`, type: 'banner', x: 680, y: 180, w: 560, h: 90, opacity: 100, z: zMax + 1, radius: 16 });
+  aso.sel = aso.objects.length - 1;
+  aso.selSet = new Set([aso.sel]);
+  asoRenderStage();
+  asoRenderProps();
+  toast('Баннер добавлен: на стриме в него ляжет баннер канала человека 🏞');
 });
 $('#aso-widget-add').addEventListener('click', () => $('#aso-image-file').click());
 $('#aso-image-file').addEventListener('change', async () => {

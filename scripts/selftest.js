@@ -498,6 +498,7 @@ overlaySo.clients.add({ write: (s) => soOv.push(String(s)) });
 await processor3.autoShoutoutFor('200', { login: 'friend', text: 'Визит {target}!' }, { force: true });
 ok('шатаут-оверлей: событие в шине', soOv.some((s) => s.includes('"kind":"shoutout"') && s.includes('Визит Friend!')));
 ok('шатаут-оверлей: аватар передаётся (гиф или png)', soOv.some((s) => s.includes('"avatar"')));
+ok('шатаут-оверлей: баннер канала передаётся', soOv.some((s) => s.includes('"banner"')));
 overlaySo.clients.clear();
 
 // ---------- автозакреп ----------

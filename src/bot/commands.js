@@ -442,13 +442,14 @@ export class CommandEngine {
           });
           const template = engine.settings.so?.template || 'Залетайте поддержать {target}: twitch.tv/{target_login} ❤️';
           const rendered = renderTemplate(template, vars);
-          // оверлей-виджет шатаута: аватарка + текст (аватар отдаёт Helix, gif тоже покажется)
+          // оверлей-виджет шатаута: аватарка/баннер + текст (аватар и баннер отдаёт Helix, gif тоже покажется)
           overlay.push({
             kind: 'shoutout',
             channel: session.channel,
             login: user.login,
             user: user.display_name,
             avatar: String(user.profile_image_url || ''),
+            banner: String(user.offline_image_url || ''),
             text: rendered,
           });
           await engine.say(session, rendered);

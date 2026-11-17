@@ -74,6 +74,8 @@
   .so-obj { position: absolute; }
   .so-obj-avatar { overflow: hidden; background: rgba(10, 8, 20, .85); }
   .so-obj-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .so-obj-banner { overflow: hidden; background: rgba(10, 8, 20, .85); }
+  .so-obj-banner img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .so-obj-text { color: #fff; font-weight: 700; text-shadow: 0 2px 8px rgba(0, 0, 0, .8); white-space: pre-wrap; overflow: hidden; display: flex; align-items: center; }
   .so-obj-backdrop { background-size: 100% 100%; background-position: center; }
   .so-obj-image { background-size: 100% 100%; background-position: center; }
@@ -301,12 +303,11 @@
   let soEv = null; // текущий шатаут (аватар/текст)
 
   function soDefaultObjects() {
-    // аватар 160×160 сверху, текст ниже (на всю ширину карточки ~560)
-    const W = 160;
+    // базовый шаблон (отредактирован стримером): подложка + круглая аватарка + текст ниже
     return [
-      { id: 'backdrop-0', type: 'backdrop', x: 680, y: 400, w: 560, h: 260, opacity: 100, z: 1, color: '#0c0a19', radius: 20, image: '' },
-      { id: 'avatar-0', type: 'avatar', x: (1920 - W) / 2, y: 420, w: W, h: W, opacity: 100, z: 3, radius: 80 },
-      { id: 'text-0', type: 'text', x: 700, y: 610, w: 520, h: 120, opacity: 100, z: 4, color: '#ffffff', fontSize: 26, radius: 0 },
+      { id: 'backdrop-0', type: 'backdrop', x: 680, y: 280, w: 560, h: 260, opacity: 100, z: 1, color: '#0c0a19', radius: 20, image: '' },
+      { id: 'avatar-0', type: 'avatar', x: 880, y: 330, w: 160, h: 160, opacity: 100, z: 3, radius: 80 },
+      { id: 'text-0', type: 'text', x: 705, y: 540, w: 510, h: 194, opacity: 100, z: 4, color: '#ffffff', fontSize: 26, radius: 0 },
     ];
   }
   function soNormalize(raw) {
@@ -314,9 +315,9 @@
     if (Array.isArray(c.objects) && c.objects.length) {
       return {
         v: 1,
-        duration: Math.max(2, Math.min(60, Number(c.duration) || 10)),
+        duration: Math.max(2, Math.min(60, Number(c.duration) || 8)),
         objects: c.objects
-          .filter((o) => o && ['avatar', 'text', 'backdrop', 'image'].includes(o.type))
+          .filter((o) => o && ['avatar', 'banner', 'text', 'backdrop', 'image'].includes(o.type))
           .map((o) => ({
             id: String(o.id || `${o.type}-x`),
             type: o.type,
@@ -331,7 +332,7 @@
           })),
       };
     }
-    return { v: 1, duration: Math.max(2, Math.min(60, Number(c.duration) || 10)), objects: soDefaultObjects() };
+    return { v: 1, duration: Math.max(2, Math.min(60, Number(c.duration) || 8)), objects: soDefaultObjects() };
   }
 
   function soRenderScene() {
@@ -348,6 +349,7 @@
         const div = document.createElement('div');
         div.className = `so-obj so-obj-${o.type}`;
         if (o.type === 'avatar') div.innerHTML = '<img alt="">';
+        if (o.type === 'banner') div.innerHTML = '<img alt="">';
         if (o.type === 'image' && o.image) div.innerHTML = `<img src="/media/${encodeURIComponent(o.image)}" alt="">`;
         soWidget.appendChild(div);
         soNodes.set(o.id, div);
@@ -367,6 +369,11 @@
         const img = div.querySelector('img');
         if (img && img.src !== (soEv?.avatar || '')) img.src = soEv?.avatar || '';
         if (!soEv?.avatar) div.style.backgroundColor = 'rgba(139, 92, 246, .25)'; // тест без аватарки
+      } else if (o.type === 'banner') {
+        div.style.borderRadius = `${o.radius * k}px`;
+        const img = div.querySelector('img');
+        if (img && img.src !== (soEv?.banner || '')) img.src = soEv?.banner || '';
+        if (!soEv?.banner) div.style.backgroundColor = 'rgba(139, 92, 246, .18)'; // тест без баннера
       } else if (o.type === 'text') {
         div.style.color = o.color || '#ffffff';
         div.style.fontSize = `${o.fontSize * k}px`;

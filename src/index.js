@@ -551,7 +551,7 @@ const app = {
           return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : dflt;
         };
         cur.objects = a.objects
-          .filter((o) => o && ['avatar', 'text', 'backdrop', 'image'].includes(o.type))
+          .filter((o) => o && ['avatar', 'banner', 'text', 'backdrop', 'image'].includes(o.type))
           .slice(0, 20)
           .map((o) => {
             const base = {
