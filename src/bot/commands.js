@@ -1034,6 +1034,13 @@ export function loadSettings() {
       allow: [],             // кому можно заказывать: everyone/sub/vip/follower/mod/broadcaster (пусто = все)
       allowUsers: [],        // персональный белый список ников
       blacklist: [],         // чёрный список треков: [{ id, title }]
+      playerCfg: {           // раскладка OBS-плеера (редактор в панели, Музыка)
+        scale: 40,           // размер видео, % от 800px (форма 16:9 не меняется)
+        marqueeDx: 0,        // смещение строки по горизонтали от центра, px
+        marqueeDy: 8,        // смещение строки от «прямо под видео», px
+        marqueeWidth: 140,   // длина строки, % от ширины видео (может быть шире видео)
+        backdrop: false,     // подложка-плашка под видео и строкой
+      },
       ...(stored.songs ?? {}),
     },
     proxy: {

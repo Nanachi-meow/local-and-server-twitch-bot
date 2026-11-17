@@ -5,107 +5,162 @@
 <title>Плеер музыки — Twitch-бот</title>
 <style>
   /* ═══════════════════════════════════════════════════════════════════
-   *  К А С Т О М И З А Ц И Я  — правь эти переменные под свой дизайн.
-   *  Страница для OBS Browser Source: только видео и бегущая строка,
-   *  любых кнопок и кликов НЕТ — управление в панели бота.
-   *  Полный контракт (события/API) — в player/README.md
+   *  Страница для OBS Browser Source: микро-экран (видео) и бегущая строка.
+   *  Ноль кнопок — управление в панели бота (🎵 Музыка → «📐 Раскладка»):
+   *  там размер, позиция строки, цвета, подложка, своя картинка.
+   *  Когда ничего не играет — страница полностью прозрачная.
+   *  Контракт (события/API) — в player/README.md
    * ═══════════════════════════════════════════════════════════════════ */
-  :root {
-    --pl-width: 800px;          /* ширина видео (800×450 = 16:9, как обычно ставят) */
-    --pl-radius: 14px;          /* закругление краёв видео и строки */
-    --pl-accent: #8b5cf6;       /* цвет рамки бегущей строки */
-    --pl-text: #ffffff;
-    --pl-bg: rgba(10, 8, 20, .8); /* подложка строки */
-    --pl-font-size: 22px;
-    --pl-font-weight: 700;
-    --pl-speed: 30s;            /* пробег строки, сек (больше = медленнее) */
-    --pl-gap: 10px;             /* отступ между видео и строкой */
-    --pl-align: center;         /* center | flex-start | flex-end — где стоит блок */
-    --pl-shadow: 0 0 34px rgba(139, 92, 246, .35); /* свечение; none = выключить */
-  }
-
   html, body {
     margin: 0; height: 100%; background: transparent; overflow: hidden;
-    font-family: 'Segoe UI', system-ui, sans-serif; color: var(--pl-text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
   }
-  #pl-stage {
-    position: fixed; inset: 0;
-    display: flex; flex-direction: column; align-items: var(--pl-align);
-    justify-content: center; gap: var(--pl-gap); padding: 0 24px;
-  }
+  #pl-stage { position: fixed; inset: 0; }
+  .pl-hidden { visibility: hidden !important; }
+
+  /* подложка-плашка под видео и строкой (цвет/картинка настраиваются в панели) */
+  #pl-plate { position: absolute; background-size: 100% 100%; background-position: center; }
+
+  /* микро-экран */
   #pl-video {
-    width: var(--pl-width); max-width: 96vw; aspect-ratio: 16 / 9;
-    border-radius: var(--pl-radius); overflow: hidden;
-    box-shadow: var(--pl-shadow);
-    background: #000;
+    position: absolute; background: #000; overflow: hidden;
+    box-shadow: none; border: 0;
   }
   #pl-video iframe { width: 100%; height: 100%; border: 0; display: block; }
 
-  /* бегущая строка: кто заказал и что играет */
+  /* бегущая строка: длиннее может быть шире видео, текст без рамок */
   #pl-now {
-    width: var(--pl-width); max-width: 96vw;
-    background: var(--pl-bg);
-    border: 1px solid color-mix(in srgb, var(--pl-accent) 45%, transparent);
-    border-radius: var(--pl-radius);
-    overflow: hidden; white-space: nowrap;
+    position: absolute; overflow: hidden; white-space: nowrap;
+    display: flex; align-items: center;
   }
-  #pl-now.hidden { display: none; }
   #pl-track {
-    display: inline-block; padding: 10px 0;
-    font-size: var(--pl-font-size); font-weight: var(--pl-font-weight);
-    text-shadow: 0 2px 8px rgba(0, 0, 0, .6);
-    animation: pl-marquee var(--pl-speed) linear infinite;
-    padding-left: 100%;
+    display: inline-flex; width: max-content; will-change: transform;
+    animation: pl-run linear infinite;
   }
   #pl-track.paused { animation-play-state: paused; }
-  @keyframes pl-marquee { to { transform: translateX(-200%); } }
+  #pl-track span { padding-right: 64px; text-shadow: 0 2px 8px rgba(0, 0, 0, .75); }
+  @keyframes pl-run { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 </style>
 </head>
 <body>
   <div id="pl-stage">
-    <div id="pl-video"></div>
-    <div id="pl-now" class="hidden"><div id="pl-track"></div></div>
+    <div id="pl-plate" class="pl-hidden"></div>
+    <div id="pl-video" class="pl-hidden"></div>
+    <div id="pl-now" class="pl-hidden"><div id="pl-track"><span id="pl-t1"></span><span id="pl-t2"></span></div></div>
   </div>
 <script>
   /**
-   * Плеер музыки для OBS (Browser Source) — чистый дисплей, без кнопок.
-   * Управление (пауза/скип/громкость/вкл) — из панели бота; сюда прилетает всё по SSE.
-   *
-   * Контракт с ботом (подробности в player/README.md):
-   *   GET  /api/songs                     → { current, queue, paused, enabled, volume, nowTemplate }
-   *   SSE  /overlay/feed                  → { kind:'sr', op:… } и { kind:'srtest', op:… }
-   *   POST /api/songs {op:'ended'}        — трек закончился
+   * Плеер музыки для OBS — чистый дисплей без кнопок.
+   * Раскладка (размер видео, позиция/длина строки, подложка) приносит настройку
+   *   GET /api/songs  → { current, queue, paused, enabled, volume, nowTemplate, playerCfg }
+   *   SSE /overlay/feed → { kind:'sr' | 'srtest', op:…, playerCfg } — применяется живьём
+   * «Трек закончился» → POST /api/songs {op:'ended'}
    */
   (() => {
     let yt = null;
+    let cfg = { scale: 40, marqueeDx: 0, marqueeDy: 8, marqueeWidth: 140, marqueeColor: '#ffffff',
+                marqueeFontSize: 22, marqueeSpeed: 30,
+                backdrop: false, backdropColor: '#0c0a19', backdropOpacity: 55,
+                backdropImage: '', backdropRadius: 18, backdropPadding: 14 };
     let current = null;
+    let nowTemplate = '♪ {title} — заказал {by}';
     let volume = 60;
     let enabled = true;
-    let nowTemplate = '♪ {title} — заказал {by}';
-    let lastVideoId = null;
     let testing = false;
     let testingTitle = '';
     let pausedNow = false;
+    let lastVideoId = null;
 
     const el = (id) => document.getElementById(id);
-    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const fmt = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
 
-    // ---------- бегущая строка «кто заказал и что играет» ----------
+    // ---------- раскладка: микро-экран по центру, строка плавает ----------
+    function layout() {
+      const sw = window.innerWidth, sh = window.innerHeight;
+      const W = Math.max(120, Math.round(800 * (Number(cfg.scale) || 40) / 100)); // 16:9 не меняется
+      const H = Math.round(W * 9 / 16);
+      const vid = el('pl-video');
+      const now = el('pl-now');
+      const plate = el('pl-plate');
+      const gap = 12;
+
+      vid.style.width = `${W}px`;
+      vid.style.height = `${H}px`;
+      vid.style.left = `${Math.round((sw - W) / 2)}px`;
+      vid.style.top = `${Math.round((sh - H) / 2)}px`;
+      vid.style.borderRadius = `${Math.max(10, Math.round(W * 0.055))}px`;
+
+      const MW = Math.max(W * 0.4, Math.round(W * (Number(cfg.marqueeWidth) || 140) / 100));
+      const FS = Math.max(10, Number(cfg.marqueeFontSize) || 22);
+      const MH = FS + 16;
+      const mx = Math.round(sw / 2 + (Number(cfg.marqueeDx) || 0) - MW / 2);
+      const my = Math.round((sh + H) / 2 + gap + (Number(cfg.marqueeDy) || 0));
+      now.style.width = `${MW}px`;
+      now.style.height = `${MH}px`;
+      now.style.left = `${mx}px`;
+      now.style.top = `${my}px`;
+      now.style.fontSize = `${FS}px`;
+      now.style.color = String(cfg.marqueeColor || '#ffffff');
+      el('pl-track').style.animationDuration = `${Math.max(5, Number(cfg.marqueeSpeed) || 30)}s`;
+
+      // подложка: охватывает видео + строку
+      const pad = Math.max(0, Number(cfg.backdropPadding) || 0);
+      const left = Math.min(sw / 2 - W / 2, mx) - pad;
+      const top = Math.min(sh / 2 - H / 2, my) - pad;
+      const right = Math.max(sw / 2 + W / 2, mx + MW) + pad;
+      const bottom = Math.max(sh / 2 + H / 2, my + MH) + pad;
+      plate.style.left = `${left}px`;
+      plate.style.top = `${top}px`;
+      plate.style.width = `${right - left}px`;
+      plate.style.height = `${bottom - top}px`;
+      plate.style.borderRadius = `${Number(cfg.backdropRadius) || 0}px`;
+
+      // что вообще показывать: музыка выключена или очередь пуста — страница прозрачная
+      const hasShow = enabled && Boolean(current || testing);
+      vid.classList.toggle('pl-hidden', !hasShow);
+      plate.classList.toggle('pl-hidden', !hasShow || !cfg.backdrop);
+      now.classList.toggle('pl-hidden', !hasShow || !(testing || current));
+      // скрытое видео не должно звук давать
+      if (!hasShow) { try { yt?.stopVideo?.(); lastVideoId = null; } catch {} }
+    }
+
+    // ---------- бегущая строка: непрерывно, пока играет песня ----------
     function renderNow() {
-      const track = el('pl-track');
       const src = testing
         ? { title: `🧪 Тест: ${testingTitle}`, by: 'плеер', author: '', duration: 0 }
         : current;
-      if (!src) { el('pl-now').classList.add('hidden'); return; }
+      if (!src) { layout(); return; }
       const text = nowTemplate
         .replaceAll('{title}', src.title || '')
         .replaceAll('{by}', src.byName || src.by || '')
         .replaceAll('{author}', src.author || '')
         .replaceAll('{duration}', fmt(src.duration || 0));
-      track.textContent = text;
-      track.classList.toggle('paused', pausedNow);
-      el('pl-now').classList.remove('hidden');
+      // две копии текста = бесшовный круг: между ними нет пустых секунд
+      el('pl-t1').textContent = text;
+      el('pl-t2').textContent = text;
+      el('pl-track').classList.toggle('paused', pausedNow);
+      layout();
+    }
+
+    // подложка: цвет с прозрачностью или своя картинка (файл из overlay-media/)
+    function renderPlate() {
+      const plate = el('pl-plate');
+      const img = String(cfg.backdropImage || '');
+      if (img) {
+        plate.style.backgroundImage = `url("/media/${encodeURIComponent(img)}?t=${Date.now() // no-store нет — бустим кэш
+          }")`;
+        plate.style.backgroundColor = 'transparent';
+      } else {
+        plate.style.backgroundImage = 'none';
+        const color = String(cfg.backdropColor || '#0c0a19');
+        const a = Math.max(0, Math.min(1, (Number(cfg.backdropOpacity) || 0) / 100));
+        // hex → rgba
+        const m = color.match(/^#?([0-9a-f]{6})$/i);
+        if (m) {
+          const n = m[1];
+          plate.style.backgroundColor = `rgba(${parseInt(n.slice(0, 2), 16)}, ${parseInt(n.slice(2, 4), 16)}, ${parseInt(n.slice(4, 6), 16)}, ${a})`;
+        } else plate.style.backgroundColor = color;
+      }
     }
 
     // ---------- YouTube ----------
@@ -119,7 +174,7 @@
           width: '100%', height: '100%',
           playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: 0, disablekb: 1 },
           events: {
-            onReady: () => { applyState(); },
+            onReady: () => { renderNow(); applyState(); },
             onStateChange: (e) => {
               if (e.data === YT.PlayerState.ENDED && !testing && current) {
                 fetch('/api/songs', {
@@ -140,12 +195,14 @@
     }
 
     function applyState() {
-      renderNow();
+      if (ev_playerCfg) { cfg = { ...cfg, ...ev_playerCfg }; ev_playerCfg = null; renderPlate(); }
       ensureApi();
-      if (!enabled) { try { yt?.stopVideo?.(); } catch {} return; }
+      renderNow();
+      if (!enabled) { try { yt?.stopVideo?.(); lastVideoId = null; } catch {} return; }
       if (current?.id) playVideo(current.id);
       else if (!testing) { try { yt?.stopVideo?.(); lastVideoId = null; } catch {} }
     }
+    let ev_playerCfg = null;
 
     async function loadState() {
       try {
@@ -155,11 +212,13 @@
         nowTemplate = String(st.nowTemplate || nowTemplate);
         enabled = Boolean(st.enabled);
         pausedNow = Boolean(st.paused);
+        if (st.playerCfg) cfg = { ...cfg, ...st.playerCfg };
+        renderPlate();
         applyState();
       } catch {}
     }
 
-    // ---------- события SSE (то же, что слушают оверлей и панель) ----------
+    // ---------- SSE: всё то же, что слушают оверлей и панель ----------
     const es = new EventSource('/overlay/feed');
     es.onmessage = (m) => {
       try {
@@ -170,6 +229,7 @@
           current = ev.current ?? null;
           pausedNow = Boolean(ev.paused);
           testing = false;
+          if (ev.playerCfg) ev_playerCfg = ev.playerCfg;
           if (ev.op === 'pause') { pausedNow = true; try { yt?.pauseVideo?.(); } catch {} renderNow(); return; }
           if (ev.op === 'resume') { pausedNow = false; try { yt?.playVideo?.(); } catch {} renderNow(); return; }
           if (ev.op === 'stop') { current = null; testing = false; try { yt?.stopVideo?.(); lastVideoId = null; } catch {} renderNow(); return; }
@@ -186,6 +246,7 @@
       } catch {}
     };
 
+    window.addEventListener('resize', layout);
     loadState();
   })();
 </script>

@@ -599,6 +599,24 @@ const app = {
           .filter((x) => x.id)
           .slice(0, 300);
       }
+      // раскладка и оформление OBS-плеера (редактор в панели: Музыка → «Раскладка»)
+      if (a.playerCfg && typeof a.playerCfg === 'object') {
+        const curCfg = cur.playerCfg ??= {};
+        const p = a.playerCfg;
+        if (p.scale !== undefined) curCfg.scale = Math.max(15, Math.min(100, Math.round(Number(p.scale) || 40)));
+        if (p.marqueeDx !== undefined) curCfg.marqueeDx = Math.max(-1200, Math.min(1200, Math.round(Number(p.marqueeDx) || 0)));
+        if (p.marqueeDy !== undefined) curCfg.marqueeDy = Math.max(-600, Math.min(600, Math.round(Number(p.marqueeDy) || 0)));
+        if (p.marqueeWidth !== undefined) curCfg.marqueeWidth = Math.max(40, Math.min(250, Math.round(Number(p.marqueeWidth) || 140)));
+        if (p.marqueeFontSize !== undefined) curCfg.marqueeFontSize = Math.max(10, Math.min(60, Math.round(Number(p.marqueeFontSize) || 22)));
+        if (p.marqueeSpeed !== undefined) curCfg.marqueeSpeed = Math.max(5, Math.min(300, Math.round(Number(p.marqueeSpeed) || 30)));
+        if (p.marqueeColor !== undefined) curCfg.marqueeColor = String(p.marqueeColor).slice(0, 20);
+        if (p.backdrop !== undefined) curCfg.backdrop = Boolean(p.backdrop);
+        if (p.backdropColor !== undefined) curCfg.backdropColor = String(p.backdropColor).slice(0, 20);
+        if (p.backdropOpacity !== undefined) curCfg.backdropOpacity = Math.max(0, Math.min(100, Math.round(Number(p.backdropOpacity) || 0)));
+        if (p.backdropImage !== undefined) curCfg.backdropImage = String(p.backdropImage).replace(/[\\/]/g, '').slice(0, 120);
+        if (p.backdropRadius !== undefined) curCfg.backdropRadius = Math.max(0, Math.min(80, Math.round(Number(p.backdropRadius) || 18)));
+        if (p.backdropPadding !== undefined) curCfg.backdropPadding = Math.max(0, Math.min(120, Math.round(Number(p.backdropPadding) || 14)));
+      }
       // громкость/шаблон применяем к плееру в OBS сразу — SSE-событие доехает до /music
       try { songs?._emit?.('update'); } catch {}
     }

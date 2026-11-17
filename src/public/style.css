@@ -228,6 +228,28 @@ nav {
 .sg-title-link { cursor: pointer; border-bottom: 1px dotted var(--muted); }
 .sg-title-link:hover { color: var(--accent); }
 
+/* редактор раскладки плеера: превью с шахматкой = прозрачность OBS */
+#plp-stage {
+  position: relative; width: 100%; aspect-ratio: 16 / 9;
+  border-radius: 12px; overflow: hidden;
+  background:
+    repeating-conic-gradient(rgba(255,255,255,.05) 0% 25%, rgba(0,0,0,.25) 0% 50%) 0 0 / 24px 24px;
+  border: 1px solid var(--line);
+}
+#plp-video {
+  position: absolute; background-color: #000; background-size: cover; background-position: center;
+  outline: 2px solid rgba(139, 92, 246, .55);
+}
+#plp-backdrop-mock { position: absolute; background-size: 100% 100%; background-position: center; }
+#plp-marquee {
+  position: absolute; overflow: hidden; white-space: nowrap; display: flex; align-items: center;
+  cursor: grab; outline: 2px dashed rgba(139, 92, 246, .8);
+}
+#plp-marquee:active { cursor: grabbing; }
+#plp-track { display: inline-flex; width: max-content; animation: plp-run 30s linear infinite; }
+#plp-track span { padding-right: 64px; text-shadow: 0 2px 8px rgba(0, 0, 0, .75); }
+@keyframes plp-run { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
 /* выключенная встроенная команда — приглушена */
 tr.off td { opacity: .45; }
 

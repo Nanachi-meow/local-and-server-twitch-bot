@@ -365,6 +365,12 @@ ok('музыка: тест плеера — выключенная музыка 
 songsSettings.songs.enabled = true;
 
 // управление тест-треком: пауза/скип/стоп работают и на нём (очередь пустая)
+ok('музыка: раскладка плеера едет в state/SSE (для живой настройки)', (() => {
+  songsSettings.songs.playerCfg = { scale: 55, marqueeWidth: 150, backdrop: true };
+  const stt = sm.state();
+  songsSettings.songs.playerCfg = undefined;
+  return stt.playerCfg?.scale === 55 && stt.playerCfg.marqueeWidth === 150 && stt.playerCfg.backdrop === true;
+})());
 const smTest = new SongsManager({
   logs, settings: songsSettings,
   dataFile: path.join(process.env.BOT_DATA_DIR, 'songs-test.json'),

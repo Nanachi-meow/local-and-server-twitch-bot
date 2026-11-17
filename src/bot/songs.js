@@ -103,6 +103,7 @@ export class SongsManager {
       enabled: Boolean(this.cfg().enabled),
       volume: this.cfg().volume ?? 60,
       nowTemplate: this.cfg().nowTemplate || '♪ {title} (заказ {by})',
+      playerCfg: this.cfg().playerCfg ?? null,
     };
   }
 
