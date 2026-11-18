@@ -2255,6 +2255,113 @@ $('#wod-reset').addEventListener('click', async () => {
   } catch (e) { toast(e.message, true); }
 });
 
+// ---------------- 🎡 Колесо фортуны (рулетка за баллы канала) ----------------
+
+let whItems = [];
+
+async function loadWheel() {
+  const st = await api('/api/settings');
+  const w = st.wheel ?? {};
+  const o = w.overlay ?? {};
+  $('#wh-enabled').checked = w.enabled !== false;
+  $('#wh-mode').value = w.mode ?? 'reward';
+  $('#wh-reward').value = w.rewardName ?? 'колесо';
+  $('#wh-cooldown').value = Math.round((w.cooldown ?? 60) / 60);
+  whItems = Array.isArray(w.items) ? w.items.map((x) => ({ ...x })) : [];
+  $('#wh-x').value = o.x ?? 760; $('#wh-x-val').textContent = String(o.x ?? 760);
+  $('#wh-y').value = o.y ?? 340; $('#wh-y-val').textContent = String(o.y ?? 340);
+  $('#wh-size').value = o.size ?? 400; $('#wh-size-val').textContent = `${o.size ?? 400}px`;
+  $('#wh-duration').value = o.duration ?? 8;
+  $('#wh-template').value = o.winnerTemplate ?? '🏆 {user} → {label}';
+  renderWheelItems();
+  renderWheelSoundSelect(o.spinSound ?? '');
+}
+
+function renderWheelItems() {
+  const palette = ['#8b5cf6', '#22c55e', '#eab308', '#38bdf8', '#f97316', '#ec4899', '#14b8a6', '#a855f7'];
+  $('#wh-body').innerHTML = whItems.map((it, i) => `
+    <tr data-i="${i}">
+      <td class="cellresp"><input class="wh-label" value="${esc(it.label || '')}" maxlength="60" /></td>
+      <td class="cellcd"><input class="wh-weight" type="range" min="1" max="100" value="${it.weight ?? 10}" style="width:80px" title="вес (вероятность пропорциональна)" /><span class="hint">${it.weight ?? 10}</span></td>
+      <td class="cellcd"><input class="wh-color" type="color" value="${esc(it.color || palette[i % palette.length])}" /></td>
+      <td><button class="act ghost wh-del" title="удалить">🗑</button></td>
+    </tr>`).join('') || '<tr><td colspan="4" class="hint">Вариантов нет — добавь первый</td></tr>';
+}
+
+async function renderWheelSoundSelect(selected) {
+  try {
+    const { files } = await api('/api/media');
+    const sounds = files.filter((f) => ['mp3', 'wav', 'ogg', 'm4a', 'flac'].includes(fileExt(f)));
+    $('#wh-sound').innerHTML = ['<option value="">— без тика —</option>',
+      ...sounds.map((f) => `<option value="${esc(f)}" ${f === selected ? 'selected' : ''}>${esc(f)}</option>`)].join('');
+  } catch {}
+}
+
+$('#wh-x').addEventListener('input', () => { $('#wh-x-val').textContent = $('#wh-x').value; });
+$('#wh-y').addEventListener('input', () => { $('#wh-y-val').textContent = $('#wh-y').value; });
+$('#wh-size').addEventListener('input', () => { $('#wh-size-val').textContent = `${$('#wh-size').value}px`; });
+
+$('#wh-add').addEventListener('click', () => {
+  const label = $('#wh-add-label').value.trim();
+  const weight = Math.max(1, Number($('#wh-add-weight').value) || 10);
+  if (!label) { toast('Напиши вариант', true); return; }
+  if (whItems.length >= 12) { toast('Максимум 12 вариантов', true); return; }
+  whItems.push({ label, weight, color: '' });
+  $('#wh-add-label').value = '';
+  renderWheelItems();
+});
+$('#wh-add-label').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#wh-add').click(); });
+
+$('#wh-body').addEventListener('click', (e) => {
+  if (!e.target.classList.contains('wh-del')) return;
+  const row = e.target.closest('tr[data-i]');
+  whItems.splice(Number(row.dataset.i), 1);
+  renderWheelItems();
+});
+$('#wh-body').addEventListener('input', (e) => {
+  const row = e.target.closest('tr[data-i]');
+  if (!row) return;
+  const it = whItems[Number(row.dataset.i)];
+  if (e.target.classList.contains('wh-label')) it.label = e.target.value;
+  if (e.target.classList.contains('wh-weight')) {
+    it.weight = Number(e.target.value) || 1;
+    e.target.nextElementSibling?.textContent && (e.target.nextElementSibling.textContent = String(it.weight));
+  }
+  if (e.target.classList.contains('wh-color')) it.color = e.target.value;
+});
+
+$('#wh-save').addEventListener('click', async () => {
+  try {
+    await putSettings({
+      wheel: {
+        enabled: $('#wh-enabled').checked,
+        mode: $('#wh-mode').value,
+        rewardName: $('#wh-reward').value.trim(),
+        cooldown: Math.round((Number($('#wh-cooldown').value) || 0) * 60),
+        items: whItems.filter((x) => x.label && x.weight > 0),
+        overlay: {
+          x: Number($('#wh-x').value) || 760,
+          y: Number($('#wh-y').value) || 340,
+          size: Number($('#wh-size').value) || 400,
+          duration: Number($('#wh-duration').value) || 8,
+          spinSound: $('#wh-sound').value,
+          winnerTemplate: $('#wh-template').value,
+        },
+      },
+    });
+    toast('Колесо сохранено ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#wh-test').addEventListener('click', async () => {
+  try {
+    await api('/api/actions/wheeltest', { method: 'POST', body: '{}' });
+    toast('Тестовое вращение — смотри оверлей (страница должна быть открыта)');
+  } catch (e) { toast(e.message, true); }
+});
+
+loadWheel().catch(() => {});
+
 // ---------------- музыка (заказы YouTube) ----------------
 
 // YouTube-плеер в панели: превью без звука, состояние приезжает по SSE (та же шина, что у OBS-плеера)

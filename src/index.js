@@ -945,6 +945,21 @@ const app = {
         });
         return { tested: body.kind || 'follow' };
       }
+      case 'wheeltest': {
+        const spin = commands.pickWheel();
+        if (!spin) return { error: 'Колесо не настроено: нет вариантов с весом' };
+        overlay.push({
+          kind: 'wheel',
+          channel: null,
+          user: 'ТестовыйЗритель',
+          text: `ТестовыйЗритель: ${spin.picked.label}`,
+          label: spin.picked.label,
+          index: spin.index,
+          sectors: spin.sectors,
+          wheelCfg: settings.wheel?.overlay,
+        });
+        return { tested: 'wheel', label: spin.picked.label };
+      }
       case 'wordofdayreset': {
         return processor.resetWordOfDay();
       }
