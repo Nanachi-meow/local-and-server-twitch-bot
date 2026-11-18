@@ -70,6 +70,25 @@
     font-size: 13px; color: rgba(255, 255, 255, .45);
     text-shadow: 0 1px 3px #000;
   }
+  /* рулетка-колесо: canvas с секторами, стрелка, торможение, победитель */
+  #wheel-widget {
+    position: fixed; pointer-events: none;
+    display: none; flex-direction: column; align-items: center; gap: 8px;
+    z-index: 45;
+  }
+  #wheel-widget.on { display: flex; }
+  #wheel-widget canvas { display: block; }
+  #wheel-widget .wh-arrow {
+    width: 0; height: 0; position: absolute; top: 50%;
+    border-left: 16px solid transparent; border-right: 16px solid transparent;
+    border-top: 26px solid #fff;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,.6));
+    transform: translateY(-50%);
+  }
+  #wheel-widget .wh-winner {
+    font-size: 26px; font-weight: 700; color: #fff;
+    text-shadow: 0 2px 8px rgba(0,0,0,.8); white-space: nowrap;
+  }
   /* виджет «Слово дня»: объектная раскладка (надпись/слово/счётчик/подложка/картинки) */
   .wod-obj { position: absolute; box-sizing: border-box; }
   .wod-obj-caption, .wod-obj-word, .wod-obj-count {
@@ -463,6 +482,7 @@
         wodRenderScene();
         return;
       }
+      if (ev.kind === 'wheel' && Array.isArray(ev.sectors)) { whSpin(ev); return; }
       if (KINDS.includes(ev.kind)) {
         queue.push(ev);
         pump();
@@ -471,6 +491,147 @@
     } catch {}
   };
 
+  // ---------- рулетка-колесо: оригинальный виджет, наш дизайн ----------
+  const whWidget = document.createElement('div');
+  whWidget.id = 'wheel-widget';
+  whWidget.innerHTML = '<div class="wh-arrow" style="left:-6px;"></div><canvas></canvas><div class="wh-winner"></div>';
+  document.body.appendChild(whWidget);
+  const whCanvas = whWidget.querySelector('canvas');
+  const whCtx = whCanvas.getContext('2d');
+  const whWinner = whWidget.querySelector('.wh-winner');
+  const whArrow = whWidget.querySelector('.wh-arrow');
+  let whCfg = { x: 760, y: 340, size: 400, duration: 8, spinSound: '', winnerTemplate: '🏆 {user} → {label}' };
+  let whSpinning = false;
+  let whRAF = 0;
+
+  function whHexA(color, alpha) {
+    const m = String(color || '').match(/^#?([0-9a-f]{6})$/i);
+    if (!m) return color;
+    const n = m[1];
+    return `rgba(${parseInt(n.slice(0, 2), 16)}, ${parseInt(n.slice(2, 4), 16)}, ${parseInt(n.slice(4, 6), 16)}, ${alpha ?? 1})`;
+  }
+
+  function whRenderScene() {
+    const k = (window.innerWidth || 1920) / 1920;
+    const W = whCfg.size * k;
+    whWidget.style.left = `${whCfg.x * k - W / 2}px`;
+    whWidget.style.top = `${whCfg.y * k - W / 2}px`;
+    whCanvas.width = W;
+    whCanvas.height = W;
+    whArrow.style.top = '50%';
+    whArrow.style.left = '-6px';
+    whWinner.style.fontSize = `${Math.max(16, whCfg.size * 0.065) * k}px`;
+  }
+
+  function whDrawWheel(sectors, rotation) {
+    const W = whCanvas.width;
+    const R = W / 2;
+    whCtx.clearRect(0, 0, W, W);
+    const total = sectors.reduce((s, x) => s + (Number(x.weight) || 1), 0);
+    let angle = rotation; // начать сверху, стрелка слева указывает на текущий сектор
+    for (const s of sectors) {
+      const span = (Number(s.weight) || 1) / total * Math.PI * 2;
+      whCtx.beginPath();
+      whCtx.fillStyle = s.color || '#8b5cf6';
+      whCtx.moveTo(R, R);
+      whCtx.arc(R, R, R, angle - Math.PI / 2, angle - Math.PI / 2 + span);
+      whCtx.closePath();
+      whCtx.fill();
+      whCtx.strokeStyle = 'rgba(0,0,0,.35)';
+      whCtx.lineWidth = 2;
+      whCtx.stroke();
+      // текст вдоль сектора
+      if (span > 0.18) {
+        const mid = angle - Math.PI / 2 + span / 2;
+        const r = R * 0.62;
+        whCtx.save();
+        whCtx.translate(R + Math.cos(mid) * r, R + Math.sin(mid) * r);
+        whCtx.rotate(mid + Math.PI / 2);
+        whCtx.fillStyle = '#fff';
+        whCtx.font = `700 ${Math.max(11, W * 0.036)}px 'Segoe UI', sans-serif`;
+        whCtx.textAlign = 'center';
+        whCtx.textBaseline = 'middle';
+        whCtx.fillText(String(s.label).slice(0, 22), 0, 0);
+        whCtx.restore();
+      }
+      angle += span;
+    }
+    // центр
+    whCtx.beginPath();
+    whCtx.arc(R, R, R * 0.14, 0, Math.PI * 2);
+    whCtx.fillStyle = 'rgba(12,10,25,.9)';
+    whCtx.fill();
+    whCtx.strokeStyle = 'rgba(255,255,255,.25)';
+    whCtx.stroke();
+  }
+
+  let whClickAcc = 0;
+  function whTick(speed) {
+    whClickAcc += speed;
+    if (whClickAcc > 22 && whCfg.spinSound) {
+      whClickAcc = 0;
+      try {
+        const a = new Audio(`/media/${encodeURIComponent(whCfg.spinSound)}?t=${Date.now()}`);
+        a.volume = 0.5;
+        a.play().catch(() => {});
+      } catch {}
+    }
+  }
+
+  function whSpin(ev) {
+    const sectors = Array.isArray(ev.sectors) && ev.sectors.length ? ev.sectors : [];
+    if (!sectors.length) return;
+    whCfg = { ...whCfg, ...(ev.wheelCfg ?? {}) };
+    whRenderScene();
+    whWinner.textContent = '';
+    whWidget.classList.add('on');
+    cancelAnimationFrame(whRAF);
+    whSpinning = true;
+
+    const target = Number.isInteger(ev.index) ? ev.index : 0;
+    const total = sectors.reduce((s, x) => s + (Number(x.weight) || 1), 0);
+    // угол центра целевого сектора (стрелка у нас на «12 часов», отрисовано от -90°)
+    let acc = 0;
+    for (let i = 0; i < target; i++) acc += (Number(sectors[i].weight) || 1) / total;
+    const centerFrac = acc + (Number(sectors[target].weight) || 1) / total / 2;
+    const targetAngle = (1 - centerFrac) * Math.PI * 2; // куда должен прийти поворот
+    const fullSpins = Math.PI * 2 * 6; // 6 полных оборотов + доворот
+    const finalAngle = fullSpins + (targetAngle % (Math.PI * 2));
+
+    const t0 = performance.now();
+    const DUR = 5200; // мс, ease-out
+    const draw = (t) => {
+      const p = Math.min(1, (t - t0) / DUR);
+      const ease = 1 - Math.pow(1 - p, 3); // easeOutCubic
+      const rot = finalAngle * ease;
+      whDrawWheel(sectors, rot);
+      whTick(Math.abs(rot - (draw.lastRot || 0)));
+      draw.lastRot = rot;
+      if (p < 1) {
+        whRAF = requestAnimationFrame(draw);
+      } else {
+        whSpinning = false;
+        whWinner.textContent = (whCfg.winnerTemplate || '🏆 {user} → {label}')
+          .replaceAll('{user}', ev.user || '')
+          .replaceAll('{label}', ev.label || sectors[target].label || '');
+        setTimeout(() => {
+          whWidget.classList.remove('on');
+          whWinner.textContent = '';
+        }, Math.max(3, Number(whCfg.duration) || 8) * 1000);
+      }
+    };
+    draw.lastRot = 0;
+    whRAF = requestAnimationFrame(draw);
+  }
+
+  async function whLoad() {
+    try {
+      const st = await fetch('/api/settings').then((r) => r.json());
+      whCfg = { ...whCfg, ...(st.wheel?.overlay ?? {}) };
+      whRenderScene();
+    } catch {}
+  }
+  whLoad();
   // ---------- «Слово дня»: объектная раскладка; слово выбирает бот по частоте чата ----------
   const wodWidget = document.createElement('div');
   wodWidget.id = 'wod-widget';

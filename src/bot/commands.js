@@ -368,6 +368,38 @@ export class CommandEngine {
     return `Ошибка: ${e.message}`;
   }
 
+  // ---------------- кручение колеса (общая логика для команды и награды) ----------------
+
+  /** Выбрать сектор по весам. Возвращает { picked, index, sectors } или null. */
+  pickWheel() {
+    const cfg = this.settings?.wheel ?? {};
+    const items = (Array.isArray(cfg.items) ? cfg.items : [])
+      .filter((x) => x && String(x.label || '').trim() && Number(x.weight) > 0);
+    if (!items.length) return null;
+    const total = items.reduce((s, x) => s + Number(x.weight), 0);
+    let roll = Math.random() * total;
+    let picked = items[items.length - 1];
+    let index = items.length - 1;
+    for (const [i, it] of items.entries()) {
+      roll -= Number(it.weight);
+      if (roll <= 0) { picked = it; index = i; break; }
+    }
+    const colorPalette = ['#8b5cf6', '#22c55e', '#eab308', '#38bdf8', '#f97316', '#ec4899', '#14b8a6', '#a855f7'];
+    const sectors = items.map((it, idx) => ({ label: it.label, weight: Number(it.weight), color: it.color || colorPalette[idx % colorPalette.length] }));
+    return { picked, index, sectors };
+  }
+
+  /** Кулдаун на юзера (общий для команды/награды). true = можно. */
+  wheelCooldownOk(key) {
+    const cfg = this.settings?.wheel ?? {};
+    const cd = Math.max(0, Math.min(3600, Number(cfg.cooldown) || 0));
+    const k = `${key}:wheel`;
+    const last = engine._cool.get(k) || 0;
+    if (cd && Date.now() - last < cd * 1000) return false;
+    if (cd) engine._cool.set(k, Date.now());
+    return true;
+  }
+
   // ---------------- встроенные команды ----------------
 
   /** Встроенная команда включена? (settings.builtins.disabled — список выключенных имён) */
@@ -533,6 +565,13 @@ export class CommandEngine {
         level: 'everyone', label: 'колесо: !колесо — случайный исход', desc: 'крутить колесо',
         async run(session) {
           const cfg = engine.settings?.wheel ?? {};
+          if (cfg.mode === 'off') return;
+          if (cfg.mode !== 'command') {
+            if (cfg.rewardName) {
+              await engine.say(session, `Колесо крутится наградой канала «${cfg.rewardName}» 🎡`);
+            }
+            return;
+          }
           if (cfg.enabled === false) { await engine.say(session, 'Колесо сейчас выключено 🙅'); return; }
           const items = (Array.isArray(cfg.items) ? cfg.items : [])
             .filter((x) => x && String(x.label || '').trim() && Number(x.weight) > 0);
@@ -546,16 +585,19 @@ export class CommandEngine {
             return;
           }
           if (cd) engine._cool.set(key, Date.now());
-          const total = items.reduce((s, x) => s + Number(x.weight), 0);
-          let roll = Math.random() * total;
-          let picked = items[items.length - 1];
-          for (const it of items) {
-            roll -= Number(it.weight);
-            if (roll <= 0) { picked = it; break; }
-          }
           const who = session.displayName || session.login;
-          overlay.push({ kind: 'wheel', channel: null, user: who, text: `${who}: ${picked.label}` });
-          await engine.say(session, `🎡 ${who} крутил(а) колесо → ${picked.label}`);
+          const spin = engine.pickWheel();
+          if (!spin) { await engine.say(session, 'Колесо не настроено: нет вариантов с весом 🤷'); return; }
+          overlay.push({
+            kind: 'wheel',
+            channel: null,
+            user: who,
+            text: `${who}: ${spin.picked.label}`,
+            label: spin.picked.label,
+            index: spin.index,
+            sectors: spin.sectors,
+          });
+          await engine.say(session, `🎡 ${who} крутил(а) колесо → ${spin.picked.label}`);
         },
       },
 
@@ -1010,6 +1052,8 @@ export function loadSettings() {
     },
     wheel: {
       enabled: true,
+      mode: 'reward', // 'reward' (наградой канала — главное) | 'command' (!колесо) | 'off'
+      rewardName: 'колесо', // название награды-запуска
       cooldown: 60, // сек между вращениями одного юзера
       items: [
         { label: '💥 мимо', weight: 50 },
@@ -1017,6 +1061,12 @@ export function loadSettings() {
         { label: '✨ супер-приз', weight: 15 },
         { label: '💎 ДЖЕКПОТ', weight: 10 },
       ],
+      overlay: {  // раскладка виджета-рулетки (1920×1080, редактор в панели)
+        x: 760, y: 340, size: 400,      // центр и диаметр колеса, px сцены
+        duration: 8,                    // сколько висит результат после остановки, сек
+        spinSound: '',                  // файл из overlay-media (тик при вращении)
+        winnerTemplate: '🏆 {user} → {label}',
+      },
       ...(stored.wheel ?? {}),
     },
     memShop: {

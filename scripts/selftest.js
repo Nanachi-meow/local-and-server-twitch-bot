@@ -992,13 +992,20 @@ overlay.clients.clear();
 overlay.clients.add({ write: (s) => ovFree.push(String(s)) });
 
 // настройки живого объекта движка: колесо с единственным «весомым» вариантом — детерминировано
-settings.wheel = { enabled: true, cooldown: 60, items: [{ label: '💥 мимо', weight: 0 }, { label: '💎 ДЖЕКПОТ', weight: 10 }] };
+settings.wheel = { enabled: true, mode: 'command', cooldown: 60, items: [{ label: '💥 мимо', weight: 0 }, { label: '💎 ДЖЕКПОТ', weight: 10 }] };
 await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!колесо', badges: [] });
-ok('колесо: бесплатный спин — исход из таблицы весов', sent.at(-1).includes('ДЖЕКПОТ')
+ok('колесо: спин — исход из таблицы весов', sent.at(-1).includes('ДЖЕКПОТ')
   && ovFree.some((s) => s.includes('"kind":"wheel"') && s.includes('Petya')));
+ok('колесо: снапшот секторов уходит виджету-рулетке', ovFree.some((s) => s.includes('"sectors"') && s.includes('ДЖЕКПОТ')));
 await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!колесо', badges: [] });
 ok('колесо: кулдаун держит повтор', sent.at(-1).includes('охлади'));
 settings.wheel.cooldown = 0;
+// в режиме награды команда перенаправляет
+settings.wheel.mode = 'reward';
+settings.wheel.rewardName = 'колесо';
+await engine.handleChatMessage({ userId: '8', login: 'petya', displayName: 'Petya', text: '!колесо', badges: [] });
+ok('колесо: mode=reward — команда подсказывает награду', sent.at(-1).includes('наградой канала'));
+settings.wheel.mode = 'command';
 
 // мемы: бесплатно, список — только включённые, текст с {user} в оверлей
 settings.memShop = {

@@ -118,10 +118,61 @@ const onSubEvent = async (type, event) => {
     await onSongRedemption(event).catch((e) => {
       logSystem(`Заказ музыки наградой: сбой — ${e.message}`, 'error');
     });
+    await onWheelRedemption(event).catch((e) => {
+      logSystem(`Кручение колеса наградой: сбой — ${e.message}`, 'error');
+    });
     void r;
   }
   processor.dispatch(type, event);
 };
+
+/**
+ * Кручение рулетки наградой канала (settings.wheel.mode === 'reward').
+ * Вращение всегда валидно — баллы не возвращаются; юзер с кулдауном просто видит подсказку.
+ */
+async function onWheelRedemption(event) {
+  const cfg = settings.wheel ?? {};
+  if (cfg.mode !== 'reward' || cfg.enabled === false) return;
+  const wanted = String(cfg.rewardName ?? '').trim().toLowerCase();
+  const evReward = String(event?.reward?.title ?? event?.reward_name ?? '').trim().toLowerCase();
+  if (!wanted || evReward !== wanted) return;
+
+  const login = String(event?.user_login ?? '').toLowerCase();
+  const byName = String(event?.user_name ?? '') || login;
+  const broadcasterId = String(event?.broadcaster_user_id ?? '');
+  const sayToChat = async (text) => {
+    if (!broadcasterId || !auth.tokens?.userId) return;
+    try {
+      await helix.sendMessage({ broadcasterId, senderId: auth.tokens.userId, text: `@${login}, ${text}`.slice(0, 480) });
+    } catch { /* чат недоступен — главное колесо */ }
+  };
+
+          const spin = commands.pickWheel();
+  if (!spin) { await sayToChat('колесо не настроено — попроси стримера добавить варианты 🤷'); return; }
+
+  // кулдаун на юзера (общий с командой)
+  const cd = Math.max(0, Math.min(3600, Number(cfg.cooldown) || 0));
+  const key = `${broadcasterId}:wheel:${event?.user_id}`;
+  const last = commands._cool.get(key) || 0;
+  if (cd && Date.now() - last < cd * 1000) {
+    const left = Math.ceil((cd * 1000 - (Date.now() - last)) / 1000);
+    await sayToChat(`колесо снова через ${left} сек ⏳`);
+    return;
+  }
+  if (cd) commands._cool.set(key, Date.now());
+
+  const who = byName;
+  overlay.push({
+    kind: 'wheel',
+    channel: null,
+    user: who,
+    text: `${who}: ${spin.picked.label}`,
+    label: spin.picked.label,
+    index: spin.index,
+    sectors: spin.sectors,
+  });
+  await sayToChat(`🎡 ${spin.picked.label}`);
+}
 
 /**
  * Заказ музыки через награду канала (settings.songs.requestMode === 'reward').
@@ -609,6 +660,36 @@ const app = {
           }));
       }
       try { overlay.push({ kind: 'wordofday', ...processor.wodState(), objects: cur.objects ?? [] }); } catch {}
+    }
+    // колесо: режим запуска + варианты + раскладка рулетки-оверлея
+    if (patch.wheel !== undefined && patch.wheel !== null && typeof patch.wheel === 'object') {
+      const a = patch.wheel;
+      const cur = settings.wheel ??= {};
+      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (a.mode !== undefined) cur.mode = ['reward', 'command', 'off'].includes(a.mode) ? a.mode : 'reward';
+      if (a.rewardName !== undefined) cur.rewardName = String(a.rewardName).trim().slice(0, 100);
+      if (a.cooldown !== undefined) cur.cooldown = Math.max(0, Math.min(3600, Math.round(Number(a.cooldown) || 0)));
+      if (Array.isArray(a.items)) {
+        cur.items = a.items
+          .map((x) => ({
+            label: String(x?.label || '').trim().slice(0, 60),
+            weight: Math.max(0, Math.min(1000, Math.round(Number(x?.weight) || 0))),
+            color: String(x?.color || '').slice(0, 20),
+          }))
+          .filter((x) => x.label && x.weight > 0)
+          .slice(0, 12);
+      }
+      if (a.overlay !== undefined && a.overlay !== null && typeof a.overlay === 'object') {
+        const o = a.overlay;
+        const curO = cur.overlay ??= {};
+        if (o.x !== undefined) curO.x = Math.max(0, Math.min(1920, Math.round(Number(o.x) || 760)));
+        if (o.y !== undefined) curO.y = Math.max(0, Math.min(1080, Math.round(Number(o.y) || 340)));
+        if (o.size !== undefined) curO.size = Math.max(100, Math.min(800, Math.round(Number(o.size) || 400)));
+        if (o.duration !== undefined) curO.duration = Math.max(3, Math.min(30, Math.round(Number(o.duration) || 8)));
+        if (o.spinSound !== undefined) curO.spinSound = String(o.spinSound).replace(/[\\/]/g, '').slice(0, 120);
+        if (o.winnerTemplate !== undefined) curO.winnerTemplate = String(o.winnerTemplate).slice(0, 200);
+      }
+      // колесо см. выше — push настроек не нужен, панель читает из /api/settings
     }
     // награды канала (редемпции): таблица мэппингов + кулдаун
     if (patch.redemptions && typeof patch.redemptions === 'object') {
