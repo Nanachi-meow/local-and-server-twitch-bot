@@ -2802,6 +2802,113 @@ sendParentMessage({ Type: "WidgetLoaded", ID: "{ID}" });
   }
 })();
 
+// ⬆ Импорт .miuoverlay (MixItUp) или JSON — кнопка или перетащить файл
+const COLOR_NAMES = {
+  black: '#000000', white: '#ffffff', red: '#ff0000', green: '#008000', blue: '#0000ff',
+  brown: '#a52a2a', lightcoral: '#f08080', lightblue: '#add8e6', lightgreen: '#90ee90',
+  lightyellow: '#ffffe0', lightgray: '#d3d3d3', lightgrey: '#d3d3d3', darkgray: '#a9a9a9',
+  darkgrey: '#a9a9a9', orange: '#ffa500', yellow: '#ffff00', purple: '#800080',
+  pink: '#ffc0cb', cyan: '#00ffff', magenta: '#ff00ff', gray: '#808080', grey: '#808080',
+  gold: '#ffd700', silver: '#c0c0c0', crimson: '#dc143c', teal: '#008080', navy: '#000080',
+  maroon: '#800000', olive: '#808000', lime: '#00ff00', aqua: '#00ffff', fuchsia: '#ff00ff',
+  indigo: '#4b0082', violet: '#ee82ee', khaki: '#f0e68c', coral: '#ff7f50',
+  salmon: '#fa8072', tomato: '#ff6347', hotpink: '#ff69b4', deeppink: '#ff1493',
+  steelblue: '#4682b4', royalblue: '#4169e1', midnightblue: '#191970', forestgreen: '#228b22',
+  seagreen: '#2e8b57', darkgreen: '#006400', darkred: '#8b0000', darkblue: '#00008b',
+  darkviolet: '#9400d3', darkorange: '#ff8c00', darkcyan: '#008b8b', darkmagenta: '#8b008b',
+};
+
+function resolveColor(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s) return '';
+  if (s.startsWith('#')) return s;
+  return COLOR_NAMES[s] ?? '';
+}
+
+function importMiuOverlay(text) {
+  let j;
+  try { j = JSON.parse(text); } catch { return { error: 'не смогла разобрать файл — это JSON?' }; }
+  // MixItUp .miuoverlay: { Item: { Size, Outcomes, FontSize, FontName, FontColor, ... } }
+  const item = j.Item ?? j;
+  const outcomes = Array.isArray(item.Outcomes) ? item.Outcomes : [];
+  if (!outcomes.length) return { error: 'в файле нет вариантов (Outcomes)' };
+
+  const items = outcomes
+    .filter((o) => o && String(o.Name || '').trim())
+    .map((o) => ({
+      label: String(o.Name).trim().slice(0, 60),
+      weight: Math.max(1, Math.round(Number(o.Probability) || 10)),
+      color: resolveColor(o.Color),
+    }))
+    .slice(0, 12);
+
+  if (!items.length) return { error: 'все варианты пустые' };
+
+  const size = Math.max(100, Math.min(800, Math.round(Number(item.Size) || 400)));
+  const fontSize = Math.max(10, Math.min(60, Math.round(Number(item.FontSize) || 22)));
+  // звук: путь вида "C:\...\WheelClick.mp3" — берём имя файла
+  const soundPath = String(item.WheelClickSoundFilePath || '');
+  const soundFile = soundPath ? soundPath.split(/[\\/]/).pop() : '';
+
+  return {
+    items,
+    size,
+    fontSize,
+    soundFile,
+    equalProb: Boolean(item.EqualProbabilityForOutcomes),
+  };
+}
+
+async function applyWheelImport(text, fileName) {
+  const r = importMiuOverlay(text);
+  if (r.error) { toast(`Импорт: ${r.error}`, true); return; }
+
+  whItems = r.items;
+  if (r.equalProb) {
+    const w = Math.round(100 / r.items.length) || 10;
+    for (const it of r.items) it.weight = w;
+  }
+  whOverlay.size = r.size;
+  renderWheelItems();
+  whRenderStage();
+  if (r.soundFile) {
+    await renderWheelSoundSelect(r.soundFile);
+  }
+  $('#wh-duration').value = whOverlay.duration ?? 8;
+  toast(`Импортировано из ${fileName}: ${r.items.length} вариантов, размер ${r.size}px${r.soundFile ? `, звук: ${r.soundFile}` : ''} — не забудь Сохранить`);
+}
+
+// кнопка импорта
+$('#wh-import-btn').addEventListener('click', () => $('#wh-import-file').click());
+$('#wh-import-file').addEventListener('change', async () => {
+  const file = $('#wh-import-file')?.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    await applyWheelImport(text, file.name);
+  } catch (e) { toast(`Импорт: ${e.message}`, true); }
+  $('#wh-import-file').value = '';
+});
+
+// drag&drop на секцию рулетки
+(() => {
+  const zone = $('#wh-import-btn')?.closest('.guide-body');
+  if (!zone) return;
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+  zone.addEventListener('dragenter', (e) => { e.preventDefault(); zone.style.outline = '2px dashed var(--accent)'; zone.style.outlineOffset = '4px'; });
+  zone.addEventListener('dragleave', () => { zone.style.outline = ''; zone.style.outlineOffset = ''; });
+  zone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    zone.style.outline = ''; zone.style.outlineOffset = '';
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      await applyWheelImport(text, file.name);
+    } catch (err) { toast(`Импорт: ${err.message}`, true); }
+  });
+})();
+
 loadWheel().catch(() => {});
 
 // ---------------- музыка (заказы YouTube) ----------------
