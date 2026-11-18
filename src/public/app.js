@@ -1751,6 +1751,8 @@ function wodNorm(raw) {
 }
 
 function wodK() { return 1; } // виджет маленький: превью = реальный размер, без масштаба
+const WOD_OX = 110; // зона виджета в сцене редактора
+const WOD_OY = 45;
 
 function wodPush() {
   wodHist.push(JSON.stringify(wodEd.objects));
@@ -1785,15 +1787,18 @@ let wodCurrent = { word: '', count: 0 };
 function wodRenderStage() {
   const stage = $('#wod-stage');
   if (!stage) return;
-  const k = wodK(); // 1 — виджет в реальном размере
+  // сцена 660×270, зона виджета 440×180 в центре (110, 45) — координаты объектов локальные виджету
+  const OX = 110;
+  const OY = 45;
+  const k = 1; // виджет в реальном размере
   const sorted = wodEd.objects.map((o, i) => ({ o, i })).sort((a, b) => (a.o.z ?? 0) - (b.o.z ?? 0));
-  stage.innerHTML = '';
+  stage.innerHTML = '<div id="wod-zone"></div>';
   for (const { o, i } of sorted) {
     const div = document.createElement('div');
     div.className = `plp-obj plp-${o.type}${wodSel.has(i) ? ' sel' : ''}`;
     div.dataset.i = i;
-    div.style.left = `${Math.round(o.x * k)}px`;
-    div.style.top = `${Math.round(o.y * k)}px`;
+    div.style.left = `${Math.round(OX + o.x * k)}px`;
+    div.style.top = `${Math.round(OY + o.y * k)}px`;
     div.style.width = `${o.w * k}px`;
     div.style.height = `${o.h * k}px`;
     div.style.opacity = String(o.opacity / 100);
@@ -1860,14 +1865,14 @@ function wodGuides({ v, h }) {
     const g = document.createElement('div');
     g.id = 'wod-guide-v';
     g.className = `plp-guide plp-guide-v ${v.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
-    g.style.left = `${v.pos * k}px`;
+    g.style.left = `${WOD_OX + v.pos * k}px`;
     stage.appendChild(g);
   }
   if (h) {
     const g = document.createElement('div');
     g.id = 'wod-guide-h';
     g.className = `plp-guide plp-guide-h ${h.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
-    g.style.top = `${h.pos * k}px`;
+    g.style.top = `${WOD_OY + h.pos * k}px`;
     stage.appendChild(g);
   }
 }
@@ -2078,16 +2083,15 @@ function wodRenderProps() {
       const shiftY = snap.y - (anchor.y + dy);
       for (const [i, s] of starts) {
         const o = wodEd.objects[i];
-        o.x = Math.round(Math.max(-60, Math.min(WOD_W + 60, s.x + dx + shiftX)));
-        o.y = Math.round(Math.max(-60, Math.min(WOD_H + 60, s.y + dy + shiftY)));
+        o.x = Math.round(Math.max(-110, Math.min(WOD_W + 110, s.x + dx + shiftX)));
+        o.y = Math.round(Math.max(-45, Math.min(WOD_H + 45, s.y + dy + shiftY)));
       }
       pendingGuides = snap.guides;
     } else {
       const o = wodEd.objects[idx];
       const s = starts.get(idx);
       o.w = Math.round(Math.max(20, Math.min(WOD_W + 200, s.w + dx)));
-      o.h = Math.round(Math.max(20, Math.min(WOD_H + 200, s.h + dy)));
-    }
+      o.h = Math.round(Math.max(20, Math.min(WOD_H + 200, s.h + dy)));    }
     wodRenderStage();
     wodRenderProps();
     if (pendingGuides) { wodGuides(pendingGuides); pendingGuides = null; }
@@ -2103,7 +2107,7 @@ function wodRenderProps() {
         wodSel = new Set();
         const k = wodK();
         for (const [i, o] of wodEd.objects.entries()) {
-          const r = { x: o.x * k, y: o.y * k, w: o.w * k, h: o.h * k };
+          const r = { x: WOD_OX + o.x * k, y: WOD_OY + o.y * k, w: o.w * k, h: o.h * k };
           if (r.x < band.x + band.w && r.x + r.w > band.x && r.y < band.y + band.h && r.y + r.h > band.y) wodSel.add(i);
         }
         if (wodSel.size) wodSelIdx = [...wodSel].at(-1);
