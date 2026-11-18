@@ -27,7 +27,6 @@
     <button class="tab" data-tab="timers">Таймеры</button>
     <button class="tab" data-tab="songs">🎵 Музыка</button>
     <button class="tab" data-tab="overlay">📺 Оверлей</button>
-    <button class="tab" data-tab="proxy">🌐 Прокси</button>
     <button class="tab" data-tab="modules">🧩 Модули</button>
     <button class="tab" data-tab="settings">Настройки</button>
   </nav>
@@ -566,70 +565,6 @@
       </div>
     </section>
 
-    <!-- ============ ПРОКСИ ============ -->
-    <section id="tab-proxy" class="tabpane">
-      <details class="guide-box" open>
-        <summary><b>🌐 HTTP/HTTPS прокси (главное)</b></summary>
-        <div class="guide-body">
-          <p class="hint">Прокси нужен если YouTube/Twitch недоступны напрямую (RKN, регион). Работает для запросов метаданных музыки и внешних API модулей. Поддержка: HTTP/HTTPS CONNECT.</p>
-          <div class="evcard">
-            <label><input type="checkbox" id="px-enabled" /> включён</label>
-            <label>URL прокси <input type="text" id="px-url" class="wide" maxlength="200" placeholder="http://127.0.0.1:8080" /></label>
-            <div class="row">
-              <button class="act" id="px-save">Сохранить</button>
-              <button class="act ghost" id="px-test">Проверить связь</button>
-            </div>
-            <p class="hint" id="px-result"></p>
-          </div>
-        </div>
-      </details>
-      <details class="guide-box">
-        <summary><b>🧦 SOCKS5 прокси</b></summary>
-        <div class="guide-body">
-          <p class="hint">SOCKS5-прокси — если HTTP-прокси недоступен. Укажи адрес SOCKS5-сервера, бот будет туннелировать HTTP через него. Формат URL для HTTP-прокси: <code>http://127.0.0.1:PORT</code>.</p>
-          <div class="evcard">
-            <label><input type="checkbox" id="px-socks-enabled" /> SOCKS5 включён</label>
-            <label>хост <input type="text" id="px-socks-host" maxlength="100" placeholder="127.0.0.1" /></label>
-            <label>порт <input type="number" id="px-socks-port" min="1" max="65535" placeholder="1080" style="width:80px" /></label>
-            <label>логин <input type="text" id="px-socks-user" maxlength="100" placeholder="(если нужен)" /></label>
-            <label>пароль <input type="password" id="px-socks-pass" maxlength="100" placeholder="(если нужен)" /></label>
-            <div class="row">
-              <button class="act" id="px-socks-save">Сохранить</button>
-            </div>
-          </div>
-        </div>
-      </details>
-      <details class="guide-box">
-        <summary><b>🔵 MTProto прокси (Telegram)</b></summary>
-        <div class="guide-body">
-          <p class="hint">MTProto-прокси — протокол Telegram. Если у тебя есть MTProto-прокси (t.me/proxy?server=...), укажи параметры — бот настроит конвертацию для туннелирования HTTP.</p>
-          <div class="evcard">
-            <label><input type="checkbox" id="px-mtproto-enabled" /> MTProto включён</label>
-            <label>хост <input type="text" id="px-mtproto-host" maxlength="100" placeholder="proxy.example.com" /></label>
-            <label>порт <input type="number" id="px-mtproto-port" min="1" max="65535" placeholder="443" style="width:80px" /></label>
-            <label>secret <input type="text" id="px-mtproto-secret" class="wide" maxlength="200" placeholder="dd00000000000000000000000000000000" /></label>
-            <div class="row">
-              <button class="act" id="px-mtproto-save">Сохранить</button>
-            </div>
-          </div>
-        </div>
-      </details>
-      <details class="guide-box">
-        <summary><b>🌍 Публичные прокси-листы</b></summary>
-        <div class="guide-body">
-          <p class="hint">Если свой прокси найти не получается. Проверяй скорость — публичные часто медленные.</p>
-          <ul class="hint">
-            <li><a href="https://spys.one/en/http-proxy-list/" target="_blank" rel="noreferrer" style="text-decoration:underline">spys.one</a> — фильтр по HTTPS + анонимности</li>
-            <li><a href="https://free-proxy-list.net/" target="_blank" rel="noreferrer" style="text-decoration:underline">free-proxy-list.net</a> — простой список</li>
-            <li><a href="https://proxyscrape.com/free-proxy-list" target="_blank" rel="noreferrer" style="text-decoration:underline">proxyscrape.com</a> — по протоколам, можно выгрузить</li>
-            <li><a href="https://github.com/TheSpeedX/SOCKS-List" target="_blank" rel="noreferrer" style="text-decoration:underline">TheSpeedX/SOCKS-List</a> — SOCKS4/5 на GitHub</li>
-            <li><a href="https://github.com/hookzof/socks5_list" target="_blank" rel="noreferrer" style="text-decoration:underline">hookzof/socks5_list</a> — обновляемый SOCKS5</li>
-          </ul>
-          <p class="hint">Формат для HTTP-прокси: <code>http://IP:PORT</code>. SOCKS5/MTProto — в секциях выше.</p>
-        </div>
-      </details>
-    </section>
-
     <!-- ============ МОДУЛИ ============ -->
     <section id="tab-modules" class="tabpane">
       <div class="card">
@@ -647,7 +582,71 @@
     <section id="tab-settings" class="tabpane">
       <div class="subtabs">
         <button class="subtab active" data-subtab="settings-main">⚙️ Настройки</button>
+        <button class="subtab" data-subtab="settings-proxy">🌐 Прокси</button>
         <button class="subtab" data-subtab="settings-credits">💜 Благодарности</button>
+      </div>
+
+      <div id="sub-settings-proxy" class="hidden">
+        <details class="guide-box" open>
+          <summary><b>🌐 HTTP/HTTPS прокси (главное)</b></summary>
+          <div class="guide-body">
+            <p class="hint">Прокси нужен если YouTube/Twitch недоступны напрямую (RKN, регион). Работает для запросов метаданных музыки и внешних API модулей. Поддержка: HTTP/HTTPS CONNECT.</p>
+            <div class="evcard">
+              <label><input type="checkbox" id="px-enabled" /> включён</label>
+              <label>URL прокси <input type="text" id="px-url" class="wide" maxlength="200" placeholder="http://127.0.0.1:8080" /></label>
+              <div class="row">
+                <button class="act" id="px-save">Сохранить</button>
+                <button class="act ghost" id="px-test">Проверить связь</button>
+              </div>
+              <p class="hint" id="px-result"></p>
+            </div>
+          </div>
+        </details>
+        <details class="guide-box">
+          <summary><b>🧦 SOCKS5 прокси</b></summary>
+          <div class="guide-body">
+            <p class="hint">SOCKS5-прокси — если HTTP-прокси недоступен. Укажи адрес SOCKS5-сервера, бот будет туннелировать HTTP через него. Формат URL для HTTP-прокси: <code>http://127.0.0.1:PORT</code>.</p>
+            <div class="evcard">
+              <label><input type="checkbox" id="px-socks-enabled" /> SOCKS5 включён</label>
+              <label>хост <input type="text" id="px-socks-host" maxlength="100" placeholder="127.0.0.1" /></label>
+              <label>порт <input type="number" id="px-socks-port" min="1" max="65535" placeholder="1080" style="width:80px" /></label>
+              <label>логин <input type="text" id="px-socks-user" maxlength="100" placeholder="(если нужен)" /></label>
+              <label>пароль <input type="password" id="px-socks-pass" maxlength="100" placeholder="(если нужен)" /></label>
+              <div class="row">
+                <button class="act" id="px-socks-save">Сохранить</button>
+              </div>
+            </div>
+          </div>
+        </details>
+        <details class="guide-box">
+          <summary><b>🔵 MTProto прокси (Telegram)</b></summary>
+          <div class="guide-body">
+            <p class="hint">MTProto-прокси — протокол Telegram. Если у тебя есть MTProto-прокси (t.me/proxy?server=...), укажи параметры — бот настроит конвертацию для туннелирования HTTP.</p>
+            <div class="evcard">
+              <label><input type="checkbox" id="px-mtproto-enabled" /> MTProto включён</label>
+              <label>хост <input type="text" id="px-mtproto-host" maxlength="100" placeholder="proxy.example.com" /></label>
+              <label>порт <input type="number" id="px-mtproto-port" min="1" max="65535" placeholder="443" style="width:80px" /></label>
+              <label>secret <input type="text" id="px-mtproto-secret" class="wide" maxlength="200" placeholder="dd00000000000000000000000000000000" /></label>
+              <div class="row">
+                <button class="act" id="px-mtproto-save">Сохранить</button>
+              </div>
+            </div>
+          </div>
+        </details>
+        <details class="guide-box">
+          <summary><b>🌍 Публичные прокси-листы</b></summary>
+          <div class="guide-body">
+            <p class="hint">Если свой прокси найти не получается. Проверяй скорость — публичные часто медленные.</p>
+            <ul class="hint">
+              <li><a href="https://spys.one/en/http-proxy-list/" target="_blank" rel="noreferrer" style="text-decoration:underline">spys.one</a> — фильтр по HTTPS + анонимности</li>
+              <li><a href="https://free-proxy-list.net/" target="_blank" rel="noreferrer" style="text-decoration:underline">free-proxy-list.net</a> — простой список</li>
+              <li><a href="https://proxyscrape.com/free-proxy-list" target="_blank" rel="noreferrer" style="text-decoration:underline">proxyscrape.com</a> — по протоколам, можно выгрузить</li>
+              <li><a href="https://github.com/TheSpeedX/SOCKS-List" target="_blank" rel="noreferrer" style="text-decoration:underline">TheSpeedX/SOCKS-List</a> — SOCKS4/5 на GitHub</li>
+              <li><a href="https://github.com/hookzof/socks5_list" target="_blank" rel="noreferrer" style="text-decoration:underline">hookzof/socks5_list</a> — обновляемый SOCKS5</li>
+            </ul>
+            <p class="hint">Формат для HTTP-прокси: <code>http://IP:PORT</code>. SOCKS5/MTProto — в секциях выше.</p>
+          </div>
+        </details>
       </div>
 
       <div id="sub-settings-main">
