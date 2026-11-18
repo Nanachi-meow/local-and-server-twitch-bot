@@ -242,8 +242,28 @@ input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; marg
   border: 1px solid var(--line);
   touch-action: none;
 }
-/* «Слово дня» — маленький виджет: сцена чуть больше его самого (не весь стрим):
-   660×270, зона виджета 440×180 отмечена пунктиром по центру */
+/* «Рулетка»: сцена редактора 660×270 (как у слова дня) — колесо внутри */
+#wh-stage {
+  position: relative; width: 660px; max-width: 100%; height: 270px;
+  border-radius: 12px; overflow: hidden;
+  background:
+    repeating-conic-gradient(rgba(255,255,255,.05) 0% 25%, rgba(0,0,0,.25) 0% 50%) 0 0 / 20px 20px;
+  border: 1px solid var(--line);
+  touch-action: none;
+  margin: 0 auto;
+}
+.wh-wheel-mock {
+  position: absolute; border-radius: 50%; background: #8b5cf6;
+  box-shadow: 0 0 30px rgba(139, 92, 246, .4);
+  cursor: grab; box-sizing: border-box;
+}
+.wh-wheel-mock:active { cursor: grabbing; }
+.wh-wheel-mock.sel { outline: 3px solid #fff; }
+.wh-wheel-mock .plp-resize {
+  position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px;
+  background: var(--accent); border: 2px solid #fff; border-radius: 50%;
+  cursor: nwse-resize;
+}
 #wod-stage {
   position: relative; width: 660px; max-width: 100%; height: 270px;
   border-radius: 12px; overflow: hidden;

@@ -2255,26 +2255,31 @@ $('#wod-reset').addEventListener('click', async () => {
   } catch (e) { toast(e.message, true); }
 });
 
-// ---------------- 🎡 Колесо фортуны (рулетка за баллы канала) ----------------
+// ---------------- 🎰 Рулетка (за баллы канала) ----------------
 
 let whItems = [];
+let whOverlay = { x: 760, y: 340, size: 400 };
+let whSel = false;
+
+const WH_ST_W = 660;
+const WH_ST_H = 270;
+
+function whK() { const s = $('#wh-stage'); return s ? s.clientWidth / 1920 : 0.25; }
 
 async function loadWheel() {
   const st = await api('/api/settings');
   const w = st.wheel ?? {};
-  const o = w.overlay ?? {};
+  whOverlay = w.overlay ?? { x: 760, y: 340, size: 400 };
   $('#wh-enabled').checked = w.enabled !== false;
   $('#wh-mode').value = w.mode ?? 'reward';
   $('#wh-reward').value = w.rewardName ?? 'колесо';
   $('#wh-cooldown').value = Math.round((w.cooldown ?? 60) / 60);
   whItems = Array.isArray(w.items) ? w.items.map((x) => ({ ...x })) : [];
-  $('#wh-x').value = o.x ?? 760; $('#wh-x-val').textContent = String(o.x ?? 760);
-  $('#wh-y').value = o.y ?? 340; $('#wh-y-val').textContent = String(o.y ?? 340);
-  $('#wh-size').value = o.size ?? 400; $('#wh-size-val').textContent = `${o.size ?? 400}px`;
-  $('#wh-duration').value = o.duration ?? 8;
-  $('#wh-template').value = o.winnerTemplate ?? '🏆 {user} → {label}';
+  $('#wh-duration').value = whOverlay.duration ?? 8;
+  $('#wh-template').value = whOverlay.winnerTemplate ?? '🏆 {user} → {label}';
   renderWheelItems();
-  renderWheelSoundSelect(o.spinSound ?? '');
+  renderWheelSoundSelect(whOverlay.spinSound ?? '');
+  whRenderStage();
 }
 
 function renderWheelItems() {
@@ -2282,7 +2287,7 @@ function renderWheelItems() {
   $('#wh-body').innerHTML = whItems.map((it, i) => `
     <tr data-i="${i}">
       <td class="cellresp"><input class="wh-label" value="${esc(it.label || '')}" maxlength="60" /></td>
-      <td class="cellcd"><input class="wh-weight" type="range" min="1" max="100" value="${it.weight ?? 10}" style="width:80px" title="вес (вероятность пропорциональна)" /><span class="hint">${it.weight ?? 10}</span></td>
+      <td class="cellcd"><input class="wh-weight" type="range" min="1" max="100" value="${it.weight ?? 10}" style="width:80px" /><span class="hint">${it.weight ?? 10}</span></td>
       <td class="cellcd"><input class="wh-color" type="color" value="${esc(it.color || palette[i % palette.length])}" /></td>
       <td><button class="act ghost wh-del" title="удалить">🗑</button></td>
     </tr>`).join('') || '<tr><td colspan="4" class="hint">Вариантов нет — добавь первый</td></tr>';
@@ -2297,9 +2302,73 @@ async function renderWheelSoundSelect(selected) {
   } catch {}
 }
 
-$('#wh-x').addEventListener('input', () => { $('#wh-x-val').textContent = $('#wh-x').value; });
-$('#wh-y').addEventListener('input', () => { $('#wh-y-val').textContent = $('#wh-y').value; });
-$('#wh-size').addEventListener('input', () => { $('#wh-size-val').textContent = `${$('#wh-size').value}px`; });
+// ---------- редактор раскладки: колесо в превью, drag/resize ----------
+function whRenderStage() {
+  const stage = $('#wh-stage');
+  if (!stage) return;
+  const k = whK();
+  stage.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = `wh-wheel-mock${whSel ? ' sel' : ''}`;
+  const W = whOverlay.size * k;
+  div.style.left = `${whOverlay.x * k - W / 2}px`;
+  div.style.top = `${whOverlay.y * k - W / 2}px`;
+  div.style.width = `${W}px`;
+  div.style.height = `${W}px`;
+  if (whSel) {
+    const h = document.createElement('div');
+    h.className = 'plp-resize';
+    div.appendChild(h);
+  }
+  stage.appendChild(div);
+}
+
+(() => {
+  const stage = $('#wh-stage');
+  if (!stage) return;
+  let mode = null;
+  let grabX = 0, grabY = 0;
+  let start = null;
+
+  stage.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.plp-resize');
+    const wheel = e.target.closest('.wh-wheel-mock');
+    if (!wheel) return;
+    stage.setPointerCapture?.(e.pointerId);
+    grabX = e.clientX; grabY = e.clientY;
+    whSel = true;
+    start = { ...whOverlay };
+    mode = handle ? 'resize' : 'move';
+    whRenderStage();
+    e.preventDefault();
+  });
+
+  stage.addEventListener('pointermove', (e) => {
+    if (!mode) return;
+    const k = whK();
+    const dx = (e.clientX - grabX) / k;
+    const dy = (e.clientY - grabY) / k;
+    if (mode === 'move') {
+      let nx = start.x + dx;
+      let ny = start.y + dy;
+      // магнит к центру сцены (960, 540)
+      const snapR = 14;
+      if (Math.abs(nx - 960) <= snapR) nx = 960;
+      if (Math.abs(ny - 540) <= snapR) ny = 540;
+      whOverlay.x = Math.round(Math.max(0, Math.min(1920, nx)));
+      whOverlay.y = Math.round(Math.max(0, Math.min(1080, ny)));
+    } else {
+      // resize: меняем размер, центр остаётся
+      const startW = start.size;
+      whOverlay.size = Math.round(Math.max(100, Math.min(800, startW + dx * 2)));
+    }
+    whRenderStage();
+  });
+
+  const stop = () => { mode = null; };
+  stage.addEventListener('pointerup', stop);
+  stage.addEventListener('pointercancel', stop);
+})();
 
 $('#wh-add').addEventListener('click', () => {
   const label = $('#wh-add-label').value.trim();
@@ -2325,7 +2394,8 @@ $('#wh-body').addEventListener('input', (e) => {
   if (e.target.classList.contains('wh-label')) it.label = e.target.value;
   if (e.target.classList.contains('wh-weight')) {
     it.weight = Number(e.target.value) || 1;
-    e.target.nextElementSibling?.textContent && (e.target.nextElementSibling.textContent = String(it.weight));
+    const sp = e.target.nextElementSibling;
+    if (sp) sp.textContent = String(it.weight);
   }
   if (e.target.classList.contains('wh-color')) it.color = e.target.value;
 });
@@ -2340,16 +2410,14 @@ $('#wh-save').addEventListener('click', async () => {
         cooldown: Math.round((Number($('#wh-cooldown').value) || 0) * 60),
         items: whItems.filter((x) => x.label && x.weight > 0),
         overlay: {
-          x: Number($('#wh-x').value) || 760,
-          y: Number($('#wh-y').value) || 340,
-          size: Number($('#wh-size').value) || 400,
+          ...whOverlay,
           duration: Number($('#wh-duration').value) || 8,
           spinSound: $('#wh-sound').value,
           winnerTemplate: $('#wh-template').value,
         },
       },
     });
-    toast('Колесо сохранено ✅');
+    toast('Рулетка сохранена ✅');
   } catch (e) { toast(e.message, true); }
 });
 
@@ -2358,6 +2426,131 @@ $('#wh-test').addEventListener('click', async () => {
     await api('/api/actions/wheeltest', { method: 'POST', body: '{}' });
     toast('Тестовое вращение — смотри оверлей (страница должна быть открыта)');
   } catch (e) { toast(e.message, true); }
+});
+
+// ⬇ экспорт: JSON-настройки + шаблон HTML для полной кастомизации
+$('#wh-export').addEventListener('click', async () => {
+  const st = await api('/api/settings');
+  const w = st.wheel ?? {};
+  const items = whItems.filter((x) => x.label && x.weight > 0);
+  const palette = ['#8b5cf6', '#22c55e', '#eab308', '#38bdf8', '#f97316', '#ec4899', '#14b8a6', '#a855f7'];
+  const sectors = items.map((it, i) => ({ label: it.label, weight: it.weight, color: it.color || palette[i % palette.length] }));
+  const cfg = {
+    mode: w.mode ?? 'reward',
+    rewardName: w.rewardName ?? 'колесо',
+    cooldown: w.cooldown ?? 60,
+    items: sectors,
+    overlay: { ...whOverlay, duration: Number($('#wh-duration').value) || 8, spinSound: $('#wh-sound').value, winnerTemplate: $('#wh-template').value },
+  };
+  const html = `<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="utf-8"/>
+<title>Шаблон рулетки — ${esc(w.rewardName || 'колесо')}</title>
+<style>
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;font-family:'Segoe UI',sans-serif}
+  #stage{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+  #canvas{border-radius:50%}
+  .arrow{width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-top:24px solid #fff;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))}
+  .winner{font-size:28px;font-weight:700;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.8)}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="canvas"></canvas>
+  <div class="arrow"></div>
+  <div class="winner" id="winner"></div>
+</div>
+<script>
+  // === КОНТРАКТ: бот шлёт SSE-событие {kind:'wheel', user, label, index, sectors, wheelCfg} ===
+  // === Кастомизируй что угодно: сектора/цвета/анимацию/звук — это ТВОЙ файл ===
+  const CFG = ${JSON.stringify(cfg, null, 2)};
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const winner = document.getElementById('winner');
+  let rot = 0, raf = 0;
+
+  function draw() {
+    const W = CFG.overlay.size;
+    canvas.width = W; canvas.height = W;
+    const R = W / 2;
+    ctx.clearRect(0, 0, W, W);
+    const total = CFG.items.reduce((s, x) => s + x.weight, 0);
+    let a = rot;
+    for (const s of CFG.items) {
+      const span = s.weight / total * Math.PI * 2;
+      ctx.beginPath();
+      ctx.fillStyle = s.color;
+      ctx.moveTo(R, R);
+      ctx.arc(R, R, R, a - Math.PI / 2, a - Math.PI / 2 + span);
+      ctx.closePath(); ctx.fill();
+      if (span > 0.15) {
+        const mid = a - Math.PI / 2 + span / 2;
+        const r = R * 0.62;
+        ctx.save();
+        ctx.translate(R + Math.cos(mid) * r, R + Math.sin(mid) * r);
+        ctx.rotate(mid + Math.PI / 2);
+        ctx.fillStyle = '#fff';
+        ctx.font = \`700 \${W * 0.04}px 'Segoe UI',sans-serif\`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(s.label.slice(0, 22), 0, 0);
+        ctx.restore();
+      }
+      a += span;
+    }
+    ctx.beginPath(); ctx.arc(R, R, R * 0.14, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(12,10,25,.9)'; ctx.fill();
+  }
+
+  function spin(ev) {
+    const sectors = ev.sectors || CFG.items;
+    const target = ev.index ?? 0;
+    const total = sectors.reduce((s, x) => s + (x.weight || 1), 0);
+    let acc = 0;
+    for (let i = 0; i < target; i++) acc += (sectors[i].weight || 1) / total;
+    const centerFrac = acc + (sectors[target].weight || 1) / total / 2;
+    const targetAngle = (1 - centerFrac) * Math.PI * 2;
+    const final = Math.PI * 2 * 6 + targetAngle;
+    const t0 = performance.now(), DUR = 5200;
+    cancelAnimationFrame(raf);
+    winner.textContent = '';
+    const frame = (t) => {
+      const p = Math.min(1, (t - t0) / DUR);
+      const ease = 1 - Math.pow(1 - p, 3);
+      rot = final * ease;
+      draw();
+      if (p < 1) { raf = requestAnimationFrame(frame); }
+      else {
+        winner.textContent = (CFG.overlay.winnerTemplate || '🏆 {user} → {label}')
+          .replaceAll('{user}', ev.user || '')
+          .replaceAll('{label}', ev.label || sectors[target].label || '');
+        setTimeout(() => { winner.textContent = ''; }, (CFG.overlay.duration || 8) * 1000);
+      }
+    };
+    raf = requestAnimationFrame(frame);
+  }
+
+  // слушаем ту же SSE-шину, что и оверлей бота
+  const es = new EventSource('/overlay/feed');
+  es.onmessage = (m) => {
+    try {
+      const ev = JSON.parse(m.data);
+      if (ev.kind === 'wheel' && Array.isArray(ev.sectors)) spin(ev);
+    } catch {}
+  };
+
+  draw();
+</script>
+</body>
+</html>`;
+
+  // скачиваем HTML-шаблон + JSON
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'roulette-template.html';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Шаблон рулетки скачан — правь под себя, файл принимает SSE-события бота');
 });
 
 loadWheel().catch(() => {});

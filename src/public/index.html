@@ -466,47 +466,50 @@
           <div class="row"><button class="act" id="ov-save">Сохранить</button></div>
         </div>
       </div>
-      <div class="card">
-        <h2>🎡 Колесо фортуны</h2>
-        <p class="hint">Рулетка за баллы канала. Зритель тратит награду → бот запускает рулетку на оверлее (canvas-колесо с торможением, стрелка, тик-звук, победитель). Кулдаун общий на юзера.</p>
-        <div class="evcard">
-          <label><input type="checkbox" id="wh-enabled" /> включено</label>
-          <label>способ
-            <select id="wh-mode">
-              <option value="reward">наградой за баллы</option>
-              <option value="command">командой !колесо</option>
-              <option value="off">выключено</option>
-            </select>
-          </label>
-          <label>название награды на Twitch <input type="text" id="wh-reward" maxlength="100" placeholder="колесо" /></label>
-          <label>кулдаун на юзера, мин <input type="number" id="wh-cooldown" min="0" max="60" style="width:70px" /></label>
+      <details class="guide-box">
+        <summary><b>🎰 Рулетка за баллы канала (нажми — настройки и редактор)</b></summary>
+        <div class="guide-body">
+          <p class="hint">Зритель тратит награду → бот запускает рулетку на оверлее (canvas-колесо с торможением, стрелка, тик-звук, победитель). Кулдаун общий на юзера.</p>
+          <div class="evcard">
+            <label><input type="checkbox" id="wh-enabled" /> включено</label>
+            <label>способ
+              <select id="wh-mode">
+                <option value="reward">наградой за баллы</option>
+                <option value="command">командой !колесо</option>
+                <option value="off">выключено</option>
+              </select>
+            </label>
+            <label>название награды на Twitch <input type="text" id="wh-reward" maxlength="100" placeholder="колесо" /></label>
+            <label>кулдаун на юзера, мин <input type="number" id="wh-cooldown" min="0" max="60" style="width:70px" /></label>
+          </div>
+          <h3>Варианты</h3>
+          <table class="cmds" id="wh-table">
+            <thead><tr><th>Вариант</th><th>Вес</th><th>Цвет</th><th></th></tr></thead>
+            <tbody id="wh-body"></tbody>
+          </table>
+          <div class="addrow">
+            <input id="wh-add-label" placeholder="вариант…" maxlength="60" class="wide" />
+            <input id="wh-add-weight" type="number" min="1" max="1000" value="10" style="width:70px" title="вес (вероятность пропорциональна)" />
+            <button class="act" id="wh-add">Добавить</button>
+          </div>
+          <h3>Оверлей</h3>
+          <div class="evcard">
+            <label>висит после остановки, сек <input type="number" id="wh-duration" min="3" max="30" value="8" style="width:70px" /></label>
+            <label>шаблон победителя <input type="text" id="wh-template" class="wide" maxlength="200" placeholder="🏆 {user} → {label}" /></label>
+            <label>тико-звук при вращении
+              <select id="wh-sound"></select>
+            </label>
+          </div>
+          <h3>📐 Раскладка</h3>
+          <p class="hint">Колесо перетаскивается мышкой в превью, уголок — размер (форма круглой остаётся). Магнитное прилипание к центру сцены.</p>
+          <div class="rp-row" style="margin-bottom:8px">
+            <button class="act" id="wh-save">💾 Сохранить</button>
+            <button class="act ghost" id="wh-test" title="показать тестовое вращение в открытом оверлее">🧪 Тест</button>
+            <button class="act ghost" id="wh-export" title="выгрузить всё: настройки + шаблон HTML для своей рулетки">⬇ Экспорт</button>
+          </div>
+          <div id="wh-stage"></div>
         </div>
-        <h3>Варианты</h3>
-        <table class="cmds" id="wh-table">
-          <thead><tr><th>Вариант</th><th>Вес</th><th>Цвет</th><th></th></tr></thead>
-          <tbody id="wh-body"></tbody>
-        </table>
-        <div class="addrow">
-          <input id="wh-add-label" placeholder="вариант…" maxlength="60" class="wide" />
-          <input id="wh-add-weight" type="number" min="1" max="1000" value="10" style="width:70px" title="вес (вероятность пропорциональна)" />
-          <button class="act" id="wh-add">Добавить</button>
-        </div>
-        <h3>Оверлей</h3>
-        <div class="evcard">
-          <label>позиция X <input type="range" id="wh-x" min="0" max="1920" value="760" style="width:130px" /><span class="hint" id="wh-x-val">760</span></label>
-          <label>позиция Y <input type="range" id="wh-y" min="0" max="1080" value="340" style="width:130px" /><span class="hint" id="wh-y-val">340</span></label>
-          <label>размер <input type="range" id="wh-size" min="100" max="800" value="400" style="width:130px" /><span class="hint" id="wh-size-val">400px</span></label>
-          <label>висит после остановки, сек <input type="number" id="wh-duration" min="3" max="30" value="8" style="width:70px" /></label>
-          <label>шаблон победителя <input type="text" id="wh-template" class="wide" maxlength="200" placeholder="🏆 {user} → {label}" /></label>
-          <label>тико-звук при вращении
-            <select id="wh-sound"></select>
-          </label>
-        </div>
-        <div class="row">
-          <button class="act" id="wh-save">Сохранить</button>
-          <button class="act ghost" id="wh-test" title="показать тестовое вращение в открытом оверлее">🧪 Тест</button>
-        </div>
-      </div>
+      </details>
       <details class="guide-box">
         <summary><b>📖 Слово дня: выбирается само по чату (нажми — редактор раскладки)</b></summary>
         <div class="guide-body">
