@@ -1804,7 +1804,7 @@ function wodRenderStage() {
     div.style.opacity = String(o.opacity / 100);
     div.style.borderRadius = `${o.radius * k}px`;
     div.style.transform = o.rotate ? `rotate(${o.rotate}deg)` : '';
-    if (o.borderWidth && o.borderColor) div.style.border = `${o.borderWidth}px solid ${o.borderColor}`;
+    if (o.borderWidth) div.style.border = `${o.borderWidth}px solid ${o.borderColor || '#8b5cf6'}`;
     const fillText = o.type === 'caption'
       ? (o.text || 'Слово дня:')
       : o.type === 'word'
@@ -2643,7 +2643,7 @@ function plpRenderStage() {
     div.style.width = `${o.w * k}px`;
     div.style.height = `${o.h * k}px`;
     div.style.opacity = String(o.opacity / 100);
-    if (o.borderWidth && o.borderColor) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor}`;
+    if (o.borderWidth) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor || '#8b5cf6'}`;
     if (o.type === 'video') {
       div.style.borderRadius = `${Math.max(6, Math.round(o.w * 0.055)) * k}px`;
       const cur = window.__songsState?.current;
@@ -3228,7 +3228,7 @@ function asoRenderStage() {
     div.style.height = `${o.h * k}px`;
     div.style.opacity = String(o.opacity / 100);
     div.style.borderRadius = `${o.radius * k}px`;
-    if (o.borderWidth && o.borderColor) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor}`;
+    if (o.borderWidth) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor || '#8b5cf6'}`;
     if (o.type === 'avatar') {
       div.style.background = 'rgba(139, 92, 246, .25)';
       div.style.display = 'flex';

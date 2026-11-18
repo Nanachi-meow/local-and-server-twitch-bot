@@ -376,7 +376,7 @@
       div.style.height = `${o.h * k}px`;
       div.style.zIndex = String(o.z ?? 1);
       div.style.opacity = String(o.opacity / 100);
-      if (o.borderWidth && o.borderColor) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor}`;
+      if (o.borderWidth) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor || '#8b5cf6'}`;
       if (o.type === 'avatar') {
         div.style.borderRadius = `${o.radius * k}px`;
         const img = div.querySelector('img');
@@ -571,7 +571,7 @@
       div.style.zIndex = String(o.z ?? 1);
       div.style.opacity = String(o.opacity / 100);
       div.style.transform = o.rotate ? `rotate(${o.rotate}deg)` : '';
-      if (o.borderWidth && o.borderColor) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor}`;
+      if (o.borderWidth) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor || '#8b5cf6'}`;
       if (o.type === 'caption') {
         div.style.color = o.color || '#ffffff';
         div.style.fontSize = `${o.fontSize * k}px`;

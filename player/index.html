@@ -154,7 +154,7 @@
         div.style.height = `${o.h * k}px`;
         div.style.zIndex = String(o.z ?? 1);
         div.style.opacity = String(Math.max(0, Math.min(1, (Number(o.opacity ?? 100)) / 100)));
-        if (o.borderWidth && o.borderColor) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor}`;
+        if (o.borderWidth) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor || '#8b5cf6'}`;
         if (o.type === 'video') {
           div.style.borderRadius = `${Math.max(6, Math.round(o.w * 0.055)) * k}px`;
         } else if (o.type === 'marquee') {
