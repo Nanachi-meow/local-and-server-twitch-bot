@@ -500,7 +500,7 @@
   const whCtx = whCanvas.getContext('2d');
   const whWinner = whWidget.querySelector('.wh-winner');
   const whArrow = whWidget.querySelector('.wh-arrow');
-  let whCfg = { x: 760, y: 340, size: 400, duration: 8, spinSound: '', winnerTemplate: '🏆 {user} → {label}' };
+  let whCfg = { x: 760, y: 340, size: 400, arrowAngle: 180, duration: 8, spinSound: '', winnerTemplate: '🏆 {user} → {label}' };
   let whSpinning = false;
   let whRAF = 0;
 
@@ -518,9 +518,16 @@
     whWidget.style.top = `${whCfg.y * k - W / 2}px`;
     whCanvas.width = W;
     whCanvas.height = W;
-    whArrow.style.top = '50%';
-    whArrow.style.left = '-6px';
     whWinner.style.fontSize = `${Math.max(16, whCfg.size * 0.065) * k}px`;
+    // стрелка позиционируется по углу вокруг колеса (0=лево, 90=верх, 180=право, 270=низ)
+    const a = ((Number(whCfg.arrowAngle) || 0) * Math.PI) / 180;
+    const r = W / 2;
+    const ax = r + Math.cos(a + Math.PI) * (r + 10); // наружу от центра по углу
+    const ay = r + Math.sin(a + Math.PI) * (r + 10);
+    whArrow.style.left = `${Math.round(ax - 16)}px`; // минус половина ширины (border 16+16=32)
+    whArrow.style.top = `${Math.round(ay - 13)}px`;  // минус половина высоты (border 26)
+    whArrow.style.transform = `rotate(${a + Math.PI / 2}rad)`; // носиком к центру
+    whArrow.style.position = 'absolute';
   }
 
   function whDrawWheel(sectors, rotation) {
@@ -590,11 +597,19 @@
 
     const target = Number.isInteger(ev.index) ? ev.index : 0;
     const total = sectors.reduce((s, x) => s + (Number(x.weight) || 1), 0);
-    // угол центра целевого сектора (стрелка у нас на «12 часов», отрисовано от -90°)
+    // стрелка может быть в любом месте вокруг колеса (arrowAngle: 0=лево, 90=верх, 180=право, 270=низ)
+    // сектор рисуется от угла стрелки: доворачиваем колесо так, чтобы сектор target оказался под стрелкой
+    const arrowAngle = ((Number(whCfg.arrowAngle) || 0) * Math.PI) / 180;
+    // сектор target занимает [centerFrac - halfFrac, centerFrac + halfFrac] круга
     let acc = 0;
     for (let i = 0; i < target; i++) acc += (Number(sectors[i].weight) || 1) / total;
-    const centerFrac = acc + (Number(sectors[target].weight) || 1) / total / 2;
-    const targetAngle = (1 - centerFrac) * Math.PI * 2; // куда должен прийти поворот
+    const halfFrac = (Number(sectors[target].weight) || 1) / total / 2;
+    const centerFrac = acc + halfFrac;
+    // колесо рисуется от угла -90° (верх). Сектор target находится на угле (centerFrac * 2π - π/2)
+    // Стрелка на угле (arrowAngle + π) относительно центра колеса
+    // Нужно: (rot + centerFrac * 2π - π/2) ≡ (arrowAngle + π) mod 2π
+    // → rot = arrowAngle + π - centerFrac * 2π + π/2 = arrowAngle + 3π/2 - centerFrac * 2π
+    const targetAngle = arrowAngle + 3 * Math.PI / 2 - centerFrac * Math.PI * 2;
     const fullSpins = Math.PI * 2 * 6; // 6 полных оборотов + доворот
     const finalAngle = fullSpins + (targetAngle % (Math.PI * 2));
 

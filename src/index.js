@@ -685,6 +685,7 @@ const app = {
         if (o.x !== undefined) curO.x = Math.max(0, Math.min(1920, Math.round(Number(o.x) || 760)));
         if (o.y !== undefined) curO.y = Math.max(0, Math.min(1080, Math.round(Number(o.y) || 340)));
         if (o.size !== undefined) curO.size = Math.max(100, Math.min(800, Math.round(Number(o.size) || 400)));
+        if (o.arrowAngle !== undefined) curO.arrowAngle = Math.max(0, Math.min(359, Math.round(Number(o.arrowAngle) % 360)));
         if (o.duration !== undefined) curO.duration = Math.max(3, Math.min(30, Math.round(Number(o.duration) || 8)));
         if (o.spinSound !== undefined) curO.spinSound = String(o.spinSound).replace(/[\\/]/g, '').slice(0, 120);
         if (o.winnerTemplate !== undefined) curO.winnerTemplate = String(o.winnerTemplate).slice(0, 200);

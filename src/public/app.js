@@ -2308,9 +2308,10 @@ function whRenderStage() {
   if (!stage) return;
   const k = whK();
   stage.innerHTML = '';
+  // колесо
+  const W = whOverlay.size * k;
   const div = document.createElement('div');
   div.className = `wh-wheel-mock${whSel ? ' sel' : ''}`;
-  const W = whOverlay.size * k;
   div.style.left = `${whOverlay.x * k - W / 2}px`;
   div.style.top = `${whOverlay.y * k - W / 2}px`;
   div.style.width = `${W}px`;
@@ -2320,25 +2321,37 @@ function whRenderStage() {
     h.className = 'plp-resize';
     div.appendChild(h);
   }
+  // стрелка — на угле вокруг колеса
+  const a = ((Number(whOverlay.arrowAngle) || 0) * Math.PI) / 180;
+  const r = W / 2;
+  const ax = whOverlay.x * k + Math.cos(a + Math.PI) * (r * k + 14);
+  const ay = whOverlay.y * k + Math.sin(a + Math.PI) * (r * k + 14);
+  const arrow = document.createElement('div');
+  arrow.className = 'wh-arrow-mock';
+  arrow.style.left = `${Math.round(ax - 7)}px`;
+  arrow.style.top = `${Math.round(ay - 11)}px`;
+  arrow.style.transform = `rotate(${a + Math.PI / 2}rad)`;
+  div.appendChild(arrow);
   stage.appendChild(div);
 }
 
 (() => {
   const stage = $('#wh-stage');
   if (!stage) return;
-  let mode = null;
+  let mode = null; // 'move' | 'resize' | 'arrow'
   let grabX = 0, grabY = 0;
   let start = null;
 
   stage.addEventListener('pointerdown', (e) => {
+    const arrow = e.target.closest('.wh-arrow-mock');
     const handle = e.target.closest('.plp-resize');
     const wheel = e.target.closest('.wh-wheel-mock');
-    if (!wheel) return;
+    if (!wheel && !arrow) return;
     stage.setPointerCapture?.(e.pointerId);
     grabX = e.clientX; grabY = e.clientY;
     whSel = true;
     start = { ...whOverlay };
-    mode = handle ? 'resize' : 'move';
+    mode = arrow ? 'arrow' : (handle ? 'resize' : 'move');
     whRenderStage();
     e.preventDefault();
   });
@@ -2357,10 +2370,24 @@ function whRenderStage() {
       if (Math.abs(ny - 540) <= snapR) ny = 540;
       whOverlay.x = Math.round(Math.max(0, Math.min(1920, nx)));
       whOverlay.y = Math.round(Math.max(0, Math.min(1080, ny)));
-    } else {
-      // resize: меняем размер, центр остаётся
-      const startW = start.size;
-      whOverlay.size = Math.round(Math.max(100, Math.min(800, startW + dx * 2)));
+    } else if (mode === 'resize') {
+      whOverlay.size = Math.round(Math.max(100, Math.min(800, start.size + dx * 2)));
+    } else if (mode === 'arrow') {
+      // угол = позиция курсора относительно центра колеса
+      const rect = stage.getBoundingClientRect();
+      const cx = whOverlay.x * k + rect.left; // не совсем правильно, но приближение
+      const cy = whOverlay.y * k + rect.top;
+      // используем позицию мыши относительно центра колеса в превью
+      const r = whOverlay.size * k / 2;
+      const mx = e.clientX - (rect.left + (whOverlay.x - whOverlay.size / 2) * k + r);
+      const my = e.clientY - (rect.top + (whOverlay.y - whOverlay.size / 2) * k + r);
+      // угол мыши = atan2(my, mx), стрелка наружу = угол + 180°
+      const mouseAngle = Math.atan2(my, mx);
+      // конвертируем в нашу систему: 0=лево, 90=верх, 180=право, 270=низ
+      // atan2: 0=право, -90°/270°=верх, 180°=лево, 90°=низ
+      // наша система: 0=лево, 90=верх → наша = atan2_deg + 180
+      const deg = Math.round(((mouseAngle * 180) / Math.PI + 180 + 360) % 360);
+      whOverlay.arrowAngle = Math.max(0, Math.min(359, deg));
     }
     whRenderStage();
   });
