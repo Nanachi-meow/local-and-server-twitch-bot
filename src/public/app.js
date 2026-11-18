@@ -1700,8 +1700,12 @@ $('#tts-test').addEventListener('click', () => {
 });
 
 // ---------------- 📖 «Слово дня» (авто: самое частое слово чата) ----------------
+// виджет маленький: сцена = сам виджет 440×180 (координаты локальные), на стриме встаёт в угол
 
-let wodEd = { objects: [], enabled: false };
+const WOD_W = 440;
+const WOD_H = 180;
+
+let wodEd = { objects: [], enabled: false, corner: 'top-right' };
 const WOD_TYPE_RU = { caption: '🏷 надпись', word: '🔤 слово', count: '🔢 счётчик', backdrop: '🟪 подложка', image: '🖼 картинка' };
 const wodHist = [];
 const wodRedoStack = [];
@@ -1709,12 +1713,12 @@ let wodLastPush = 0;
 let wodClipboard = [];
 
 function wodDefault() {
-  // карточка в правом верхнем углу: подложка + «Слово дня:» + слово + счётчик справа
+  // компактная карточка: подложка на весь виджет + надпись/слово/счётчик внутри
   return [
-    { id: 'backdrop-0', type: 'backdrop', x: 1560, y: 24, w: 330, h: 120, opacity: 80, z: 1, color: '#0c0a19', radius: 18, rotate: 0, image: '' },
-    { id: 'caption-0', type: 'caption', x: 1584, y: 38, w: 280, h: 26, opacity: 85, z: 3, color: '#ffffff', text: 'Слово дня:', fontSize: 14, radius: 0, rotate: 0 },
-    { id: 'word-0', type: 'word', x: 1584, y: 70, w: 240, h: 46, opacity: 100, z: 4, color: '#ffffff', fontSize: 26, radius: 0, rotate: 0 },
-    { id: 'count-0', type: 'count', x: 1800, y: 76, w: 70, h: 40, opacity: 90, z: 4, color: '#ffffff', fontSize: 18, radius: 12, rotate: 0 },
+    { id: 'backdrop-0', type: 'backdrop', x: 0, y: 0, w: WOD_W, h: WOD_H, opacity: 80, z: 1, color: '#0c0a19', radius: 18, rotate: 0, image: '', borderColor: '', borderWidth: 0 },
+    { id: 'caption-0', type: 'caption', x: 20, y: 16, w: 300, h: 24, opacity: 85, z: 3, color: '#ffffff', text: 'Слово дня:', fontSize: 15, radius: 0, rotate: 0, borderColor: '', borderWidth: 0 },
+    { id: 'word-0', type: 'word', x: 20, y: 46, w: 300, h: 52, opacity: 100, z: 4, color: '#ffffff', fontSize: 28, radius: 0, rotate: 0, borderColor: '', borderWidth: 0 },
+    { id: 'count-0', type: 'count', x: 340, y: 54, w: 80, h: 44, opacity: 95, z: 4, color: '#ffffff', fontSize: 18, radius: 12, rotate: 0, borderColor: '', borderWidth: 0 },
   ];
 }
 
@@ -1736,11 +1740,17 @@ function wodNorm(raw) {
       radius: Math.max(0, Number(o.radius) || 0),
       rotate: Math.max(-15, Math.min(15, Number(o.rotate) || 0)),
       fontSize: Math.max(10, Number(o.fontSize) || 22),
+      borderColor: String(o.borderColor || ''),
+      borderWidth: Math.max(0, Math.min(12, Number(o.borderWidth) || 0)),
     }));
-  return { enabled: Boolean(c.enabled), objects };
+  return {
+    enabled: Boolean(c.enabled),
+    corner: ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(c.corner) ? c.corner : 'top-right',
+    objects,
+  };
 }
 
-function wodK() { const s = $('#wod-stage'); return s ? s.clientWidth / 1920 : 0.25; }
+function wodK() { return 1; } // виджет маленький: превью = реальный размер, без масштаба
 
 function wodPush() {
   wodHist.push(JSON.stringify(wodEd.objects));
@@ -1775,20 +1785,21 @@ let wodCurrent = { word: '', count: 0 };
 function wodRenderStage() {
   const stage = $('#wod-stage');
   if (!stage) return;
-  const k = wodK();
+  const k = wodK(); // 1 — виджет в реальном размере
   const sorted = wodEd.objects.map((o, i) => ({ o, i })).sort((a, b) => (a.o.z ?? 0) - (b.o.z ?? 0));
   stage.innerHTML = '';
   for (const { o, i } of sorted) {
     const div = document.createElement('div');
     div.className = `plp-obj plp-${o.type}${wodSel.has(i) ? ' sel' : ''}`;
     div.dataset.i = i;
-    div.style.left = `calc(50% + ${Math.round((o.x - 960) * k)}px)`;
-    div.style.top = `calc(50% + ${Math.round((o.y - 540) * k)}px)`;
+    div.style.left = `${Math.round(o.x * k)}px`;
+    div.style.top = `${Math.round(o.y * k)}px`;
     div.style.width = `${o.w * k}px`;
     div.style.height = `${o.h * k}px`;
     div.style.opacity = String(o.opacity / 100);
     div.style.borderRadius = `${o.radius * k}px`;
     div.style.transform = o.rotate ? `rotate(${o.rotate}deg)` : '';
+    if (o.borderWidth && o.borderColor) div.style.border = `${o.borderWidth}px solid ${o.borderColor}`;
     const fillText = o.type === 'caption'
       ? (o.text || 'Слово дня:')
       : o.type === 'word'
@@ -1824,8 +1835,8 @@ function wodSnap(nx, ny, self) {
   const others = wodEd.objects.filter((_, j) => !wodSel.has(j));
   const anchorsX = [nx, nx + self.w / 2, nx + self.w];
   const anchorsY = [ny, ny + self.h / 2, ny + self.h];
-  const targetsX = [{ pos: 960, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.x, kind: 'obj' }, { pos: t.x + t.w / 2, kind: 'obj' }, { pos: t.x + t.w, kind: 'obj' }])];
-  const targetsY = [{ pos: 540, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.y, kind: 'obj' }, { pos: t.y + t.h / 2, kind: 'obj' }, { pos: t.y + t.h, kind: 'obj' }])];
+  const targetsX = [{ pos: WOD_W / 2, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.x, kind: 'obj' }, { pos: t.x + t.w / 2, kind: 'obj' }, { pos: t.x + t.w, kind: 'obj' }])];
+  const targetsY = [{ pos: WOD_H / 2, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.y, kind: 'obj' }, { pos: t.y + t.h / 2, kind: 'obj' }, { pos: t.y + t.h, kind: 'obj' }])];
   let bestX = null;
   for (const a of anchorsX) for (const t of targetsX) {
     const d = t.pos - a;
@@ -1911,6 +1922,7 @@ function wodRenderProps() {
     html += `<label>надпись <input type="text" id="woded-text" class="wide" maxlength="60" value="${esc(o.text || 'Слово дня:')}" /></label>`;
   }
   html += row('закругление', `<input type="number" id="woded-radius" min="0" max="120" value="${o.radius}" style="width:56px" />`);
+  html += row('грань (обводка)', `<span class="hint">цвет</span><input type="color" id="woded-bcolor2" value="${esc(o.borderColor || '#8b5cf6')}" /><span class="hint">толщ</span><input type="range" id="woded-bw" min="0" max="12" value="${o.borderWidth}" style="width:90px" /><span class="hint" id="woded-bw-val">${o.borderWidth}px</span>`);
   if (o.type === 'backdrop' || o.type === 'image') {
     html += o.type === 'backdrop' ? `<label>цвет <input type="color" id="woded-bcolor" value="${esc(o.color || '#0c0a19')}" style="width:46px" /></label>` : '';
     html += `<label>картинка <select id="woded-img"></select></label>
@@ -1943,6 +1955,12 @@ function wodRenderProps() {
   $('#woded-text')?.addEventListener('input', () => { o.text = $('#woded-text').value; wodRenderStage(); wodRenderProps(); });
   $('#woded-radius')?.addEventListener('pointerdown', wodPushThrottled);
   $('#woded-radius')?.addEventListener('input', () => { o.radius = Number($('#woded-radius').value) || 0; wodRenderStage(); });
+  $('#woded-bcolor2')?.addEventListener('input', () => { o.borderColor = $('#woded-bcolor2').value; wodRenderStage(); });
+  $('#woded-bw')?.addEventListener('input', () => {
+    o.borderWidth = Number($('#woded-bw').value) || 0;
+    $('#woded-bw-val').textContent = `${o.borderWidth}px`;
+    wodRenderStage();
+  });
   $('#woded-bcolor')?.addEventListener('input', () => { o.color = $('#woded-bcolor').value; wodRenderStage(); });
   $('#woded-del').addEventListener('click', () => {
     wodPush();
@@ -2060,15 +2078,15 @@ function wodRenderProps() {
       const shiftY = snap.y - (anchor.y + dy);
       for (const [i, s] of starts) {
         const o = wodEd.objects[i];
-        o.x = Math.round(Math.max(-500, Math.min(2500, s.x + dx + shiftX)));
-        o.y = Math.round(Math.max(-500, Math.min(2500, s.y + dy + shiftY)));
+        o.x = Math.round(Math.max(-60, Math.min(WOD_W + 60, s.x + dx + shiftX)));
+        o.y = Math.round(Math.max(-60, Math.min(WOD_H + 60, s.y + dy + shiftY)));
       }
       pendingGuides = snap.guides;
     } else {
       const o = wodEd.objects[idx];
       const s = starts.get(idx);
-      o.w = Math.round(Math.max(20, Math.min(2500, s.w + dx)));
-      o.h = Math.round(Math.max(20, Math.min(2500, s.h + dy)));
+      o.w = Math.round(Math.max(20, Math.min(WOD_W + 200, s.w + dx)));
+      o.h = Math.round(Math.max(20, Math.min(WOD_H + 200, s.h + dy)));
     }
     wodRenderStage();
     wodRenderProps();
@@ -2192,7 +2210,7 @@ $('#wod-widget-reset').addEventListener('click', () => {
 
 $('#wod-save').addEventListener('click', async () => {
   try {
-    await putSettings({ wordOfDay: { enabled: $('#wod-enabled').checked, objects: wodEd.objects } });
+    await putSettings({ wordOfDay: { enabled: $('#wod-enabled').checked, corner: $('#wod-corner').value, objects: wodEd.objects } });
     toast('«Слово дня» сохранено ✅');
     loadWordOfDayCurrent();
   } catch (e) { toast(e.message, true); }
@@ -2213,6 +2231,7 @@ async function loadWordOfDay() {
   wodEd = wodNorm(st.wordOfDay);
   wodEd.enabled = Boolean(st.wordOfDay?.enabled);
   $('#wod-enabled').checked = wodEd.enabled;
+  $('#wod-corner').value = wodEd.corner;
   wodSelIdx = 0;
   wodSel = new Set(wodEd.objects.length ? [0] : []);
   await loadWordOfDayCurrent();
@@ -2620,6 +2639,7 @@ function plpRenderStage() {
     div.style.width = `${o.w * k}px`;
     div.style.height = `${o.h * k}px`;
     div.style.opacity = String(o.opacity / 100);
+    if (o.borderWidth && o.borderColor) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor}`;
     if (o.type === 'video') {
       div.style.borderRadius = `${Math.max(6, Math.round(o.w * 0.055)) * k}px`;
       const cur = window.__songsState?.current;
@@ -2898,6 +2918,7 @@ function plpRenderProps() {
   let html = `
     ${row(`ширина, px <span class="hint" id="plp-w-val">${o.w}</span>`, `<input type="range" id="plp-w" min="20" max="2000" value="${o.w}" />`)}
     ${row('прозрачность', `<input type="range" id="plp-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="plp-op-val">${o.opacity}%</span>`)}
+    ${row('грань (обводка)', `<span class="hint">цвет</span><input type="color" id="plp-b2color" value="${esc(o.borderColor || '#8b5cf6')}" /><span class="hint">толщ</span><input type="range" id="plp-bw" min="0" max="12" value="${o.borderWidth ?? 0}" style="width:90px" /><span class="hint" id="plp-bw-val">${o.borderWidth ?? 0}px</span>`)}
     <div class="rp-row">
       <label class="hint">слой: сверху 🡒</label>
       <button class="act ghost" id="plp-zup" title="поднять слой">▲</button>
@@ -2939,6 +2960,12 @@ function plpRenderProps() {
   $('#plp-fs')?.addEventListener('input', () => { o.fontSize = Number($('#plp-fs').value) || 22; o.h = o.fontSize + 16; plpRenderStage(); });
   $('#plp-speed')?.addEventListener('input', () => { o.speed = Number($('#plp-speed').value) || 30; plpRenderStage(); });
   $('#plp-radius')?.addEventListener('input', () => { o.radius = Number($('#plp-radius').value) || 0; plpRenderStage(); });
+  $('#plp-b2color')?.addEventListener('input', () => { o.borderColor = $('#plp-b2color').value; plpRenderStage(); });
+  $('#plp-bw')?.addEventListener('input', () => {
+    o.borderWidth = Number($('#plp-bw').value) || 0;
+    $('#plp-bw-val').textContent = `${o.borderWidth}px`;
+    plpRenderStage();
+  });
   $('#plp-bcolor')?.addEventListener('input', () => { o.color = $('#plp-bcolor').value; plpRenderStage(); });
 
   const imgSel = $('#plp-img');
@@ -3197,6 +3224,7 @@ function asoRenderStage() {
     div.style.height = `${o.h * k}px`;
     div.style.opacity = String(o.opacity / 100);
     div.style.borderRadius = `${o.radius * k}px`;
+    if (o.borderWidth && o.borderColor) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor}`;
     if (o.type === 'avatar') {
       div.style.background = 'rgba(139, 92, 246, .25)';
       div.style.display = 'flex';
@@ -3322,6 +3350,7 @@ function asoRenderProps() {
     html += row('текст', `<span class="hint">цвет</span><input type="color" id="aso-color" value="${esc(o.color || '#ffffff')}" /><span class="hint">шрифт</span><input type="number" id="aso-fs" min="10" max="60" value="${o.fontSize}" style="width:56px" />`);
   }
   html += row('закругление', `<input type="number" id="aso-radius" min="0" max="120" value="${o.radius}" style="width:56px" />`);
+  html += row('грань (обводка)', `<span class="hint">цвет</span><input type="color" id="aso-b2color" value="${esc(o.borderColor || '#8b5cf6')}" /><span class="hint">толщ</span><input type="range" id="aso-bw" min="0" max="12" value="${o.borderWidth ?? 0}" style="width:90px" /><span class="hint" id="aso-bw-val">${o.borderWidth ?? 0}px</span>`);
   if (o.type === 'backdrop' || o.type === 'image') {
     html += o.type === 'backdrop' ? row('цвет', `<input type="color" id="aso-bcolor" value="${esc(o.color || '#0c0a19')}" />`) : '';
     html += `<label>картинка <select id="aso-img"></select></label>
@@ -3349,6 +3378,12 @@ function asoRenderProps() {
   $('#aso-fs')?.addEventListener('input', () => { o.fontSize = Number($('#aso-fs').value) || 22; asoRenderStage(); });
   $('#aso-radius')?.addEventListener('pointerdown', asoPushThrottled);
   $('#aso-radius')?.addEventListener('input', () => { o.radius = Number($('#aso-radius').value) || 0; asoRenderStage(); });
+  $('#aso-b2color')?.addEventListener('input', () => { o.borderColor = $('#aso-b2color').value; asoRenderStage(); });
+  $('#aso-bw')?.addEventListener('input', () => {
+    o.borderWidth = Number($('#aso-bw').value) || 0;
+    $('#aso-bw-val').textContent = `${o.borderWidth}px`;
+    asoRenderStage();
+  });
   $('#aso-bcolor')?.addEventListener('input', () => { o.color = $('#aso-bcolor').value; asoRenderStage(); });
   $('#aso-del').addEventListener('click', () => {
     asoPush();

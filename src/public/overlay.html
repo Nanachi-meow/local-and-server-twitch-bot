@@ -78,7 +78,7 @@
   }
   .wod-obj-backdrop { background-size: 100% 100%; background-position: center; }
   .wod-obj-image { background-size: 100% 100%; background-position: center; }
-  #wod-widget { position: fixed; inset: 0; pointer-events: none; }
+  #wod-widget { position: fixed; width: 440px; height: 180px; pointer-events: none; }
   #wod-widget .wod-count.bump { animation: wod-bump .35s ease; }
   @keyframes wod-bump { 50% { transform: scale(1.35); } }
 
@@ -376,6 +376,7 @@
       div.style.height = `${o.h * k}px`;
       div.style.zIndex = String(o.z ?? 1);
       div.style.opacity = String(o.opacity / 100);
+      if (o.borderWidth && o.borderColor) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor}`;
       if (o.type === 'avatar') {
         div.style.borderRadius = `${o.radius * k}px`;
         const img = div.querySelector('img');
@@ -456,7 +457,8 @@
       if (ev.kind === 'sr') { window.srPlayer?.onEvent?.(ev); return; }
       if (ev.kind === 'shoutout') { soShow(ev); return; }
       if (ev.kind === 'wordofday') {
-        if (Array.isArray(ev.objects)) wodCfg = wodNormalize({ enabled: ev.enabled, objects: ev.objects });
+        if (Array.isArray(ev.objects)) wodCfg = wodNormalize({ enabled: ev.enabled, corner: ev.corner, objects: ev.objects });
+        if (ev.corner) wodCfg.corner = ev.corner;
         if (ev.word !== undefined) wodEv = { word: ev.word || '', count: Number(ev.count) || 0 };
         wodRenderScene();
         return;
@@ -479,12 +481,12 @@
   let wodLastCount = 0;
 
   function wodDefaultObjects() {
-    // карточка в правом верхнем углу: подложка + «Слово дня:» + слово + счётчик справа
+    // компактная карточка 440×180: подложка + «Слово дня:» + слово + счётчик
     return [
-      { id: 'backdrop-0', type: 'backdrop', x: 1560, y: 24, w: 330, h: 120, opacity: 80, z: 1, color: '#0c0a19', radius: 18, rotate: 0, image: '' },
-      { id: 'caption-0', type: 'caption', x: 1584, y: 38, w: 280, h: 26, opacity: 85, z: 3, color: '#ffffff', text: 'Слово дня:', fontSize: 14, radius: 0, rotate: 0 },
-      { id: 'word-0', type: 'word', x: 1584, y: 70, w: 240, h: 46, opacity: 100, z: 4, color: '#ffffff', fontSize: 26, radius: 0, rotate: 0 },
-      { id: 'count-0', type: 'count', x: 1800, y: 76, w: 70, h: 40, opacity: 90, z: 4, color: '#ffffff', fontSize: 18, radius: 12, rotate: 0 },
+      { id: 'backdrop-0', type: 'backdrop', x: 0, y: 0, w: 440, h: 180, opacity: 80, z: 1, color: '#0c0a19', radius: 18, rotate: 0, image: '', borderColor: '', borderWidth: 0 },
+      { id: 'caption-0', type: 'caption', x: 20, y: 16, w: 300, h: 24, opacity: 85, z: 3, color: '#ffffff', text: 'Слово дня:', fontSize: 15, radius: 0, rotate: 0, borderColor: '', borderWidth: 0 },
+      { id: 'word-0', type: 'word', x: 20, y: 46, w: 300, h: 52, opacity: 100, z: 4, color: '#ffffff', fontSize: 28, radius: 0, rotate: 0, borderColor: '', borderWidth: 0 },
+      { id: 'count-0', type: 'count', x: 340, y: 54, w: 80, h: 44, opacity: 95, z: 4, color: '#ffffff', fontSize: 18, radius: 12, rotate: 0, borderColor: '', borderWidth: 0 },
     ];
   }
 
@@ -513,12 +515,36 @@
         radius: Math.max(0, Number(o.radius) || 0),
         rotate: Math.max(-15, Math.min(15, Number(o.rotate) || 0)),
         fontSize: Math.max(10, Number(o.fontSize) || 22),
+        borderColor: String(o.borderColor || ''),
+        borderWidth: Math.max(0, Number(o.borderWidth) || 0),
       }));
-    return { enabled: Boolean(c.enabled), objects };
+    return {
+      enabled: Boolean(c.enabled),
+      corner: ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(c.corner) ? c.corner : 'top-right',
+      objects,
+    };
   }
 
   function wodRenderScene() {
     const k = (window.innerWidth || 1920) / 1920;
+    // маленький виджет 440×180 в углу сцены (с учётом масштаба источника OBS)
+    const WW = 440 * k;
+    const WH = 180 * k;
+    const M = 24 * k;
+    const corners = {
+      'top-left': { left: M, top: M },
+      'top-right': { right: M, top: M },
+      'bottom-left': { left: M, bottom: M },
+      'bottom-right': { right: M, bottom: M },
+    };
+    const pos = corners[wodCfg.corner] ?? corners['top-right'];
+    wodWidget.style.left = pos.left !== undefined ? `${pos.left}px` : 'auto';
+    wodWidget.style.right = pos.right !== undefined ? `${pos.right}px` : 'auto';
+    wodWidget.style.top = pos.top !== undefined ? `${pos.top}px` : 'auto';
+    wodWidget.style.bottom = pos.bottom !== undefined ? `${pos.bottom}px` : 'auto';
+    wodWidget.style.width = `${WW}px`;
+    wodWidget.style.height = `${WH}px`;
+    wodWidget.style.overflow = 'visible';
     const key = JSON.stringify(wodCfg.objects.map((o) => [o.id, o.type, o.image, o.z]));
     const orphan = wodCfg.objects.some((o) => !wodNodes.get(o.id));
     const show = Boolean(wodCfg.enabled && wodEv.word);
@@ -538,13 +564,14 @@
       const div = wodNodes.get(o.id);
       if (!div) continue;
       div.style.display = show ? 'block' : 'none';
-      div.style.left = `calc(50% + ${Math.round((o.x - 960) * k)}px)`;
-      div.style.top = `calc(50% + ${Math.round((o.y - 540) * k)}px)`;
+      div.style.left = `${Math.round(o.x * k)}px`;
+      div.style.top = `${Math.round(o.y * k)}px`;
       div.style.width = `${o.w * k}px`;
       div.style.height = `${o.h * k}px`;
       div.style.zIndex = String(o.z ?? 1);
       div.style.opacity = String(o.opacity / 100);
       div.style.transform = o.rotate ? `rotate(${o.rotate}deg)` : '';
+      if (o.borderWidth && o.borderColor) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor}`;
       if (o.type === 'caption') {
         div.style.color = o.color || '#ffffff';
         div.style.fontSize = `${o.fontSize * k}px`;

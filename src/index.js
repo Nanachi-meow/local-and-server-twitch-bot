@@ -565,6 +565,8 @@ const app = {
               z: num(o.z, 0, 30, 1),
               image: String(o.image || '').replace(/[\\/]/g, '').slice(0, 120),
               color: String(o.color || '').slice(0, 20),
+              borderColor: String(o.borderColor || '').slice(0, 20),
+              borderWidth: num(o.borderWidth, 0, 12, 0),
               radius: num(o.radius, 0, 120, 0),
               fontSize: num(o.fontSize, 10, 60, 22),
             };
@@ -578,6 +580,7 @@ const app = {
       const a = patch.wordOfDay;
       const cur = settings.wordOfDay ??= {};
       if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (a.corner !== undefined) cur.corner = ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(a.corner) ? a.corner : 'top-right';
       if (Array.isArray(a.objects)) {
         const num = (v, min, max, dflt) => {
           const n = Number(v);
@@ -598,6 +601,8 @@ const app = {
             image: String(o.image || '').replace(/[\\/]/g, '').slice(0, 120),
             color: String(o.color || '').slice(0, 20),
             text: String(o.text || '').slice(0, 60),
+            borderColor: String(o.borderColor || '').slice(0, 20),
+            borderWidth: num(o.borderWidth, 0, 12, 0),
             radius: num(o.radius, 0, 120, 0),
             rotate: num(o.rotate, -15, 15, 0),
             fontSize: num(o.fontSize, 10, 60, 22),
@@ -705,6 +710,8 @@ const app = {
                 hideOnIdle: Boolean(o.hideOnIdle),
                 image: String(o.image || '').replace(/[\\/]/g, '').slice(0, 120),
                 color: String(o.color || '').slice(0, 20),
+                borderColor: String(o.borderColor || '').slice(0, 20),
+                borderWidth: num(o.borderWidth, 0, 12, 0),
                 radius: num(o.radius, 0, 120, 0),
                 fontSize: num(o.fontSize, 10, 60, 22),
                 speed: num(o.speed, 5, 300, 30),
