@@ -812,6 +812,17 @@ const app = {
       const cur = settings.proxy;
       if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
       if (a.url !== undefined) cur.url = String(a.url).trim().slice(0, 200);
+      // SOCKS5 (для модулей и будущего туннелирования)
+      if (a.socksEnabled !== undefined) cur.socksEnabled = Boolean(a.socksEnabled);
+      if (a.socksHost !== undefined) cur.socksHost = String(a.socksHost).trim().slice(0, 100);
+      if (a.socksPort !== undefined) cur.socksPort = Math.max(1, Math.min(65535, Math.round(Number(a.socksPort) || 1080)));
+      if (a.socksUser !== undefined) cur.socksUser = String(a.socksUser).slice(0, 100);
+      if (a.socksPass !== undefined) cur.socksPass = String(a.socksPass).slice(0, 100);
+      // MTProto (Telegram-прокси)
+      if (a.mtprotoEnabled !== undefined) cur.mtprotoEnabled = Boolean(a.mtprotoEnabled);
+      if (a.mtprotoHost !== undefined) cur.mtprotoHost = String(a.mtprotoHost).trim().slice(0, 100);
+      if (a.mtprotoPort !== undefined) cur.mtprotoPort = Math.max(1, Math.min(65535, Math.round(Number(a.mtprotoPort) || 443)));
+      if (a.mtprotoSecret !== undefined) cur.mtprotoSecret = String(a.mtprotoSecret).trim().slice(0, 200);
     }
     saveJson(SETTINGS_FILE, settings);
   },

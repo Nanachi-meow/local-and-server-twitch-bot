@@ -59,7 +59,7 @@ $$('.tab').forEach((btn) => {
     // вкладка была скрыта — превью раскладки музыки рисовалось с нулевой шириной; перерисуем
     if (btn.dataset.tab === 'songs') requestAnimationFrame(() => { plpRenderStage(); plpRenderProps(); });
     if (btn.dataset.tab === 'autoso') requestAnimationFrame(() => { asoRenderStage(); asoRenderProps(); });
-    if (btn.dataset.tab === 'overlay') requestAnimationFrame(() => { wodRenderStage(); wodRenderProps(); });
+    if (btn.dataset.tab === 'overlay') requestAnimationFrame(() => { wodRenderStage(); wodRenderProps(); whRenderStage(); });
   });
 });
 
@@ -2428,7 +2428,6 @@ $('#wh-test').addEventListener('click', async () => {
   } catch (e) { toast(e.message, true); }
 });
 
-// ⬇ экспорт: JSON-настройки + шаблон HTML для полной кастомизации
 $('#wh-export').addEventListener('click', async () => {
   const st = await api('/api/settings');
   const w = st.wheel ?? {};
@@ -2552,6 +2551,256 @@ $('#wh-export').addEventListener('click', async () => {
   URL.revokeObjectURL(url);
   toast('Шаблон рулетки скачан — правь под себя, файл принимает SSE-события бота');
 });
+
+// ⬇ OWE-экспорт: файл в формате Overlay Widget Editor (плейсхолдеры {Size}, {OutcomeNames} и т.д.)
+$('#wh-export-owe').addEventListener('click', async () => {
+  const items = whItems.filter((x) => x.label && x.weight > 0);
+  if (!items.length) { toast('Сначала добавь варианты', true); return; }
+  const palette = ['#8b5cf6', '#22c55e', '#eab308', '#38bdf8', '#f97316', '#ec4899', '#14b8a6', '#a855f7'];
+  const names = items.map((x) => `"${x.label}"`).join(', ');
+  const colors = items.map((x, i) => `"${x.color || palette[i % palette.length]}"`).join(', ');
+  const probs = items.map((x) => x.weight).join(', ');
+  const total = items.reduce((s, x) => s + x.weight, 0);
+  const normalized = items.map((x) => (x.weight / total).toFixed(6)).join(', ');
+
+  const oweHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<style>
+.maindiv {
+  position: absolute;
+  width: 100%;
+  max-width: 100%;
+  min-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  min-height: 100%;
+  margin: 0px;
+  z-index: {Layer};
+}
+.contentdiv {
+  position: absolute;
+  margin: 0px;
+  left: {XPosition}{PositionTypeUnit};
+  top: {YPosition}{PositionTypeUnit};
+  transform: translate({XTranslation}%, {YTranslation}%);
+  width: {Width};
+  height: {Height};
+}
+.text {
+  font-size: {FontSize}px;
+  color: {FontColor};
+  font-family: '{FontFamily}';
+  font-weight: {FontWeight};
+  text-decoration: {TextDecoration};
+  font-style: {FontStyle};
+  text-align: {TextAlignment};
+  text-shadow: {ShadowColor};
+}
+</style>
+</head>
+<body>
+<div id="maindiv" class="maindiv">
+<div id="contentdiv" class="contentdiv">
+<div style="display: flex">
+  <div>
+    <canvas id="wheelCanvas" width="{Size}" height="{Size}" />
+  </div>
+  <div>
+    <canvas id="arrowCanvas" width="50" height="{Size}" />
+  </div>
+</div>
+</div>
+</div>
+<script>
+const main = document.getElementById("maindiv");
+const wheelCanvas = document.getElementById("wheelCanvas");
+const arrowCanvas = document.getElementById("arrowCanvas");
+hideWheel();
+const startingSpeed = 10;
+const spinsPerSpeed = 100;
+const totalIntervals = 15;
+const intervalDivider = 1.5;
+const soundInterval = 75;
+const xPosition = {Size} / 2;
+const yPosition = {Size} / 2;
+const radius = {Size} / 2;
+const names = [{OutcomeNames}];
+const colors = [{OutcomeColors}];
+const wheelClickSoundURL = "{WheelClickSoundURL}";
+var probabilities = [{OutcomeProbability}];
+drawArrow(arrowCanvas.getContext("2d"), yPosition + radius);
+function showWheel(data) {
+  drawWheel(wheelCanvas.getContext("2d"), xPosition, yPosition, radius, probabilities, names, colors);
+  main.style.visibility = 'visible';
+}
+function startSpin(data) {
+  probabilities = data.ModifiedProbabilities;
+  showWheel(data);
+  var modifiedRotation = (1.0 - data.WinningProbability) * 360;
+  var trackingSpeed = startingSpeed;
+  for (var i = 0; i < totalIntervals; i++) {
+    modifiedRotation -= trackingSpeed * spinsPerSpeed;
+    trackingSpeed = trackingSpeed / intervalDivider;
+  }
+  modifiedRotation = modifiedRotation % 360;
+  initialSpin(startingSpeed, 0, 0, 0, modifiedRotation);
+}
+function initialSpin(speed, spins, rotation, soundRotation, modifiedRotation) {
+  setTimeout(() => {
+    rotation += speed;
+    if (rotation >= 360) rotation -= 360;
+    wheelCanvas.style.transform = "rotate(" + rotation + "deg)";
+    soundRotation = playWheelClickSound(soundRotation, speed);
+    spins++;
+    if (spins >= spinsPerSpeed) {
+      spins = 0;
+      slowdownSpin(speed, spins, modifiedRotation, 0, soundRotation);
+    } else {
+      initialSpin(speed, spins, rotation, soundRotation, modifiedRotation);
+    }
+  }, 5);
+}
+function slowdownSpin(speed, spins, rotation, intervals, soundRotation) {
+  setTimeout(() => {
+    rotation += speed;
+    if (rotation >= 360) rotation -= 360;
+    wheelCanvas.style.transform = "rotate(" + rotation + "deg)";
+    soundRotation = playWheelClickSound(soundRotation, speed);
+    spins++;
+    if (spins >= spinsPerSpeed) {
+      speed = speed / intervalDivider;
+      intervals++;
+      spins = 0;
+    }
+    if (intervals < totalIntervals) {
+      slowdownSpin(speed, spins, rotation, intervals, soundRotation);
+    } else {
+      sendParentMessage({ Type: "WheelLanded", ID: "{ID}" });
+      setTimeout(() => { hideWheel(); }, 2000);
+    }
+  }, 5);
+}
+function hideWheel() {
+  main.style.visibility = 'hidden';
+}
+function playWheelClickSound(soundRotation, speed) {
+  soundRotation += speed;
+  if (soundRotation >= soundInterval) {
+    soundRotation = 0;
+    var audio = new Audio(wheelClickSoundURL);
+    audio.volume = {WheelClickVolume};
+    audio.play();
+  }
+  return soundRotation;
+}
+function drawWheel(context, x, y, radius, probabilities, names, colors) {
+  context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+  var startingAngle = 0;
+  for (let i = 0; i < probabilities.length; i++) {
+    var endingAngle = startingAngle + (Math.PI * probabilities[i] * 2);
+    drawOutcome(context, x, y, radius, startingAngle, endingAngle, colors[i]);
+    drawName(context, x, y, radius, startingAngle, endingAngle, names[i]);
+    startingAngle = endingAngle;
+  }
+}
+function drawOutcome(context, x, y, radius, startAngle, endAngle, color) {
+  context.beginPath();
+  context.fillStyle = color;
+  context.moveTo(x, y);
+  context.arc(x, y, radius, startAngle, endAngle);
+  context.fill();
+  context.stroke();
+}
+function drawName(context, x, y, radius, startingAngle, endingAngle, text) {
+  const halfRadius = (3 * radius / 5);
+  const rotation = ((endingAngle - startingAngle) / 2) + startingAngle;
+  context.save();
+  context.translate(x + (halfRadius * Math.cos(rotation)), y + (halfRadius * Math.sin(rotation)));
+  context.rotate(rotation);
+  context.fillStyle = "{FontColor}";
+  context.font = "{FontSize}px {FontFamily}";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(text, 0, 0);
+  context.restore();
+}
+function drawArrow(context, height) {
+  var startingY = height / 2;
+  context.beginPath();
+  context.fillStyle = "black";
+  context.moveTo(0, startingY);
+  context.lineTo(50, startingY - 25);
+  context.lineTo(50, startingY + 25);
+  context.lineTo(0, startingY);
+  context.fill();
+  context.stroke();
+}
+sendParentMessage({ Type: "WidgetLoaded", ID: "{ID}" });
+</script>
+</body>
+</html>`;
+
+  // заполняем OWE-плейсхолдеры реальными значениями
+  const filled = oweHtml
+    .replaceAll('{Size}', String(whOverlay.size))
+    .replaceAll('{Layer}', '45')
+    .replaceAll('{XPosition}', String(Math.round(whOverlay.x - whOverlay.size / 2)))
+    .replaceAll('{YPosition}', String(Math.round(whOverlay.y - whOverlay.size / 2)))
+    .replaceAll('{PositionTypeUnit}', 'px')
+    .replaceAll('{XTranslation}', '0')
+    .replaceAll('{YTranslation}', '0')
+    .replaceAll('{Width}', '100%')
+    .replaceAll('{Height}', '100%')
+    .replaceAll('{FontSize}', String(Math.round(whOverlay.size * 0.04)))
+    .replaceAll('{FontColor}', '#ffffff')
+    .replaceAll('{FontFamily}', 'Segoe UI')
+    .replaceAll('{FontWeight}', '700')
+    .replaceAll('{TextDecoration}', 'none')
+    .replaceAll('{FontStyle}', 'normal')
+    .replaceAll('{TextAlignment}', 'center')
+    .replaceAll('{ShadowColor}', '0 2px 8px rgba(0,0,0,.8)')
+    .replaceAll('{OutcomeNames}', names)
+    .replaceAll('{OutcomeColors}', colors)
+    .replaceAll('{OutcomeProbability}', normalized)
+    .replaceAll('{WheelClickSoundURL}', whOverlay.spinSound ? `/media/${whOverlay.spinSound}` : '')
+    .replaceAll('{WheelClickVolume}', '0.5')
+    .replaceAll('{ID}', Date.now().toString())
+    .replaceAll('{IsLivePreview}', 'false')
+    .replaceAll('{EntranceAnimationFramework}', 'none')
+    .replaceAll('{EntranceAnimationName}', 'none')
+    .replaceAll('{OutcomeSelectedAnimationFramework}', 'none')
+    .replaceAll('{OutcomeSelectedAnimationName}', 'none')
+    .replaceAll('{ExitAnimationFramework}', 'none')
+    .replaceAll('{ExitAnimationName}', 'none');
+
+  const url = URL.createObjectURL(new Blob([filled], { type: 'text/html' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'roulette-owe-template.html';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('OWE-шаблон скачан — совместим с Overlay Widget Editor');
+});
+
+// перерисовка при разворачивании секции (stage был нулевой ширины пока свёрнут)
+(() => {
+  const det = document.querySelector('details summary')?.closest('details');
+  // все details с wh-stage/wod-stage/plp-stage/aso-stage внутри — слушаем toggle
+  for (const d of document.querySelectorAll('details')) {
+    d.addEventListener('toggle', () => {
+      if (d.open) {
+        requestAnimationFrame(() => {
+          if ($('#wh-stage') && d.contains($('#wh-stage'))) whRenderStage();
+          if ($('#wod-stage') && d.contains($('#wod-stage'))) { wodRenderStage(); wodRenderProps(); }
+          if ($('#plp-stage') && d.contains($('#plp-stage'))) { plpRenderStage(); plpRenderProps(); }
+          if ($('#aso-stage') && d.contains($('#aso-stage'))) { asoRenderStage(); asoRenderProps(); }
+        });
+      }
+    });
+  }
+})();
 
 loadWheel().catch(() => {});
 
