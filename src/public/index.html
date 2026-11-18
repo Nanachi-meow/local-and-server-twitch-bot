@@ -466,36 +466,26 @@
           <div class="row"><button class="act" id="ov-save">Сохранить</button></div>
         </div>
       </div>
-      <div class="card">
-        <h2>📖 Слово дня</h2>
-        <p class="hint">Слово выбирается <b>автоматически</b> — какое чаще всего пишут в чате за сегодня (команды и сообщения бота не считаются). Обгоняет другое слово — виджет переключится. Счётчик справа — сколько раз слово написали.</p>
-        <div class="evcard">
-          <label><input type="checkbox" id="wod-enabled" /> виджет включён</label>
-          <div class="hint">сейчас: <b id="wod-current">— пока пусто, чат ещё не решал —</b> <span class="hint" id="wod-count"></span></div>
-          <label>угол
-            <select id="wod-corner">
-              <option value="top-left">↖ верхний левый</option>
-              <option value="top-right">↗ верхний правый</option>
-              <option value="bottom-left">↙ нижний левый</option>
-              <option value="bottom-right">↘ нижний правый</option>
-            </select>
-          </label>
-          <div class="am-sound-row" style="margin: 8px 0">
-            <label class="hint">поворот <input type="range" id="wod-rotate" min="-15" max="15" value="0" style="width:110px" /> <span class="hint" id="wod-rotate-val">0°</span></label>
-          </div>
-          <div class="am-sound-row">
-            <label class="hint">текст <input type="color" id="wod-color" /></label>
-            <label class="hint">подложка <input type="color" id="wod-bg" /></label>
-            <label class="hint">прозрачн. % <input type="number" id="wod-opacity" min="0" max="100" style="width:60px" /></label>
-            <label class="hint">углы <input type="number" id="wod-radius" min="0" max="60" style="width:56px" /></label>
-          </div>
-          <div class="row">
-            <button class="act" id="wod-save">Сохранить</button>
+      <details class="guide-box">
+        <summary><b>📖 Слово дня: выбирается само по чату (нажми — редактор раскладки)</b></summary>
+        <div class="guide-body">
+          <p class="hint">Слово выбирается <b>автоматически</b> — какое чаще всего пишут в чате за сегодня (команды и бот не считаются). Обгоняет другое — виджет переключится. Сейчас: <b id="wod-current">— пока пусто —</b> <span class="hint" id="wod-count"></span></p>
+          <div class="rp-row" style="margin-bottom:8px">
+            <label class="hint"><input type="checkbox" id="wod-enabled" /> виджет включён</label>
             <button class="act ghost" id="wod-refresh" title="обновить текущее слово">⟳</button>
             <button class="act ghost" id="wod-reset" title="обнулить статистику — слово выберется заново">↺ Сброс статистики</button>
+            <button class="act ghost" id="wod-widget-add" title="своя картинка-декор">🖼 + картинка</button>
+            <button class="act" id="wod-save">💾 Сохранить раскладку</button>
+            <button class="act ghost" id="wod-widget-reset" title="вернуть дефолтную раскладку">↺ Дефолт</button>
+          </div>
+          <input type="file" id="wod-image-file" class="hidden" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" />
+          <div id="wod-stage"></div>
+          <div class="evcard" style="margin-top:10px">
+            <div class="chips" id="wod-objects"></div>
+            <div id="wod-props"></div>
           </div>
         </div>
-      </div>
+      </details>
       <div class="card">
         <h2>🔔 Всплывающие уведомления</h2>
         <p class="hint">Настройка каждого алерта — в карточке события на вкладке «События» (текст плашки, медиа, звук, громкость, длительность, тест). Здесь — только глобальное: адрес оверлея, общий выключатель и озвучка.</p>

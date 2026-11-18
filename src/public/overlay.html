@@ -70,22 +70,17 @@
     font-size: 13px; color: rgba(255, 255, 255, .45);
     text-shadow: 0 1px 3px #000;
   }
-  /* виджет «Слово дня»: угловой, закруглённый, с поворотом подложки */
-  #wordofday {
-    position: fixed; display: flex; flex-direction: column; gap: 2px;
-    padding: 12px 18px; min-width: 170px; max-width: 30vw;
-    background: rgba(12, 10, 25, .8); border: 1px solid rgba(255,255,255,.14);
-    font-weight: 700; text-shadow: 0 2px 8px rgba(0, 0, 0, .8);
-    z-index: 40; pointer-events: none;
+  /* виджет «Слово дня»: объектная раскладка (надпись/слово/счётчик/подложка/картинки) */
+  .wod-obj { position: absolute; }
+  .wod-obj-caption, .wod-obj-word, .wod-obj-count {
+    color: #fff; font-weight: 700; text-shadow: 0 2px 8px rgba(0, 0, 0, .8);
+    white-space: pre-wrap; overflow: hidden; display: flex; align-items: center;
   }
-  #wordofday.hidden { display: none; }
-  #wordofday .wo-corner { position: static; }
-  #wordofday .wo-cap { font-size: 14px; opacity: .75; font-weight: 500; }
-  #wordofday .wo-row { display: flex; align-items: baseline; gap: 12px; justify-content: space-between; }
-  #wordofday .wo-word { font-size: 26px; }
-  #wordofday .wo-count { font-size: 18px; opacity: .85; }
-  #wordofday .wo-count.bump { animation: wo-bump .35s ease; }
-  @keyframes wo-bump { 50% { transform: scale(1.35); } }
+  .wod-obj-backdrop { background-size: 100% 100%; background-position: center; }
+  .wod-obj-image { background-size: 100% 100%; background-position: center; }
+  #wod-widget { position: fixed; inset: 0; pointer-events: none; }
+  #wod-widget .wod-count.bump { animation: wod-bump .35s ease; }
+  @keyframes wod-bump { 50% { transform: scale(1.35); } }
 
   /* виджет шатаута: объекты раскладки (аватар/текст/подложка/декор) */
   .so-obj { position: absolute; }
@@ -460,7 +455,12 @@
       const ev = JSON.parse(m.data);
       if (ev.kind === 'sr') { window.srPlayer?.onEvent?.(ev); return; }
       if (ev.kind === 'shoutout') { soShow(ev); return; }
-      if (ev.kind === 'wordofday') { wodRender(ev); return; }
+      if (ev.kind === 'wordofday') {
+        if (Array.isArray(ev.objects)) wodCfg = wodNormalize({ enabled: ev.enabled, objects: ev.objects });
+        if (ev.word !== undefined) wodEv = { word: ev.word || '', count: Number(ev.count) || 0 };
+        wodRenderScene();
+        return;
+      }
       if (KINDS.includes(ev.kind)) {
         queue.push(ev);
         pump();
@@ -469,13 +469,24 @@
     } catch {}
   };
 
-  // ---------- «Слово дня»: угловой виджет, слово выбирает бот по частоте чата ----------
-  const wodEl = document.createElement('div');
-  wodEl.id = 'wordofday';
-  wodEl.classList.add('hidden');
-  document.body.appendChild(wodEl);
-  let wodCfg = { enabled: false, corner: 'top-left', rotate: 0, color: '#ffffff', bg: '#0c0a19', opacity: 80, radius: 18 };
+  // ---------- «Слово дня»: объектная раскладка; слово выбирает бот по частоте чата ----------
+  const wodWidget = document.createElement('div');
+  wodWidget.id = 'wod-widget';
+  document.body.appendChild(wodWidget);
+  const wodNodes = new Map();
+  let wodCfg = { enabled: false, objects: [] };
+  let wodEv = { word: '', count: 0 };
   let wodLastCount = 0;
+
+  function wodDefaultObjects() {
+    // карточка в правом верхнем углу: подложка + «Слово дня:» + слово + счётчик справа
+    return [
+      { id: 'backdrop-0', type: 'backdrop', x: 1560, y: 24, w: 330, h: 120, opacity: 80, z: 1, color: '#0c0a19', radius: 18, rotate: 0, image: '' },
+      { id: 'caption-0', type: 'caption', x: 1584, y: 38, w: 280, h: 26, opacity: 85, z: 3, color: '#ffffff', text: 'Слово дня:', fontSize: 14, radius: 0, rotate: 0 },
+      { id: 'word-0', type: 'word', x: 1584, y: 70, w: 240, h: 46, opacity: 100, z: 4, color: '#ffffff', fontSize: 26, radius: 0, rotate: 0 },
+      { id: 'count-0', type: 'count', x: 1800, y: 76, w: 70, h: 40, opacity: 90, z: 4, color: '#ffffff', fontSize: 18, radius: 12, rotate: 0 },
+    ];
+  }
 
   function wodHexA(color, alpha) {
     const m = String(color || '').match(/^#?([0-9a-f]{6})$/i);
@@ -484,42 +495,95 @@
     return `rgba(${parseInt(n.slice(0, 2), 16)}, ${parseInt(n.slice(2, 4), 16)}, ${parseInt(n.slice(4, 6), 16)}, ${Math.max(0, Math.min(1, alpha))}`;
   }
 
-  function wodRender(st) {
-    Object.assign(wodCfg, (st?.cfg) ?? {});
-    const state = st?.word !== undefined ? st : { word: wodEl.dataset.word || '', count: Number(wodEl.dataset.count) || 0, enabled: Boolean(wodCfg.enabled) };
-    if (state.word) { wodEl.dataset.word = state.word; wodEl.dataset.count = String(state.count); }
-    const show = Boolean(wodCfg.enabled && state.word);
-    wodEl.classList.toggle('hidden', !show);
-    if (!show) return;
+  function wodNormalize(raw) {
+    const c = raw ?? {};
+    const objects = (Array.isArray(c.objects) && c.objects.length
+      ? c.objects.filter((o) => o && ['caption', 'word', 'count', 'backdrop', 'image'].includes(o.type))
+      : wodDefaultObjects())
+      .map((o, i) => ({
+        id: o.id || `${o.type}-${i}`,
+        type: o.type,
+        x: Number(o.x) || 0, y: Number(o.y) || 0,
+        w: Math.max(20, Number(o.w) || 300), h: Math.max(20, Number(o.h) || 120),
+        opacity: Math.max(0, Math.min(100, Number(o.opacity ?? 100))),
+        z: Math.max(0, Math.min(30, Number(o.z ?? 1))),
+        image: String(o.image || ''),
+        color: String(o.color || ''),
+        text: String(o.text || ''),
+        radius: Math.max(0, Number(o.radius) || 0),
+        rotate: Math.max(-15, Math.min(15, Number(o.rotate) || 0)),
+        fontSize: Math.max(10, Number(o.fontSize) || 22),
+      }));
+    return { enabled: Boolean(c.enabled), objects };
+  }
+
+  function wodRenderScene() {
     const k = (window.innerWidth || 1920) / 1920;
-    const margins = {
-      'top-left': { left: '24px', right: 'auto', top: '24px', bottom: 'auto' },
-      'top-right': { left: 'auto', right: '24px', top: '24px', bottom: 'auto' },
-      'bottom-left': { left: '24px', right: 'auto', top: 'auto', bottom: '24px' },
-      'bottom-right': { left: 'auto', right: '24px', top: 'auto', bottom: '24px' },
-    };
-    const pos = margins[wodCfg.corner] ?? margins['top-left'];
-    wodEl.style.left = pos.left; wodEl.style.right = pos.right;
-    wodEl.style.top = pos.top; wodEl.style.bottom = pos.bottom;
-    wodEl.style.transform = `rotate(${Number(wodCfg.rotate) || 0}deg) scale(${k > 0.5 ? 1 : Math.max(0.6, k)})`;
-    wodEl.style.borderRadius = `${Math.max(0, Number(wodCfg.radius) || 0) * (k > 0.5 ? 1 : Math.max(0.6, k))}px`;
-    wodEl.style.color = wodCfg.color || '#ffffff';
-    wodEl.style.background = wodHexA(wodCfg.bg, (Number(wodCfg.opacity) ?? 80) / 100);
-    const bump = state.count !== wodLastCount && wodLastCount > 0;
-    wodEl.innerHTML = `<div class="wo-cap">Слово дня:</div>
-      <div class="wo-row"><span class="wo-word"></span><span class="wo-count${bump ? ' bump' : ''}"></span></div>`;
-    wodEl.querySelector('.wo-word').textContent = state.word;
-    wodEl.querySelector('.wo-count').textContent = `×${state.count}`;
-    if (bump) setTimeout(() => wodEl.querySelector('.wo-count')?.classList.remove('bump'), 400);
-    wodLastCount = state.count;
+    const key = JSON.stringify(wodCfg.objects.map((o) => [o.id, o.type, o.image, o.z]));
+    const orphan = wodCfg.objects.some((o) => !wodNodes.get(o.id));
+    const show = Boolean(wodCfg.enabled && wodEv.word);
+    if (wodRenderScene.key !== key || orphan) {
+      wodRenderScene.key = key;
+      wodWidget.innerHTML = '';
+      wodNodes.clear();
+      const sorted = [...wodCfg.objects].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
+      for (const o of sorted) {
+        const div = document.createElement('div');
+        div.className = `wod-obj wod-obj-${o.type}`;
+        wodWidget.appendChild(div);
+        wodNodes.set(o.id, div);
+      }
+    }
+    for (const o of wodCfg.objects) {
+      const div = wodNodes.get(o.id);
+      if (!div) continue;
+      div.style.display = show ? 'block' : 'none';
+      div.style.left = `calc(50% + ${Math.round((o.x - 960) * k)}px)`;
+      div.style.top = `calc(50% + ${Math.round((o.y - 540) * k)}px)`;
+      div.style.width = `${o.w * k}px`;
+      div.style.height = `${o.h * k}px`;
+      div.style.zIndex = String(o.z ?? 1);
+      div.style.opacity = String(o.opacity / 100);
+      div.style.transform = o.rotate ? `rotate(${o.rotate}deg)` : '';
+      if (o.type === 'caption') {
+        div.style.color = o.color || '#ffffff';
+        div.style.fontSize = `${o.fontSize * k}px`;
+        if (div.textContent !== (o.text || 'Слово дня:')) div.textContent = o.text || 'Слово дня:';
+      } else if (o.type === 'word') {
+        div.style.color = o.color || '#ffffff';
+        div.style.fontSize = `${o.fontSize * k}px`;
+        if (div.textContent !== wodEv.word) div.textContent = wodEv.word;
+      } else if (o.type === 'count') {
+        div.style.color = o.color || '#ffffff';
+        div.style.fontSize = `${o.fontSize * k}px`;
+        div.style.borderRadius = `${o.radius * k}px`;
+        div.className = `wod-obj wod-obj-count${wodEv.count !== wodLastCount && wodLastCount > 0 ? ' bump' : ''}`;
+        if (div.textContent !== `×${wodEv.count}`) div.textContent = `×${wodEv.count}`;
+      } else if (o.type === 'backdrop') {
+        div.style.borderRadius = `${o.radius * k}px`;
+        if (o.image) {
+          div.style.backgroundImage = `url("/media/${encodeURIComponent(o.image)}")`;
+          div.style.backgroundColor = 'transparent';
+        } else {
+          div.style.backgroundImage = 'none';
+          div.style.backgroundColor = wodHexA(o.color || '#0c0a19', o.opacity / 100);
+        }
+      } else if (o.type === 'image' && o.image) {
+        div.style.borderRadius = `${o.radius * k}px`;
+        div.style.backgroundImage = `url("/media/${encodeURIComponent(o.image)}")`;
+      }
+    }
+    wodLastCount = wodEv.count;
   }
 
   async function wodLoad() {
     try {
       const st = await fetch('/api/settings').then((r) => r.json());
-      wodCfg = { enabled: false, corner: 'top-left', rotate: 0, color: '#ffffff', bg: '#0c0a19', opacity: 80, radius: 18, ...(st.wordOfDay ?? {}) };
+      wodCfg = wodNormalize(st.wordOfDay);
       const { wod } = await fetch('/api/wordofday').then((r) => r.json());
-      wodRender({ word: wod.word, count: wod.count, enabled: wod.enabled });
+      wodEv = { word: wod.word || '', count: Number(wod.count) || 0 };
+      wodLastCount = wodEv.count;
+      wodRenderScene();
     } catch {}
   }
   wodLoad();

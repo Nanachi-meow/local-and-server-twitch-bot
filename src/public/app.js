@@ -59,6 +59,7 @@ $$('.tab').forEach((btn) => {
     // вкладка была скрыта — превью раскладки музыки рисовалось с нулевой шириной; перерисуем
     if (btn.dataset.tab === 'songs') requestAnimationFrame(() => { plpRenderStage(); plpRenderProps(); });
     if (btn.dataset.tab === 'autoso') requestAnimationFrame(() => { asoRenderStage(); asoRenderProps(); });
+    if (btn.dataset.tab === 'overlay') requestAnimationFrame(() => { wodRenderStage(); wodRenderProps(); });
   });
 });
 
@@ -1700,49 +1701,534 @@ $('#tts-test').addEventListener('click', () => {
 
 // ---------------- 📖 «Слово дня» (авто: самое частое слово чата) ----------------
 
-async function loadWordOfDay() {
-  const [st, { wod }] = await Promise.all([api('/api/settings'), api('/api/wordofday')]);
-  const w = st.wordOfDay ?? {};
-  $('#wod-enabled').checked = Boolean(w.enabled);
-  $('#wod-corner').value = w.corner ?? 'top-left';
-  $('#wod-rotate').value = w.rotate ?? 0;
-  $('#wod-rotate-val').textContent = `${w.rotate ?? 0}°`;
-  $('#wod-color').value = w.color ?? '#ffffff';
-  $('#wod-bg').value = w.bg ?? '#0c0a19';
-  $('#wod-opacity').value = w.opacity ?? 80;
-  $('#wod-radius').value = w.radius ?? 18;
-  $('#wod-current').textContent = wod.word ? wod.word : '— пока пусто, чат ещё не решал —';
-  $('#wod-count').textContent = wod.word ? `· написали ${wod.count} раз` : '';
-}
-loadWordOfDay().catch(() => {});
+let wodEd = { objects: [], enabled: false };
+const WOD_TYPE_RU = { caption: '🏷 надпись', word: '🔤 слово', count: '🔢 счётчик', backdrop: '🟪 подложка', image: '🖼 картинка' };
+const wodHist = [];
+const wodRedoStack = [];
+let wodLastPush = 0;
+let wodClipboard = [];
 
-$('#wod-rotate').addEventListener('input', () => { $('#wod-rotate-val').textContent = `${$('#wod-rotate').value}°`; });
+function wodDefault() {
+  // карточка в правом верхнем углу: подложка + «Слово дня:» + слово + счётчик справа
+  return [
+    { id: 'backdrop-0', type: 'backdrop', x: 1560, y: 24, w: 330, h: 120, opacity: 80, z: 1, color: '#0c0a19', radius: 18, rotate: 0, image: '' },
+    { id: 'caption-0', type: 'caption', x: 1584, y: 38, w: 280, h: 26, opacity: 85, z: 3, color: '#ffffff', text: 'Слово дня:', fontSize: 14, radius: 0, rotate: 0 },
+    { id: 'word-0', type: 'word', x: 1584, y: 70, w: 240, h: 46, opacity: 100, z: 4, color: '#ffffff', fontSize: 26, radius: 0, rotate: 0 },
+    { id: 'count-0', type: 'count', x: 1800, y: 76, w: 70, h: 40, opacity: 90, z: 4, color: '#ffffff', fontSize: 18, radius: 12, rotate: 0 },
+  ];
+}
+
+function wodNorm(raw) {
+  const c = raw ?? {};
+  const objects = (Array.isArray(c.objects) && c.objects.length
+    ? c.objects.filter((o) => o && ['caption', 'word', 'count', 'backdrop', 'image'].includes(o.type))
+    : wodDefault())
+    .map((o, i) => ({
+      id: o.id || `${o.type}-${i}`,
+      type: o.type,
+      x: Number(o.x) || 0, y: Number(o.y) || 0,
+      w: Math.max(20, Number(o.w) || 300), h: Math.max(20, Number(o.h) || 120),
+      opacity: Math.max(0, Math.min(100, Number(o.opacity ?? 100))),
+      z: Math.max(0, Math.min(30, Number(o.z ?? 1))),
+      image: String(o.image || ''),
+      color: String(o.color || ''),
+      text: String(o.text || ''),
+      radius: Math.max(0, Number(o.radius) || 0),
+      rotate: Math.max(-15, Math.min(15, Number(o.rotate) || 0)),
+      fontSize: Math.max(10, Number(o.fontSize) || 22),
+    }));
+  return { enabled: Boolean(c.enabled), objects };
+}
+
+function wodK() { const s = $('#wod-stage'); return s ? s.clientWidth / 1920 : 0.25; }
+
+function wodPush() {
+  wodHist.push(JSON.stringify(wodEd.objects));
+  if (wodHist.length > 60) wodHist.shift();
+  wodRedoStack.length = 0;
+  wodLastPush = Date.now();
+}
+function wodPushThrottled() { if (Date.now() - wodLastPush > 600) wodPush(); }
+function wodUndo() {
+  if (!wodHist.length) { toast('Отменять нечего'); return; }
+  wodRedoStack.push(JSON.stringify(wodEd.objects));
+  wodEd.objects = JSON.parse(wodHist.pop());
+  wodSel = new Set();
+  wodSelIdx = -1;
+  wodRenderStage();
+  wodRenderProps();
+}
+function wodRedo() {
+  if (!wodRedoStack.length) { toast('Повторять нечего'); return; }
+  wodHist.push(JSON.stringify(wodEd.objects));
+  wodEd.objects = JSON.parse(wodRedoStack.pop());
+  wodSel = new Set();
+  wodSelIdx = -1;
+  wodRenderStage();
+  wodRenderProps();
+}
+
+let wodSel = new Set();
+let wodSelIdx = 0;
+let wodCurrent = { word: '', count: 0 };
+
+function wodRenderStage() {
+  const stage = $('#wod-stage');
+  if (!stage) return;
+  const k = wodK();
+  const sorted = wodEd.objects.map((o, i) => ({ o, i })).sort((a, b) => (a.o.z ?? 0) - (b.o.z ?? 0));
+  stage.innerHTML = '';
+  for (const { o, i } of sorted) {
+    const div = document.createElement('div');
+    div.className = `plp-obj plp-${o.type}${wodSel.has(i) ? ' sel' : ''}`;
+    div.dataset.i = i;
+    div.style.left = `calc(50% + ${Math.round((o.x - 960) * k)}px)`;
+    div.style.top = `calc(50% + ${Math.round((o.y - 540) * k)}px)`;
+    div.style.width = `${o.w * k}px`;
+    div.style.height = `${o.h * k}px`;
+    div.style.opacity = String(o.opacity / 100);
+    div.style.borderRadius = `${o.radius * k}px`;
+    div.style.transform = o.rotate ? `rotate(${o.rotate}deg)` : '';
+    const fillText = o.type === 'caption'
+      ? (o.text || 'Слово дня:')
+      : o.type === 'word'
+        ? (wodCurrent.word || 'пример')
+        : o.type === 'count'
+          ? `×${wodCurrent.count || 12}`
+          : '';
+    if (o.type === 'caption' || o.type === 'word' || o.type === 'count') {
+      div.style.color = o.color || '#ffffff';
+      div.style.fontSize = `${o.fontSize * k}px`;
+      div.style.fontWeight = '700';
+      div.style.display = 'flex';
+      div.style.alignItems = 'center';
+      div.style.overflow = 'hidden';
+      div.style.whiteSpace = 'pre-wrap';
+      div.textContent = fillText;
+    } else if (o.type === 'backdrop') {
+      if (o.image) div.style.backgroundImage = `url(/media/${encodeURIComponent(o.image)})`;
+      else div.style.backgroundColor = o.color || '#0c0a19';
+    } else if (o.type === 'image' && o.image) {
+      div.style.backgroundImage = `url(/media/${encodeURIComponent(o.image)})`;
+    }
+    if (wodSel.size === 1 && i === wodSelIdx) {
+      const h = document.createElement('div');
+      h.className = 'plp-resize';
+      div.appendChild(h);
+    }
+    stage.appendChild(div);
+  }
+}
+
+function wodSnap(nx, ny, self) {
+  const others = wodEd.objects.filter((_, j) => !wodSel.has(j));
+  const anchorsX = [nx, nx + self.w / 2, nx + self.w];
+  const anchorsY = [ny, ny + self.h / 2, ny + self.h];
+  const targetsX = [{ pos: 960, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.x, kind: 'obj' }, { pos: t.x + t.w / 2, kind: 'obj' }, { pos: t.x + t.w, kind: 'obj' }])];
+  const targetsY = [{ pos: 540, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.y, kind: 'obj' }, { pos: t.y + t.h / 2, kind: 'obj' }, { pos: t.y + t.h, kind: 'obj' }])];
+  let bestX = null;
+  for (const a of anchorsX) for (const t of targetsX) {
+    const d = t.pos - a;
+    if (Math.abs(d) <= 14 && (!bestX || Math.abs(d) < Math.abs(bestX.shift))) bestX = { shift: d, target: t };
+  }
+  let bestY = null;
+  for (const a of anchorsY) for (const t of targetsY) {
+    const d = t.pos - a;
+    if (Math.abs(d) <= 14 && (!bestY || Math.abs(d) < Math.abs(bestY.shift))) bestY = { shift: d, target: t };
+  }
+  return { x: nx + (bestX ? bestX.shift : 0), y: ny + (bestY ? bestY.shift : 0), guides: { v: bestX ? bestX.target : null, h: bestY ? bestY.target : null } };
+}
+
+function wodGuides({ v, h }) {
+  $('#wod-guide-v')?.remove();
+  $('#wod-guide-h')?.remove();
+  if (!v && !h) return;
+  const stage = $('#wod-stage');
+  const k = wodK();
+  if (v) {
+    const g = document.createElement('div');
+    g.id = 'wod-guide-v';
+    g.className = `plp-guide plp-guide-v ${v.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
+    g.style.left = `${v.pos * k}px`;
+    stage.appendChild(g);
+  }
+  if (h) {
+    const g = document.createElement('div');
+    g.id = 'wod-guide-h';
+    g.className = `plp-guide plp-guide-h ${h.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
+    g.style.top = `${h.pos * k}px`;
+    stage.appendChild(g);
+  }
+}
+
+function wodRenderProps() {
+  const chips = $('#wod-objects');
+  const props = $('#wod-props');
+  if (!chips || !props) return;
+  chips.innerHTML = wodEd.objects.map((o, i) =>
+    `<span class="chip${wodSel.has(i) ? ' sel' : ''}" data-i="${i}">${WOD_TYPE_RU[o.type] ?? o.type}${o.type === 'caption' && o.text ? ` · ${esc(o.text.slice(0, 14))}` : ''}</span>`
+  ).join('');
+  if (!wodSel.size) {
+    props.innerHTML = '<p class="hint">Клик — выделить · shift+клик — несколько · рамка по пустому месту · ctrl+z/y/c/x/v. «Слово» и «Счётчик» заполняются данными чата сами.</p>';
+    return;
+  }
+  if (wodSel.size > 1) {
+    props.innerHTML = `
+      <p class="hint">выделено: ${wodSel.size} — тащатся вместе</p>
+      <div class="rp-row">
+        <button class="act ghost" id="woded-zup">▲ слой</button>
+        <button class="act ghost" id="woded-zdown">▼ слой</button>
+        <button class="act ghost" id="woded-del">🗑 удалить выбранное</button>
+      </div>`;
+    $('#woded-zup').addEventListener('click', () => { for (const i of wodSel) wodEd.objects[i].z = Math.min(30, wodEd.objects[i].z + 1); wodRenderStage(); wodRenderProps(); });
+    $('#woded-zdown').addEventListener('click', () => { for (const i of wodSel) wodEd.objects[i].z = Math.max(0, wodEd.objects[i].z - 1); wodRenderStage(); wodRenderProps(); });
+    $('#woded-del').addEventListener('click', () => {
+      wodPush();
+      wodEd.objects = wodEd.objects.filter((_, i) => !wodSel.has(i));
+      wodSel = new Set();
+      wodSelIdx = -1;
+      wodRenderStage();
+      wodRenderProps();
+    });
+    return;
+  }
+  const o = wodEd.objects[wodSelIdx];
+  if (!o) { props.innerHTML = ''; return; }
+  const row = (label, html) => `<label>${label}<div class="am-sound-row">${html}</div></label>`;
+  let html = `
+    ${row(`ширина, px <span class="hint" id="woded-w-val">${o.w}</span>`, `<input type="range" id="woded-w" min="20" max="2000" value="${o.w}" />`)}
+    ${row('прозрачность', `<input type="range" id="woded-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="weded-op-val-x">${o.opacity}%</span>`)}
+    ${row('поворот', `<input type="range" id="woded-rot" min="-15" max="15" value="${o.rotate}" /><span class="hint" id="woded-rot-val">${o.rotate}°</span>`)}
+    <div class="rp-row">
+      <label class="hint">слой:</label>
+      <button class="act ghost" id="woded-zup" title="поднять">▲</button>
+      <span class="hint">z=${o.z}</span>
+      <button class="act ghost" id="woded-zdown" title="опустить">▼</button>`;
+  if (o.type === 'caption' || o.type === 'word' || o.type === 'count') {
+    html += row('текст', `<span class="hint">цвет</span><input type="color" id="woded-color" value="${esc(o.color || '#ffffff')}" /><span class="hint">шрифт</span><input type="number" id="woded-fs" min="10" max="60" value="${o.fontSize}" style="width:56px" />`);
+  }
+  if (o.type === 'caption') {
+    html += `<label>надпись <input type="text" id="woded-text" class="wide" maxlength="60" value="${esc(o.text || 'Слово дня:')}" /></label>`;
+  }
+  html += row('закругление', `<input type="number" id="woded-radius" min="0" max="120" value="${o.radius}" style="width:56px" />`);
+  if (o.type === 'backdrop' || o.type === 'image') {
+    html += o.type === 'backdrop' ? `<label>цвет <input type="color" id="woded-bcolor" value="${esc(o.color || '#0c0a19')}" style="width:46px" /></label>` : '';
+    html += `<label>картинка <select id="woded-img"></select></label>
+      <div class="am-sound-row"><input type="file" id="woded-img-file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="max-width:220px" /><button class="act ghost" id="woded-img-up">⬆</button></div>`;
+  }
+  html += `<button class="act ghost" id="woded-del">🗑 Удалить объект</button></div>`;
+  props.innerHTML = html;
+
+  $('#woded-w').addEventListener('pointerdown', wodPushThrottled);
+  $('#woded-w').addEventListener('input', () => {
+    o.w = Number($('#woded-w').value);
+    $('#woded-w-val').textContent = String(o.w);
+    wodRenderStage();
+  });
+  $('#woded-op').addEventListener('input', () => {
+    o.opacity = Number($('#woded-op').value);
+    $('#weded-op-val-x').textContent = `${o.opacity}%`;
+    wodRenderStage();
+  });
+  $('#woded-rot').addEventListener('input', () => {
+    o.rotate = Number($('#woded-rot').value);
+    $('#woded-rot-val').textContent = `${o.rotate}°`;
+    wodRenderStage();
+  });
+  $('#woded-zup').addEventListener('click', () => { o.z = Math.min(30, o.z + 1); wodRenderStage(); wodRenderProps(); });
+  $('#woded-zdown').addEventListener('click', () => { o.z = Math.max(0, o.z - 1); wodRenderStage(); wodRenderProps(); });
+  $('#woded-color')?.addEventListener('input', () => { o.color = $('#woded-color').value; wodRenderStage(); });
+  $('#woded-fs')?.addEventListener('pointerdown', wodPushThrottled);
+  $('#woded-fs')?.addEventListener('input', () => { o.fontSize = Number($('#woded-fs').value) || 22; wodRenderStage(); });
+  $('#woded-text')?.addEventListener('input', () => { o.text = $('#woded-text').value; wodRenderStage(); wodRenderProps(); });
+  $('#woded-radius')?.addEventListener('pointerdown', wodPushThrottled);
+  $('#woded-radius')?.addEventListener('input', () => { o.radius = Number($('#woded-radius').value) || 0; wodRenderStage(); });
+  $('#woded-bcolor')?.addEventListener('input', () => { o.color = $('#woded-bcolor').value; wodRenderStage(); });
+  $('#woded-del').addEventListener('click', () => {
+    wodPush();
+    wodEd.objects.splice(wodSelIdx, 1);
+    wodSelIdx = Math.max(-1, wodSelIdx - 1);
+    wodSel = wodSelIdx >= 0 ? new Set([wodSelIdx]) : new Set();
+    wodRenderStage();
+    wodRenderProps();
+  });
+
+  const imgSel = $('#woded-img');
+  if (imgSel) {
+    api('/api/media').then(({ files }) => {
+      const images = files.filter((f) => ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'apng'].includes(fileExt(f)));
+      imgSel.innerHTML = ['<option value="">— не задано —</option>',
+        ...images.map((f) => `<option value="${esc(f)}" ${o.image === f ? 'selected' : ''}>${esc(f)}</option>`)].join('');
+    }).catch(() => {});
+    imgSel.addEventListener('change', () => { wodPush(); o.image = imgSel.value; wodRenderStage(); wodRenderProps(); });
+    $('#woded-img-up').addEventListener('click', async () => {
+      const file = $('#woded-img-file')?.files?.[0];
+      if (!file) { toast('Сначала выбери картинку', true); return; }
+      const r = await fetch(`/api/media/upload?name=${encodeURIComponent(file.name)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(j.error || `HTTP ${r.status}`, true); return; }
+      wodPush();
+      o.image = file.name;
+      toast('Картинка загружена ✅');
+      wodRenderStage();
+      wodRenderProps();
+    });
+  }
+}
+
+// drag/рамка/магнит — как у редакторов выше, своя сцена
+(() => {
+  const stage = $('#wod-stage');
+  if (!stage) return;
+  let mode = null;
+  let idx = -1;
+  let grabX = 0, grabY = 0;
+  let starts = null;
+  let band = null;
+  let bandShift = false;
+  let moved = false;
+  let pendingGuides = null;
+
+  const snapshot = () => {
+    starts = new Map();
+    for (const i of wodSel) starts.set(i, { ...wodEd.objects[i] });
+  };
+
+  stage.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.plp-resize');
+    const obj = e.target.closest('.plp-obj');
+    grabX = e.clientX; grabY = e.clientY;
+    moved = false;
+    stage.setPointerCapture?.(e.pointerId);
+    if (!obj) {
+      mode = 'band';
+      bandShift = e.shiftKey;
+      band = { x: e.clientX, y: e.clientY, w: 0, h: 0 };
+      wodGuides({ v: null, h: null });
+      e.preventDefault();
+      return;
+    }
+    idx = Number(obj.dataset.i);
+    wodSelIdx = idx;
+    if (e.shiftKey) {
+      if (wodSel.has(idx)) wodSel.delete(idx);
+      else wodSel.add(idx);
+    } else if (!wodSel.has(idx)) {
+      wodSel = new Set([idx]);
+    }
+    if (!wodSel.size) wodSel = new Set([idx]);
+    wodSelIdx = wodSel.has(idx) ? idx : [...wodSel][0];
+    mode = (handle && wodSel.size === 1) ? 'resize' : 'move';
+    snapshot();
+    wodPush();
+    wodRenderStage();
+    wodRenderProps();
+    e.preventDefault();
+  });
+
+  stage.addEventListener('pointermove', (e) => {
+    if (!mode) return;
+    const k = wodK();
+    moved = true;
+    if (mode === 'band') {
+      const r = stage.getBoundingClientRect();
+      band = {
+        x: Math.min(grabX, e.clientX) - r.left,
+        y: Math.min(grabY, e.clientY) - r.top,
+        w: Math.abs(e.clientX - grabX),
+        h: Math.abs(e.clientY - grabY),
+      };
+      $('#wod-band')?.remove();
+      const b = document.createElement('div');
+      b.id = 'wod-band';
+      b.style.left = `${band.x}px`;
+      b.style.top = `${band.y}px`;
+      b.style.width = `${band.w}px`;
+      b.style.height = `${band.h}px`;
+      stage.appendChild(b);
+      return;
+    }
+    const dx = (e.clientX - grabX) / k;
+    const dy = (e.clientY - grabY) / k;
+    if (mode === 'move') {
+      const anchor = starts.get(idx);
+      if (!anchor) return;
+      const snap = wodSnap(anchor.x + dx, anchor.y + dy, anchor);
+      const shiftX = snap.x - (anchor.x + dx);
+      const shiftY = snap.y - (anchor.y + dy);
+      for (const [i, s] of starts) {
+        const o = wodEd.objects[i];
+        o.x = Math.round(Math.max(-500, Math.min(2500, s.x + dx + shiftX)));
+        o.y = Math.round(Math.max(-500, Math.min(2500, s.y + dy + shiftY)));
+      }
+      pendingGuides = snap.guides;
+    } else {
+      const o = wodEd.objects[idx];
+      const s = starts.get(idx);
+      o.w = Math.round(Math.max(20, Math.min(2500, s.w + dx)));
+      o.h = Math.round(Math.max(20, Math.min(2500, s.h + dy)));
+    }
+    wodRenderStage();
+    wodRenderProps();
+    if (pendingGuides) { wodGuides(pendingGuides); pendingGuides = null; }
+  });
+
+  const stop = () => {
+    if (mode === 'band') {
+      $('#wod-band')?.remove();
+      if (!moved && !bandShift) {
+        wodSel = new Set();
+        wodSelIdx = -1;
+      } else if (band && (band.w > 3 || band.h > 3)) {
+        wodSel = new Set();
+        const k = wodK();
+        for (const [i, o] of wodEd.objects.entries()) {
+          const r = { x: o.x * k, y: o.y * k, w: o.w * k, h: o.h * k };
+          if (r.x < band.x + band.w && r.x + r.w > band.x && r.y < band.y + band.h && r.y + r.h > band.y) wodSel.add(i);
+        }
+        if (wodSel.size) wodSelIdx = [...wodSel].at(-1);
+      }
+      wodRenderStage();
+      wodRenderProps();
+    }
+    mode = null;
+    starts = null;
+    band = null;
+    wodGuides({ v: null, h: null });
+  };
+  stage.addEventListener('pointerup', stop);
+  stage.addEventListener('pointercancel', stop);
+})();
+
+$('#wod-objects').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip[data-i]');
+  if (!chip) return;
+  const i = Number(chip.dataset.i);
+  if (e.shiftKey) {
+    if (wodSel.has(i)) wodSel.delete(i);
+    else wodSel.add(i);
+  } else wodSel = new Set([i]);
+  wodSelIdx = i;
+  wodRenderStage();
+  wodRenderProps();
+});
+
+$('#wod-props').addEventListener('pointerdown', wodPushThrottled);
+
+function wodCopy(cut = false) {
+  if (!wodSel.size) { toast('Сначала выдели объект(ы)', true); return; }
+  wodClipboard = [...wodSel].map((i) => JSON.parse(JSON.stringify(wodEd.objects[i])));
+  if (cut) {
+    wodPush();
+    wodEd.objects = wodEd.objects.filter((_, i) => !wodSel.has(i));
+    wodSel = new Set();
+    wodSelIdx = -1;
+    wodRenderStage();
+    wodRenderProps();
+    toast(`Вырезано: ${wodClipboard.length}`);
+  } else toast(`Скопировано: ${wodClipboard.length}`);
+}
+function wodPaste() {
+  if (!wodClipboard?.length) { toast('Буфер пуст', true); return; }
+  wodPush();
+  const pasted = [];
+  for (const [n, o] of wodClipboard.entries()) {
+    const c = { ...o, x: o.x + 30, y: o.y + 30 };
+    c.id = `${c.type}-${Date.now()}-${n}`;
+    wodEd.objects.push(c);
+    pasted.push(wodEd.objects.length - 1);
+  }
+  wodSel = new Set(pasted);
+  wodSelIdx = pasted.at(-1);
+  wodRenderStage();
+  wodRenderProps();
+  toast(`Вставлено: ${pasted.length}`);
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!$('#tab-overlay')?.classList.contains('active')) return;
+  if (e.target.closest('input, textarea, select')) return;
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const key = String(e.key || '').toLowerCase();
+  if (key === 'z' && !e.shiftKey) { e.preventDefault(); wodUndo(); }
+  else if (key === 'y' || (key === 'z' && e.shiftKey)) { e.preventDefault(); wodRedo(); }
+  else if (key === 'c') { e.preventDefault(); wodCopy(); }
+  else if (key === 'x') { e.preventDefault(); wodCopy(true); }
+  else if (key === 'v') { e.preventDefault(); wodPaste(); }
+});
+
+$('#wod-widget-add').addEventListener('click', () => $('#wod-image-file').click());
+$('#wod-image-file').addEventListener('change', async () => {
+  const file = $('#wod-image-file')?.files?.[0];
+  if (!file) return;
+  try {
+    const r = await fetch(`/api/media/upload?name=${encodeURIComponent(file.name)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    const zMax = Math.max(0, ...wodEd.objects.map((o) => o.z));
+    wodPush();
+    wodEd.objects.push({ id: `image-${Date.now()}`, type: 'image', x: 1500, y: 200, w: 340, h: 220, opacity: 100, z: zMax + 1, image: file.name, radius: 0, rotate: 0 });
+    wodSelIdx = wodEd.objects.length - 1;
+    wodSel = new Set([wodSelIdx]);
+    $('#wod-image-file').value = '';
+    wodRenderStage();
+    wodRenderProps();
+    toast('Элемент добавлен 🖼');
+  } catch (e) { toast(e.message, true); }
+});
+$('#wod-widget-reset').addEventListener('click', () => {
+  wodPush();
+  wodEd.objects = wodDefault();
+  wodSelIdx = 0;
+  wodSel = new Set([0]);
+  wodRenderStage();
+  wodRenderProps();
+  toast('Дефолтная раскладка (не забудь сохранить)');
+});
 
 $('#wod-save').addEventListener('click', async () => {
   try {
-    await putSettings({
-      wordOfDay: {
-        enabled: $('#wod-enabled').checked,
-        corner: $('#wod-corner').value,
-        rotate: Number($('#wod-rotate').value) || 0,
-        color: $('#wod-color').value,
-        bg: $('#wod-bg').value,
-        opacity: Number($('#wod-opacity').value) || 80,
-        radius: Number($('#wod-radius').value) || 18,
-      },
-    });
-    toast('Виджет «Слово дня» сохранён ✅');
+    await putSettings({ wordOfDay: { enabled: $('#wod-enabled').checked, objects: wodEd.objects } });
+    toast('«Слово дня» сохранено ✅');
+    loadWordOfDayCurrent();
   } catch (e) { toast(e.message, true); }
 });
 
-$('#wod-refresh').addEventListener('click', () => loadWordOfDay().catch(() => {}));
+async function loadWordOfDayCurrent() {
+  try {
+    const { wod } = await api('/api/wordofday');
+    wodCurrent = { word: wod.word || '', count: Number(wod.count) || 0 };
+    $('#wod-current').textContent = wod.word || '— пока пусто —';
+    $('#wod-count').textContent = wod.word ? `· написали ${wod.count} раз` : '';
+    wodRenderStage();
+  } catch {}
+}
+
+async function loadWordOfDay() {
+  const st = await api('/api/settings');
+  wodEd = wodNorm(st.wordOfDay);
+  wodEd.enabled = Boolean(st.wordOfDay?.enabled);
+  $('#wod-enabled').checked = wodEd.enabled;
+  wodSelIdx = 0;
+  wodSel = new Set(wodEd.objects.length ? [0] : []);
+  await loadWordOfDayCurrent();
+  wodRenderStage();
+  wodRenderProps();
+}
+loadWordOfDay().catch(() => {});
+
+$('#wod-refresh').addEventListener('click', () => loadWordOfDayCurrent().catch(() => {}));
 
 $('#wod-reset').addEventListener('click', async () => {
   if (!confirm('Обнулить статистику слов? «Слово дня» выберется заново из новых сообщений.')) return;
   try {
     await api('/api/actions/wordofdayreset', { method: 'POST', body: '{}' });
     toast('Статистика обнулена');
-    loadWordOfDay();
+    loadWordOfDayCurrent();
   } catch (e) { toast(e.message, true); }
 });
 

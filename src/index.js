@@ -573,18 +573,37 @@ const app = {
           });
       }
     }
-    // «Слово дня»: угловой виджет, слово выбирается само — самое частое в чате
+    // «Слово дня»: слово выбирается само (частоты в чате), раскладка — объектами
     if (patch.wordOfDay !== undefined && patch.wordOfDay !== null && typeof patch.wordOfDay === 'object') {
       const a = patch.wordOfDay;
       const cur = settings.wordOfDay ??= {};
       if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
-      if (a.corner !== undefined) cur.corner = ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(a.corner) ? a.corner : 'top-left';
-      if (a.rotate !== undefined) cur.rotate = Math.max(-15, Math.min(15, Math.round(Number(a.rotate) || 0)));
-      if (a.color !== undefined) cur.color = String(a.color).slice(0, 20);
-      if (a.bg !== undefined) cur.bg = String(a.bg).slice(0, 20);
-      if (a.opacity !== undefined) cur.opacity = Math.max(0, Math.min(100, Math.round(Number(a.opacity) || 0)));
-      if (a.radius !== undefined) cur.radius = Math.max(0, Math.min(60, Math.round(Number(a.radius) || 0)));
-      try { overlay.push({ kind: 'wordofday', ...processor.wodState() }); } catch {}
+      if (Array.isArray(a.objects)) {
+        const num = (v, min, max, dflt) => {
+          const n = Number(v);
+          return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : dflt;
+        };
+        cur.objects = a.objects
+          .filter((o) => o && ['caption', 'word', 'count', 'backdrop', 'image'].includes(o.type))
+          .slice(0, 20)
+          .map((o) => ({
+            id: String(o.id || '').slice(0, 40),
+            type: o.type,
+            x: num(o.x, -500, 2500, 0),
+            y: num(o.y, -500, 2500, 0),
+            w: num(o.w, 20, 2500, 300),
+            h: num(o.h, 20, 2500, 120),
+            opacity: num(o.opacity, 0, 100, 100),
+            z: num(o.z, 0, 30, 1),
+            image: String(o.image || '').replace(/[\\/]/g, '').slice(0, 120),
+            color: String(o.color || '').slice(0, 20),
+            text: String(o.text || '').slice(0, 60),
+            radius: num(o.radius, 0, 120, 0),
+            rotate: num(o.rotate, -15, 15, 0),
+            fontSize: num(o.fontSize, 10, 60, 22),
+          }));
+      }
+      try { overlay.push({ kind: 'wordofday', ...processor.wodState(), objects: cur.objects ?? [] }); } catch {}
     }
     // награды канала (редемпции): таблица мэппингов + кулдаун
     if (patch.redemptions && typeof patch.redemptions === 'object') {

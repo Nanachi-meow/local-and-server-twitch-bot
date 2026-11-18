@@ -229,7 +229,7 @@ nav {
 .sg-title-link:hover { color: var(--accent); }
 
 /* редактор раскладки плеера: превью с шахматкой = прозрачность OBS (общее для музыки и шатаута) */
-#plp-stage, #aso-stage {
+#plp-stage, #aso-stage, #wod-stage {
   position: relative; width: 100%; aspect-ratio: 16 / 9;
   border-radius: 12px; overflow: hidden;
   background:
@@ -262,7 +262,7 @@ nav {
 .plp-guide-h.plp-g-obj { border-top-color: #f59e0b; }
 
 /* рамка выделения «как на рабочем столе» */
-#plp-band, #aso-band {
+#plp-band, #aso-band, #wod-band {
   position: absolute; z-index: 98; pointer-events: none;
   border: 1px dashed #3b82f6;
   background: rgba(59, 130, 246, .12);
