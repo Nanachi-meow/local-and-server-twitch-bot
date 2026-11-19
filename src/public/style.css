@@ -271,7 +271,24 @@ input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; marg
   filter: drop-shadow(0 2px 4px rgba(0,0,0,.6));
   cursor: grab; pointer-events: auto;
 }
+.wh-arrow-mock:hover { filter: drop-shadow(0 0 6px #fff); }
 .wh-arrow-mock:active { cursor: grabbing; }
+.wh-angle-badge {
+  position: absolute; transform: translate(-50%, -50%);
+  background: rgba(12,10,25,.92); color: #fff; font-size: 11px; font-weight: 600;
+  padding: 2px 7px; border-radius: 6px; border: 1px solid rgba(255,255,255,.3);
+  pointer-events: none; white-space: nowrap;
+}
+.wh-rot-handle {
+  position: absolute; transform: translate(-50%, -50%);
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent); border: 2px solid #fff; color: #fff;
+  font-size: 12px; line-height: 15px; text-align: center; font-weight: 700;
+  cursor: grab; pointer-events: auto; box-shadow: 0 1px 4px rgba(0,0,0,.5);
+  user-select: none;
+}
+.wh-rot-handle:hover { box-shadow: 0 0 8px var(--accent); }
+.wh-rot-handle:active { cursor: grabbing; }
 .wh-w-cell { white-space: nowrap; }
 .wh-w-cell .wh-pct { opacity: .85; }
 #wod-stage {

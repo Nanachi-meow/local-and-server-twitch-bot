@@ -2260,6 +2260,7 @@ $('#wod-reset').addEventListener('click', async () => {
 let whItems = [];
 let whOverlay = { x: 760, y: 340, size: 400 };
 let whSel = false;
+let whArrowHint = null; // 'angle' — едем по кругу, 'rot' — вращаем стрелку (бейдж с градусами)
 
 const WH_ST_W = 660;
 const WH_ST_H = 270;
@@ -2368,6 +2369,7 @@ function whRenderStage() {
   }
   // стрелка — прижата к ободу снаружи, носиком к центру (та же формула, что на оверлее: r + 10)
   const a = ((Number(whOverlay.arrowAngle) || 0) * Math.PI) / 180;
+  const rotRad = ((Number(whOverlay.arrowRotate) || 0) * Math.PI) / 180;
   const r = W / 2;
   const ax = r + Math.cos(a + Math.PI) * (r + 10);
   const ay = r + Math.sin(a + Math.PI) * (r + 10);
@@ -2375,8 +2377,43 @@ function whRenderStage() {
   arrow.className = 'wh-arrow-mock';
   arrow.style.left = `${Math.round(ax - 14)}px`; // минус половина ширины (14+14=28)
   arrow.style.top = `${Math.round(ay - 11)}px`;  // минус половина высоты (22)
-  arrow.style.transform = `rotate(${a + Math.PI / 2}rad)`; // носиком к центру
+  // пока тянем стрелку — она чуть крупнее (легче держать) и рядом бейдж с углом/поворотом
+  arrow.style.transform = `rotate(${a + Math.PI / 2 + rotRad}rad)${whArrowHint ? ' scale(1.25)' : ''}`;
+  arrow.title = 'тяни — едет по кругу; за ↻ — вращается сама; двойной клик — сброс поворота';
   div.appendChild(arrow);
+  // ручка собственного вращения — на носике стрелки (видна при выделении)
+  if (whSel) {
+    const nx = -Math.cos(a), ny = -Math.sin(a); // носик при повороте 0
+    const cnx = nx * Math.cos(rotRad) - ny * Math.sin(rotRad);
+    const cny = nx * Math.sin(rotRad) + ny * Math.cos(rotRad);
+    const rotHandle = document.createElement('div');
+    rotHandle.className = 'wh-rot-handle';
+    rotHandle.textContent = '↻';
+    rotHandle.title = 'вращение стрелки — тяни по кругу';
+    rotHandle.style.left = `${Math.round(ax + cnx * 34)}px`;
+    rotHandle.style.top = `${Math.round(ay + cny * 34)}px`;
+    div.appendChild(rotHandle);
+  }
+  if (whArrowHint === 'angle') {
+    const bx = r + Math.cos(a + Math.PI) * (r + 36);
+    const by = r + Math.sin(a + Math.PI) * (r + 36);
+    const badge = document.createElement('div');
+    badge.className = 'wh-angle-badge';
+    badge.textContent = `${Math.round(((Number(whOverlay.arrowAngle) || 0) + 360) % 360)}°`;
+    badge.style.left = `${Math.round(bx)}px`;
+    badge.style.top = `${Math.round(by)}px`;
+    div.appendChild(badge);
+  } else if (whArrowHint === 'rot') {
+    const nx = -Math.cos(a), ny = -Math.sin(a);
+    const cnx = nx * Math.cos(rotRad) - ny * Math.sin(rotRad);
+    const cny = nx * Math.sin(rotRad) + ny * Math.cos(rotRad);
+    const badge = document.createElement('div');
+    badge.className = 'wh-angle-badge';
+    badge.textContent = `↻ ${Math.round(Number(whOverlay.arrowRotate) || 0)}°`;
+    badge.style.left = `${Math.round(ax + cnx * 58)}px`;
+    badge.style.top = `${Math.round(ay + cny * 58)}px`;
+    div.appendChild(badge);
+  }
   stage.appendChild(div);
 }
 
@@ -2388,15 +2425,18 @@ function whRenderStage() {
   let start = null;
 
   stage.addEventListener('pointerdown', (e) => {
+    const rotHandle = e.target.closest('.wh-rot-handle');
     const arrow = e.target.closest('.wh-arrow-mock');
     const handle = e.target.closest('.plp-resize');
     const wheel = e.target.closest('.wh-wheel-mock');
-    if (!wheel && !arrow) return;
+    if (!wheel && !arrow && !rotHandle) return;
     stage.setPointerCapture?.(e.pointerId);
     grabX = e.clientX; grabY = e.clientY;
     whSel = true;
     start = { ...whOverlay };
-    mode = arrow ? 'arrow' : (handle ? 'resize' : 'move');
+    mode = rotHandle ? 'arrowself' : (arrow ? 'arrow' : (handle ? 'resize' : 'move'));
+    // бейдж: едим по кругу — угол позиции, вращаем — свой поворот
+    whArrowHint = mode === 'arrow' ? 'angle' : (mode === 'arrowself' ? 'rot' : null);
     whRenderStage();
     e.preventDefault();
   });
@@ -2420,12 +2460,8 @@ function whRenderStage() {
     } else if (mode === 'arrow') {
       // угол = позиция курсора относительно центра колеса
       const rect = stage.getBoundingClientRect();
-      const cx = whOverlay.x * k + rect.left; // не совсем правильно, но приближение
-      const cy = whOverlay.y * k + rect.top;
-      // используем позицию мыши относительно центра колеса в превью
-      const r = whOverlay.size * k / 2;
-      const mx = e.clientX - (rect.left + (whOverlay.x - whOverlay.size / 2) * k + r);
-      const my = e.clientY - (rect.top + (whOverlay.y - whOverlay.size / 2) * k + r);
+      const mx = e.clientX - (rect.left + whOverlay.x * k);
+      const my = e.clientY - (rect.top + whOverlay.y * k);
       // угол мыши = atan2(my, mx), стрелка наружу = угол + 180°
       const mouseAngle = Math.atan2(my, mx);
       // конвертируем в нашу систему: 0=лево, 90=верх, 180=право, 270=низ
@@ -2433,13 +2469,38 @@ function whRenderStage() {
       // наша система: 0=лево, 90=верх → наша = atan2_deg + 180
       const deg = Math.round(((mouseAngle * 180) / Math.PI + 180 + 360) % 360);
       whOverlay.arrowAngle = Math.max(0, Math.min(359, deg));
+    } else if (mode === 'arrowself') {
+      // собственный поворот стрелки: носик смотрит на курсор
+      // центр стрелки в координатах div (как в whRenderStage)
+      const s2 = (whOverlay.size * k) / 2;
+      const aRad = ((Number(whOverlay.arrowAngle) || 0) * Math.PI) / 180;
+      const acx = s2 + Math.cos(aRad + Math.PI) * (s2 + 10);
+      const acy = s2 + Math.sin(aRad + Math.PI) * (s2 + 10);
+      // позиция курсора в координатах div
+      const rect = stage.getBoundingClientRect();
+      const mx = e.clientX - rect.left - (whOverlay.x * k - s2) - acx;
+      const my = e.clientY - rect.top - (whOverlay.y * k - s2) - acy;
+      // носик по умолчанию (поворот 0) смотрит наружу: угол (a + π); поворот = мышь − дефолт
+      const noseDefault = aRad + Math.PI;
+      let d = (Math.atan2(my, mx) - noseDefault) * 180 / Math.PI;
+      d = ((Math.round(d) % 360) + 540) % 360 - 180; // в диапазон −180…180
+      whOverlay.arrowRotate = d;
     }
     whRenderStage();
   });
 
-  const stop = () => { mode = null; };
+  const stop = () => {
+    mode = null;
+    if (whArrowHint) { whArrowHint = null; whRenderStage(); } // убрали бейдж
+  };
   stage.addEventListener('pointerup', stop);
   stage.addEventListener('pointercancel', stop);
+  // двойной клик по стрелке — сброс собственного поворота (носиком по умолчанию)
+  stage.addEventListener('dblclick', (e) => {
+    if (!e.target.closest('.wh-arrow-mock')) return;
+    whOverlay.arrowRotate = 0;
+    whRenderStage();
+  });
 })();
 
 $('#wh-add').addEventListener('click', () => {

@@ -500,7 +500,7 @@
   const whCtx = whCanvas.getContext('2d');
   const whWinner = whWidget.querySelector('.wh-winner');
   const whArrow = whWidget.querySelector('.wh-arrow');
-  let whCfg = { x: 760, y: 340, size: 400, arrowAngle: 180, duration: 8, spinSound: '', winnerTemplate: '🏆 {user} → {label}' };
+  let whCfg = { x: 760, y: 340, size: 400, arrowAngle: 180, arrowRotate: 0, duration: 8, spinSound: '', winnerTemplate: '🏆 {user} → {label}' };
   let whSpinning = false;
   let whRAF = 0;
 
@@ -526,7 +526,9 @@
     const ay = r + Math.sin(a + Math.PI) * (r + 10);
     whArrow.style.left = `${Math.round(ax - 16)}px`; // минус половина ширины (border 16+16=32)
     whArrow.style.top = `${Math.round(ay - 13)}px`;  // минус половина высоты (border 26)
-    whArrow.style.transform = `rotate(${a + Math.PI / 2}rad)`; // носиком к центру
+    // собственный поворот стрелки (arrowRotate, °) — настраивается в редакторе панели
+    const rot = ((Number(whCfg.arrowRotate) || 0) * Math.PI) / 180;
+    whArrow.style.transform = `rotate(${a + Math.PI / 2 + rot}rad)`; // носиком к центру
     whArrow.style.position = 'absolute';
   }
 

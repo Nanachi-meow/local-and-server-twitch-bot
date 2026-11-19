@@ -680,7 +680,7 @@ const app = {
         cur.items = a.items
           .map((x) => ({
             label: String(x?.label || '').trim().slice(0, 60),
-            weight: Math.max(0, Math.min(1000, Math.round(Number(x?.weight) || 0))),
+            weight: Math.max(0, Math.min(100000, Math.round(Number(x?.weight) || 0))),
             color: String(x?.color || '').slice(0, 20),
           }))
           .filter((x) => x.label && x.weight > 0)
@@ -693,6 +693,7 @@ const app = {
         if (o.y !== undefined) curO.y = Math.max(0, Math.min(1080, Math.round(Number(o.y) || 340)));
         if (o.size !== undefined) curO.size = Math.max(100, Math.min(800, Math.round(Number(o.size) || 400)));
         if (o.arrowAngle !== undefined) curO.arrowAngle = Math.max(0, Math.min(359, Math.round(Number(o.arrowAngle) % 360)));
+        if (o.arrowRotate !== undefined) curO.arrowRotate = Math.max(-180, Math.min(180, Math.round(Number(o.arrowRotate) || 0)));
         if (o.duration !== undefined) curO.duration = Math.max(3, Math.min(30, Math.round(Number(o.duration) || 8)));
         if (o.spinSound !== undefined) curO.spinSound = String(o.spinSound).replace(/[\\/]/g, '').slice(0, 120);
         if (o.winnerTemplate !== undefined) curO.winnerTemplate = String(o.winnerTemplate).slice(0, 200);
