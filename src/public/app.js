@@ -2282,15 +2282,42 @@ async function loadWheel() {
   whRenderStage();
 }
 
+function whTotal() {
+  return whItems.reduce((s, x) => s + Math.max(1, Number(x.weight) || 1), 0);
+}
+
+function whPct(weight, total) {
+  const t = total ?? whTotal();
+  return t > 0 ? (Math.max(1, Number(weight) || 1) / t) * 100 : 0;
+}
+
+/** Обновить поле «шанс, %» в каждой строке (кроме поля, в котором сейчас печатаем). */
+function whRefreshPcts(except) {
+  document.querySelectorAll('#wh-body tr[data-i]').forEach((row) => {
+    const it = whItems[Number(row.dataset.i)];
+    const el = row.querySelector('.wh-pct');
+    if (!it || !el || el === except) return;
+    el.value = whPct(it.weight).toFixed(2);
+  });
+}
+
 function renderWheelItems() {
   const palette = ['#8b5cf6', '#22c55e', '#eab308', '#38bdf8', '#f97316', '#ec4899', '#14b8a6', '#a855f7'];
-  $('#wh-body').innerHTML = whItems.map((it, i) => `
+  const total = whTotal();
+  $('#wh-body').innerHTML = whItems.map((it, i) => {
+    const w = Math.max(1, Number(it.weight) || 1);
+    const pct = total > 0 ? (w / total) * 100 : 0;
+    return `
     <tr data-i="${i}">
       <td class="cellresp"><input class="wh-label" value="${esc(it.label || '')}" maxlength="60" /></td>
-      <td class="cellcd"><input class="wh-weight" type="range" min="1" max="100" value="${it.weight ?? 10}" style="width:80px" /><span class="hint">${it.weight ?? 10}</span></td>
+      <td class="cellcd wh-w-cell">
+        <input class="wh-weight" type="number" min="1" step="1" value="${w}" style="width:62px" title="вес: печатай число, крути колёсиком мыши (Shift = ×10) или стрелками ↑↓" />
+        <input class="wh-pct" type="number" min="0" max="100" step="0.01" value="${pct.toFixed(2)}" style="width:62px" title="шанс выпадения, %: печатай вручную — вес пересчитается сам" />%
+      </td>
       <td class="cellcd"><input class="wh-color" type="color" value="${esc(it.color || palette[i % palette.length])}" /></td>
       <td><button class="act ghost wh-del" title="удалить">🗑</button></td>
-    </tr>`).join('') || '<tr><td colspan="4" class="hint">Вариантов нет — добавь первый</td></tr>';
+    </tr>`;
+  }).join('') || '<tr><td colspan="4" class="hint">Вариантов нет — добавь первый</td></tr>';
 }
 
 async function renderWheelSoundSelect(selected) {
@@ -2303,6 +2330,23 @@ async function renderWheelSoundSelect(selected) {
 }
 
 // ---------- редактор раскладки: колесо в превью, drag/resize ----------
+/** Цвет секторов превью — как на оверлее (conic-gradient по весам вариантов). */
+function whMockGradient() {
+  const palette = ['#8b5cf6', '#22c55e', '#eab308', '#38bdf8', '#f97316', '#ec4899', '#14b8a6', '#a855f7'];
+  const items = whItems.filter((x) => x.label);
+  if (!items.length) return '';
+  const total = items.reduce((s, x) => s + Math.max(1, Number(x.weight) || 1), 0);
+  let acc = 0;
+  const stops = items.map((x, i) => {
+    const from = (acc / total) * 360;
+    acc += Math.max(1, Number(x.weight) || 1);
+    const to = (acc / total) * 360;
+    const col = x.color || palette[i % palette.length];
+    return `${col} ${from.toFixed(2)}deg ${to.toFixed(2)}deg`;
+  });
+  return `conic-gradient(${stops.join(', ')})`;
+}
+
 function whRenderStage() {
   const stage = $('#wh-stage');
   if (!stage) return;
@@ -2316,21 +2360,22 @@ function whRenderStage() {
   div.style.top = `${whOverlay.y * k - W / 2}px`;
   div.style.width = `${W}px`;
   div.style.height = `${W}px`;
+  div.style.background = whMockGradient() || 'linear-gradient(0deg, #8b5cf6, #8b5cf6)';
   if (whSel) {
     const h = document.createElement('div');
     h.className = 'plp-resize';
     div.appendChild(h);
   }
-  // стрелка — на угле вокруг колеса
+  // стрелка — прижата к ободу снаружи, носиком к центру (та же формула, что на оверлее: r + 10)
   const a = ((Number(whOverlay.arrowAngle) || 0) * Math.PI) / 180;
   const r = W / 2;
-  const ax = whOverlay.x * k + Math.cos(a + Math.PI) * (r * k + 14);
-  const ay = whOverlay.y * k + Math.sin(a + Math.PI) * (r * k + 14);
+  const ax = r + Math.cos(a + Math.PI) * (r + 10);
+  const ay = r + Math.sin(a + Math.PI) * (r + 10);
   const arrow = document.createElement('div');
   arrow.className = 'wh-arrow-mock';
-  arrow.style.left = `${Math.round(ax - 7)}px`;
-  arrow.style.top = `${Math.round(ay - 11)}px`;
-  arrow.style.transform = `rotate(${a + Math.PI / 2}rad)`;
+  arrow.style.left = `${Math.round(ax - 14)}px`; // минус половина ширины (14+14=28)
+  arrow.style.top = `${Math.round(ay - 11)}px`;  // минус половина высоты (22)
+  arrow.style.transform = `rotate(${a + Math.PI / 2}rad)`; // носиком к центру
   div.appendChild(arrow);
   stage.appendChild(div);
 }
@@ -2420,12 +2465,52 @@ $('#wh-body').addEventListener('input', (e) => {
   const it = whItems[Number(row.dataset.i)];
   if (e.target.classList.contains('wh-label')) it.label = e.target.value;
   if (e.target.classList.contains('wh-weight')) {
-    it.weight = Number(e.target.value) || 1;
-    const sp = e.target.nextElementSibling;
-    if (sp) sp.textContent = String(it.weight);
+    const n = Math.round(Number(e.target.value));
+    it.weight = Number.isFinite(n) && n > 0 ? n : 1;
+    whRefreshPcts(e.target); // шансы остальных вязаных строк обновились
   }
   if (e.target.classList.contains('wh-color')) it.color = e.target.value;
 });
+
+// вес набран/вышел из поля — прибираем значение в поле (min 1)
+$('#wh-body').addEventListener('change', (e) => {
+  const row = e.target.closest('tr[data-i]');
+  if (!row) return;
+  const it = whItems[Number(row.dataset.i)];
+  if (!it) return;
+  if (e.target.classList.contains('wh-weight')) {
+    it.weight = Math.max(1, Math.round(Number(e.target.value)) || 1);
+    e.target.value = String(it.weight);
+    whRefreshPcts();
+  }
+  // шанс, % напечатан вручную → пересчёт веса: pct = w/(others+w) → w = pct·others/(100−pct)
+  if (e.target.classList.contains('wh-pct')) {
+    const pct = Number(e.target.value);
+    const others = whTotal() - Math.max(1, Number(it.weight) || 1);
+    if (!Number.isFinite(pct) || pct <= 0 || pct >= 100 || !Number.isFinite(others) || others <= 0) {
+      whRefreshPcts(); // мимо — откатили поле
+      return;
+    }
+    it.weight = Math.max(1, Math.round((pct / (100 - pct)) * others));
+    row.querySelector('.wh-weight').value = String(it.weight);
+    whRefreshPcts(e.target);
+    const back = whPct(it.weight);
+    e.target.value = back.toFixed(2); // фактический шанс после округления веса
+  }
+});
+
+// колёсико мыши над весом: ±1 (Shift = ±10)
+$('#wh-body').addEventListener('wheel', (e) => {
+  const el = e.target.closest('.wh-weight');
+  const row = el?.closest('tr[data-i]');
+  if (!row) return; // крутим мимо поля веса — пусть страница скроллится как обычно
+  e.preventDefault();
+  const it = whItems[Number(row.dataset.i)];
+  const step = (e.shiftKey ? 10 : 1) * (e.deltaY < 0 ? 1 : -1);
+  it.weight = Math.max(1, (Math.max(1, Number(it.weight) || 1)) + step);
+  el.value = String(it.weight);
+  whRefreshPcts();
+}, { passive: false });
 
 $('#wh-save').addEventListener('click', async () => {
   try {

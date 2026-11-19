@@ -272,6 +272,8 @@ input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; marg
   cursor: grab; pointer-events: auto;
 }
 .wh-arrow-mock:active { cursor: grabbing; }
+.wh-w-cell { white-space: nowrap; }
+.wh-w-cell .wh-pct { opacity: .85; }
 #wod-stage {
   position: relative; width: 660px; max-width: 100%; height: 270px;
   border-radius: 12px; overflow: hidden;
