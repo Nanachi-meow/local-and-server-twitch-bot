@@ -289,6 +289,10 @@ input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; marg
 }
 .wh-rot-handle:hover { box-shadow: 0 0 8px var(--accent); }
 .wh-rot-handle:active { cursor: grabbing; }
+.wh-text-mock {
+  position: absolute; text-align: center; color: #fff; font-weight: 700;
+  white-space: nowrap; text-shadow: 0 2px 8px rgba(0, 0, 0, .85); pointer-events: none;
+}
 .wh-w-cell { white-space: nowrap; }
 .wh-w-cell .wh-pct { opacity: .85; }
 #wod-stage {

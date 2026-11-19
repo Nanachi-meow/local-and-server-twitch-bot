@@ -2261,6 +2261,8 @@ let whItems = [];
 let whOverlay = { x: 760, y: 340, size: 400 };
 let whSel = false;
 let whArrowHint = null; // 'angle' — едем по кругу, 'rot' — вращаем стрелку (бейдж с градусами)
+let whGuideV = false; // прилипли к вертикальной оси сцены — рисуем пунктир
+let whGuideH = false;
 
 const WH_ST_W = 660;
 const WH_ST_H = 270;
@@ -2415,6 +2417,41 @@ function whRenderStage() {
     div.appendChild(badge);
   }
   stage.appendChild(div);
+  // текст победителя: на оверлее висит под колесом (flex-колонка, зазор 8) — покажем и здесь
+  const tpl = whOverlay.winnerTemplate || '🏆 {user} → {label}';
+  const fs = Math.max(16, whOverlay.size * 0.065) * k; // как на оверлее: max(16, size·0.065)
+  const text = document.createElement('div');
+  text.className = 'wh-text-mock';
+  text.textContent = tpl.replaceAll('{user}', 'юзер').replaceAll('{label}', 'вариант');
+  text.style.left = `${Math.round(whOverlay.x * k - W / 2)}px`;
+  text.style.top = `${Math.round(whOverlay.y * k + W / 2 + 8 * k)}px`;
+  text.style.width = `${Math.round(W)}px`;
+  text.style.fontSize = `${Math.round(fs)}px`;
+  text.title = 'текст победителя (шаблон — в настройках оверлея)';
+  stage.appendChild(text);
+}
+
+/** Пунктирные оси-магниты: синие — оси сцены (960/540). Рисуются только когда прилипли. */
+function whShowGuides() {
+  $('#wh-guide-v')?.remove();
+  $('#wh-guide-h')?.remove();
+  if (!whGuideV && !whGuideH) return;
+  const stage = $('#wh-stage');
+  const k = whK();
+  if (whGuideV) {
+    const g = document.createElement('div');
+    g.id = 'wh-guide-v';
+    g.className = 'plp-guide plp-guide-v plp-g-scene';
+    g.style.left = `${960 * k}px`;
+    stage.appendChild(g);
+  }
+  if (whGuideH) {
+    const g = document.createElement('div');
+    g.id = 'wh-guide-h';
+    g.className = 'plp-guide plp-guide-h plp-g-scene';
+    g.style.top = `${540 * k}px`;
+    stage.appendChild(g);
+  }
 }
 
 (() => {
@@ -2446,13 +2483,27 @@ function whRenderStage() {
     const k = whK();
     const dx = (e.clientX - grabX) / k;
     const dy = (e.clientY - grabY) / k;
+    whGuideV = false;
+    whGuideH = false;
     if (mode === 'move') {
       let nx = start.x + dx;
       let ny = start.y + dy;
-      // магнит к центру сцены (960, 540)
-      const snapR = 14;
-      if (Math.abs(nx - 960) <= snapR) nx = 960;
-      if (Math.abs(ny - 540) <= snapR) ny = 540;
+      // магнит: центр и края колеса липнут к осям сцены (960/540) — как в других редакторах
+      const half = whOverlay.size / 2;
+      let gv = null;
+      let gh = null;
+      for (const anch of [nx - half, nx, nx + half]) {
+        const d = 960 - anch;
+        if (Math.abs(d) <= 14 && (gv === null || Math.abs(d) < Math.abs(gv))) gv = d;
+      }
+      for (const anch of [ny - half, ny, ny + half]) {
+        const d = 540 - anch;
+        if (Math.abs(d) <= 14 && (gh === null || Math.abs(d) < Math.abs(gh))) gh = d;
+      }
+      if (gv !== null) nx += gv;
+      if (gh !== null) ny += gh;
+      whGuideV = gv !== null;
+      whGuideH = gh !== null;
       whOverlay.x = Math.round(Math.max(0, Math.min(1920, nx)));
       whOverlay.y = Math.round(Math.max(0, Math.min(1080, ny)));
     } else if (mode === 'resize') {
@@ -2487,10 +2538,15 @@ function whRenderStage() {
       whOverlay.arrowRotate = d;
     }
     whRenderStage();
+    whShowGuides(); // оси рисуем ПОСЛЕ перерисовки — иначе innerHTML их сотрёт
   });
 
   const stop = () => {
     mode = null;
+    whGuideV = false;
+    whGuideH = false;
+    $('#wh-guide-v')?.remove();
+    $('#wh-guide-h')?.remove();
     if (whArrowHint) { whArrowHint = null; whRenderStage(); } // убрали бейдж
   };
   stage.addEventListener('pointerup', stop);
@@ -2513,6 +2569,12 @@ $('#wh-add').addEventListener('click', () => {
   renderWheelItems();
 });
 $('#wh-add-label').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#wh-add').click(); });
+
+// шаблон победителя печатаем — превью текста под колесом обновляется сразу
+$('#wh-template').addEventListener('input', () => {
+  whOverlay.winnerTemplate = $('#wh-template').value;
+  whRenderStage();
+});
 
 $('#wh-body').addEventListener('click', (e) => {
   if (!e.target.classList.contains('wh-del')) return;
