@@ -694,6 +694,9 @@ const app = {
         if (o.size !== undefined) curO.size = Math.max(100, Math.min(800, Math.round(Number(o.size) || 400)));
         if (o.arrowAngle !== undefined) curO.arrowAngle = Math.max(0, Math.min(359, Math.round(Number(o.arrowAngle) % 360)));
         if (o.arrowRotate !== undefined) curO.arrowRotate = Math.max(-180, Math.min(180, Math.round(Number(o.arrowRotate) || 0)));
+        // позиция текста победителя (смещение от центра колеса, px сцены; null = под колесом)
+        if (o.textDX !== undefined) curO.textDX = o.textDX === null ? null : Math.max(-2000, Math.min(2000, Math.round(Number(o.textDX) || 0)));
+        if (o.textDY !== undefined) curO.textDY = o.textDY === null ? null : Math.max(-2000, Math.min(2000, Math.round(Number(o.textDY) || 0)));
         if (o.duration !== undefined) curO.duration = Math.max(3, Math.min(30, Math.round(Number(o.duration) || 8)));
         if (o.spinSound !== undefined) curO.spinSound = String(o.spinSound).replace(/[\\/]/g, '').slice(0, 120);
         if (o.winnerTemplate !== undefined) curO.winnerTemplate = String(o.winnerTemplate).slice(0, 200);

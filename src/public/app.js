@@ -2261,8 +2261,8 @@ let whItems = [];
 let whOverlay = { x: 760, y: 340, size: 400 };
 let whSel = false;
 let whArrowHint = null; // 'angle' — едем по кругу, 'rot' — вращаем стрелку (бейдж с градусами)
-let whGuideV = false; // прилипли к вертикальной оси сцены — рисуем пунктир
-let whGuideH = false;
+let whGuideV = null; // прилипли по X: { pos, kind: 'scene'|'obj' } — рисуем пунктир
+let whGuideH = null;
 
 const WH_ST_W = 660;
 const WH_ST_H = 270;
@@ -2417,21 +2417,30 @@ function whRenderStage() {
     div.appendChild(badge);
   }
   stage.appendChild(div);
-  // текст победителя: на оверлее висит под колесом (flex-колонка, зазор 8) — покажем и здесь
+  // текст победителя: draggable-объект — своя позиция (смещение от центра колеса);
+  // по умолчанию (нет textDX/DY) висит под колесом, как на оверлее
   const tpl = whOverlay.winnerTemplate || '🏆 {user} → {label}';
   const fs = Math.max(16, whOverlay.size * 0.065) * k; // как на оверлее: max(16, size·0.065)
   const text = document.createElement('div');
   text.className = 'wh-text-mock';
   text.textContent = tpl.replaceAll('{user}', 'юзер').replaceAll('{label}', 'вариант');
-  text.style.left = `${Math.round(whOverlay.x * k - W / 2)}px`;
-  text.style.top = `${Math.round(whOverlay.y * k + W / 2 + 8 * k)}px`;
-  text.style.width = `${Math.round(W)}px`;
+  text.style.left = `${Math.round(whOverlay.x * k + whTextDX() * k)}px`;
+  text.style.top = `${Math.round(whOverlay.y * k + whTextDY() * k)}px`;
   text.style.fontSize = `${Math.round(fs)}px`;
-  text.title = 'текст победителя (шаблон — в настройках оверлея)';
+  text.style.transform = 'translate(-50%, -50%)';
+  text.title = 'текст победителя — тяни куда угодно; двойной клик — вернуть под колесо';
   stage.appendChild(text);
 }
 
-/** Пунктирные оси-магниты: синие — оси сцены (960/540). Рисуются только когда прилипли. */
+/** Дефолтная позиция текста: под колесом (как на оверлее: зазор 8 + пол-строки). */
+function whTextDefDY() {
+  return whOverlay.size / 2 + 8 + Math.max(16, whOverlay.size * 0.065) * 0.6;
+}
+function whTextDX() { return whOverlay.textDX == null ? 0 : (Number(whOverlay.textDX) || 0); }
+function whTextDY() { return whOverlay.textDY == null ? whTextDefDY() : (Number(whOverlay.textDY) || 0); }
+
+/** Пунктирные оси-магниты: синие — оси сцены (960/540), оранжевые — центр/краи другого объекта.
+ *  Рисуются только в момент прилипания. */
 function whShowGuides() {
   $('#wh-guide-v')?.remove();
   $('#wh-guide-h')?.remove();
@@ -2441,17 +2450,40 @@ function whShowGuides() {
   if (whGuideV) {
     const g = document.createElement('div');
     g.id = 'wh-guide-v';
-    g.className = 'plp-guide plp-guide-v plp-g-scene';
-    g.style.left = `${960 * k}px`;
+    g.className = `plp-guide plp-guide-v ${whGuideV.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
+    g.style.left = `${whGuideV.pos * k}px`;
     stage.appendChild(g);
   }
   if (whGuideH) {
     const g = document.createElement('div');
     g.id = 'wh-guide-h';
-    g.className = 'plp-guide plp-guide-h plp-g-scene';
-    g.style.top = `${540 * k}px`;
+    g.className = `plp-guide plp-guide-h ${whGuideH.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
+    g.style.top = `${whGuideH.pos * k}px`;
     stage.appendChild(g);
   }
+}
+
+/** Размер текста-мока в px сцены (для магнитов край-к-краю). */
+function whTextSize() {
+  const el = $('#wh-stage')?.querySelector('.wh-text-mock');
+  if (!el) return { w: 0, h: 0 };
+  const r = el.getBoundingClientRect();
+  const k = whK();
+  return { w: r.width / k, h: r.height / k };
+}
+
+/** Магнит: якоря (центр/краи) липнут к лучшей цели. Возвращает {shift, target}|null. */
+function whSnapAxis(anchors, targets) {
+  let best = null;
+  for (const a of anchors) {
+    for (const t of targets) {
+      const d = t.pos - a;
+      if (Math.abs(d) <= 14 && (best === null || Math.abs(d) < Math.abs(best.shift))) {
+        best = { shift: d, target: t };
+      }
+    }
+  }
+  return best;
 }
 
 (() => {
@@ -2462,16 +2494,17 @@ function whShowGuides() {
   let start = null;
 
   stage.addEventListener('pointerdown', (e) => {
+    const text = e.target.closest('.wh-text-mock');
     const rotHandle = e.target.closest('.wh-rot-handle');
     const arrow = e.target.closest('.wh-arrow-mock');
     const handle = e.target.closest('.plp-resize');
     const wheel = e.target.closest('.wh-wheel-mock');
-    if (!wheel && !arrow && !rotHandle) return;
+    if (!wheel && !arrow && !rotHandle && !text) return;
     stage.setPointerCapture?.(e.pointerId);
     grabX = e.clientX; grabY = e.clientY;
     whSel = true;
-    start = { ...whOverlay };
-    mode = rotHandle ? 'arrowself' : (arrow ? 'arrow' : (handle ? 'resize' : 'move'));
+    start = { ...whOverlay, textDX: whTextDX(), textDY: whTextDY() };
+    mode = text ? 'text' : (rotHandle ? 'arrowself' : (arrow ? 'arrow' : (handle ? 'resize' : 'move')));
     // бейдж: едим по кругу — угол позиции, вращаем — свой поворот
     whArrowHint = mode === 'arrow' ? 'angle' : (mode === 'arrowself' ? 'rot' : null);
     whRenderStage();
@@ -2483,29 +2516,60 @@ function whShowGuides() {
     const k = whK();
     const dx = (e.clientX - grabX) / k;
     const dy = (e.clientY - grabY) / k;
-    whGuideV = false;
-    whGuideH = false;
+    whGuideV = null;
+    whGuideH = null;
     if (mode === 'move') {
       let nx = start.x + dx;
       let ny = start.y + dy;
-      // магнит: центр и края колеса липнут к осям сцены (960/540) — как в других редакторах
+      // магнит: центр И края колеса липнут к осям сцены и к центру/краям текста
       const half = whOverlay.size / 2;
-      let gv = null;
-      let gh = null;
-      for (const anch of [nx - half, nx, nx + half]) {
-        const d = 960 - anch;
-        if (Math.abs(d) <= 14 && (gv === null || Math.abs(d) < Math.abs(gv))) gv = d;
-      }
-      for (const anch of [ny - half, ny, ny + half]) {
-        const d = 540 - anch;
-        if (Math.abs(d) <= 14 && (gh === null || Math.abs(d) < Math.abs(gh))) gh = d;
-      }
-      if (gv !== null) nx += gv;
-      if (gh !== null) ny += gh;
-      whGuideV = gv !== null;
-      whGuideH = gh !== null;
+      const tw = whTextSize();
+      const tcx = whOverlay.x + whTextDX();
+      const tcy = whOverlay.y + whTextDY();
+      const gx = whSnapAxis(
+        [nx - half, nx, nx + half],
+        [
+          { pos: 960, kind: 'scene' },
+          { pos: tcx, kind: 'obj' }, { pos: tcx - tw.w / 2, kind: 'obj' }, { pos: tcx + tw.w / 2, kind: 'obj' },
+        ],
+      );
+      const gy = whSnapAxis(
+        [ny - half, ny, ny + half],
+        [
+          { pos: 540, kind: 'scene' },
+          { pos: tcy, kind: 'obj' }, { pos: tcy - tw.h / 2, kind: 'obj' }, { pos: tcy + tw.h / 2, kind: 'obj' },
+        ],
+      );
+      if (gx) { nx += gx.shift; whGuideV = gx.target; }
+      if (gy) { ny += gy.shift; whGuideH = gy.target; }
       whOverlay.x = Math.round(Math.max(0, Math.min(1920, nx)));
       whOverlay.y = Math.round(Math.max(0, Math.min(1080, ny)));
+    } else if (mode === 'text') {
+      // текст: своя позиция (смещение от центра колеса), магниты — и центром, и краями
+      let tdx = start.textDX + dx;
+      let tdy = start.textDY + dy;
+      const half = whOverlay.size / 2;
+      const tw = whTextSize();
+      const anchorsX = [whOverlay.x + tdx - tw.w / 2, whOverlay.x + tdx, whOverlay.x + tdx + tw.w / 2];
+      const anchorsY = [whOverlay.y + tdy - tw.h / 2, whOverlay.y + tdy, whOverlay.y + tdy + tw.h / 2];
+      const gx = whSnapAxis(
+        anchorsX,
+        [
+          { pos: 960, kind: 'scene' },
+          { pos: whOverlay.x, kind: 'obj' }, { pos: whOverlay.x - half, kind: 'obj' }, { pos: whOverlay.x + half, kind: 'obj' },
+        ],
+      );
+      const gy = whSnapAxis(
+        anchorsY,
+        [
+          { pos: 540, kind: 'scene' },
+          { pos: whOverlay.y, kind: 'obj' }, { pos: whOverlay.y - half, kind: 'obj' }, { pos: whOverlay.y + half, kind: 'obj' },
+        ],
+      );
+      if (gx) { tdx += gx.shift; whGuideV = gx.target; }
+      if (gy) { tdy += gy.shift; whGuideH = gy.target; }
+      whOverlay.textDX = Math.round(tdx);
+      whOverlay.textDY = Math.round(tdy);
     } else if (mode === 'resize') {
       whOverlay.size = Math.round(Math.max(100, Math.min(800, start.size + dx * 2)));
     } else if (mode === 'arrow') {
@@ -2543,19 +2607,18 @@ function whShowGuides() {
 
   const stop = () => {
     mode = null;
-    whGuideV = false;
-    whGuideH = false;
+    whGuideV = null;
+    whGuideH = null;
     $('#wh-guide-v')?.remove();
     $('#wh-guide-h')?.remove();
     if (whArrowHint) { whArrowHint = null; whRenderStage(); } // убрали бейдж
   };
   stage.addEventListener('pointerup', stop);
   stage.addEventListener('pointercancel', stop);
-  // двойной клик по стрелке — сброс собственного поворота (носиком по умолчанию)
+  // двойной клик: по стрелке — сброс поворота, по тексту — вернуть под колесо
   stage.addEventListener('dblclick', (e) => {
-    if (!e.target.closest('.wh-arrow-mock')) return;
-    whOverlay.arrowRotate = 0;
-    whRenderStage();
+    if (e.target.closest('.wh-arrow-mock')) { whOverlay.arrowRotate = 0; whRenderStage(); return; }
+    if (e.target.closest('.wh-text-mock')) { whOverlay.textDX = null; whOverlay.textDY = null; whRenderStage(); }
   });
 })();
 

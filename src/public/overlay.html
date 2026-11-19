@@ -500,7 +500,7 @@
   const whCtx = whCanvas.getContext('2d');
   const whWinner = whWidget.querySelector('.wh-winner');
   const whArrow = whWidget.querySelector('.wh-arrow');
-  let whCfg = { x: 760, y: 340, size: 400, arrowAngle: 180, arrowRotate: 0, duration: 8, spinSound: '', winnerTemplate: '🏆 {user} → {label}' };
+  let whCfg = { x: 760, y: 340, size: 400, arrowAngle: 180, arrowRotate: 0, textDX: null, textDY: null, duration: 8, spinSound: '', winnerTemplate: '🏆 {user} → {label}' };
   let whSpinning = false;
   let whRAF = 0;
 
@@ -519,6 +519,15 @@
     whCanvas.width = W;
     whCanvas.height = W;
     whWinner.style.fontSize = `${Math.max(16, whCfg.size * 0.065) * k}px`;
+    // текст победителя: своя позиция (textDX/DY — смещение от центра колеса; null = под колесом)
+    const tdx = whCfg.textDX == null ? 0 : (Number(whCfg.textDX) || 0);
+    const tdy = whCfg.textDY == null
+      ? (whCfg.size / 2 + 8 + Math.max(16, whCfg.size * 0.065) * 0.6)
+      : (Number(whCfg.textDY) || 0);
+    whWinner.style.position = 'absolute';
+    whWinner.style.left = `${Math.round(W / 2 + tdx * k)}px`;
+    whWinner.style.top = `${Math.round(W / 2 + tdy * k)}px`;
+    whWinner.style.transform = 'translate(-50%, -50%)';
     // стрелка позиционируется по углу вокруг колеса (0=лево, 90=верх, 180=право, 270=низ)
     const a = ((Number(whCfg.arrowAngle) || 0) * Math.PI) / 180;
     const r = W / 2;
