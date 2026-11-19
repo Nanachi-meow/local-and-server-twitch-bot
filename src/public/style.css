@@ -336,7 +336,7 @@ input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; marg
 .plp-guide-h.plp-g-obj { border-top-color: #f59e0b; }
 
 /* рамка выделения «как на рабочем столе» */
-#plp-band, #aso-band, #wod-band {
+#plp-band, #aso-band, #wod-band, #wh-band {
   position: absolute; z-index: 98; pointer-events: none;
   border: 1px dashed #3b82f6;
   background: rgba(59, 130, 246, .12);
@@ -344,6 +344,10 @@ input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; marg
 @keyframes plp-run { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 #plp-objects .chip { cursor: pointer; }
 #plp-objects .chip.sel { border-color: var(--accent); color: var(--text); font-weight: 600; }
+#wh-objects .chip { cursor: pointer; }
+#wh-objects .chip.sel { border-color: var(--accent); color: var(--text); font-weight: 600; }
+#wh-objects { margin-bottom: 8px; }
+.wh-obj-image { background-size: 100% 100%; background-position: center; }
 
 /* выключенная встроенная команда — приглушена */
 tr.off td { opacity: .45; }

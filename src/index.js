@@ -697,6 +697,27 @@ const app = {
         // позиция текста победителя (смещение от центра колеса, px сцены; null = под колесом)
         if (o.textDX !== undefined) curO.textDX = o.textDX === null ? null : Math.max(-2000, Math.min(2000, Math.round(Number(o.textDX) || 0)));
         if (o.textDY !== undefined) curO.textDY = o.textDY === null ? null : Math.max(-2000, Math.min(2000, Math.round(Number(o.textDY) || 0)));
+        // картинки-декор рулетки (как у плеера музыки): слой ≥6 — над колесом, ≤4 — под
+        if (Array.isArray(o.images)) {
+          const num = (v, mn, mx, d) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? Math.max(mn, Math.min(mx, Math.round(n))) : d;
+          };
+          curO.images = o.images
+            .filter((t) => t && t.type === 'image')
+            .slice(0, 20)
+            .map((t, i) => ({
+              id: String(t.id || `image-${i}`).slice(0, 40),
+              type: 'image',
+              x: num(t.x, -500, 2500, 660), y: num(t.y, -500, 2500, 120),
+              w: num(t.w, 20, 2500, 400), h: num(t.h, 20, 2500, 267),
+              opacity: num(t.opacity, 0, 100, 100), z: num(t.z, 0, 30, 7),
+              image: String(t.image || '').replace(/[\\/]/g, '').slice(0, 120),
+              radius: num(t.radius, 0, 120, 0),
+              borderColor: String(t.borderColor || '').slice(0, 20),
+              borderWidth: num(t.borderWidth, 0, 12, 0),
+            }));
+        }
         if (o.duration !== undefined) curO.duration = Math.max(3, Math.min(30, Math.round(Number(o.duration) || 8)));
         if (o.spinSound !== undefined) curO.spinSound = String(o.spinSound).replace(/[\\/]/g, '').slice(0, 120);
         if (o.winnerTemplate !== undefined) curO.winnerTemplate = String(o.winnerTemplate).slice(0, 200);

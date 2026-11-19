@@ -528,6 +528,29 @@
     whWinner.style.left = `${Math.round(W / 2 + tdx * k)}px`;
     whWinner.style.top = `${Math.round(W / 2 + tdy * k)}px`;
     whWinner.style.transform = 'translate(-50%, -50%)';
+    // картинки-декор: как в редакторе — слой ≥6 над колесом (виджет z=45), ≤4 под ним
+    whDecorRender();
+  }
+
+  let whDecorEl = null;
+  function whDecorRender() {
+    if (!whDecorEl) {
+      whDecorEl = document.createElement('div');
+      whDecorEl.style.cssText = 'position:fixed;inset:0;pointer-events:none;';
+      document.body.appendChild(whDecorEl);
+    }
+    const k = (window.innerWidth || 1920) / 1920;
+    whDecorEl.innerHTML = '';
+    for (const im of (Array.isArray(whCfg.images) ? whCfg.images : [])) {
+      if (!im || im.type !== 'image' || !im.image) continue;
+      const d = document.createElement('div');
+      d.style.cssText = `position:absolute;left:${im.x * k}px;top:${im.y * k}px;width:${(im.w || 400) * k}px;height:${(im.h || 267) * k}px;`
+        + `opacity:${((Number(im.opacity) ?? 100) / 100)};border-radius:${(Number(im.radius) || 0) * k}px;`
+        + `z-index:${40 + (Number(im.z) || 0)};background-image:url(/media/${encodeURIComponent(im.image)});background-size:100% 100%;`;
+      if (im.borderWidth) d.style.border = `${Number(im.borderWidth) * k}px solid ${im.borderColor || '#8b5cf6'}`;
+      whDecorEl.appendChild(d);
+    }
+  }
     // стрелка позиционируется по углу вокруг колеса (0=лево, 90=верх, 180=право, 270=низ)
     const a = ((Number(whCfg.arrowAngle) || 0) * Math.PI) / 180;
     const r = W / 2;
