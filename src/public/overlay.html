@@ -500,7 +500,7 @@
   const whCtx = whCanvas.getContext('2d');
   const whWinner = whWidget.querySelector('.wh-winner');
   const whArrow = whWidget.querySelector('.wh-arrow');
-  let whCfg = { x: 760, y: 340, size: 400, arrowAngle: 180, arrowRotate: 0, textDX: null, textDY: null, duration: 8, spinSound: '', winnerTemplate: '🏆 {user} → {label}' };
+  let whCfg = { x: 760, y: 340, size: 400, arrowAngle: 180, arrowRotate: 0, textDX: null, textDY: null, textW: 0, textFontSize: 0, textColor: '', textOpacity: 100, duration: 8, spinSound: '', winnerTemplate: '🏆 {user} → {label}' };
   let whSpinning = false;
   let whRAF = 0;
 
@@ -525,6 +525,15 @@
       ? (whCfg.size / 2 + 8 + Math.max(16, whCfg.size * 0.065) * 0.6)
       : (Number(whCfg.textDY) || 0);
     whWinner.style.position = 'absolute';
+    // текст победителя: свой шрифт (0 = авто от колеса), своё окно (перенос строк), цвет, прозрачность
+    const tfs = (Number(whCfg.textFontSize) || 0) || Math.max(16, whCfg.size * 0.065);
+    whWinner.style.fontSize = `${tfs * k}px`;
+    whWinner.style.color = whCfg.textColor || '#fff';
+    whWinner.style.opacity = String(Math.max(0, Math.min(1, (Number(whCfg.textOpacity ?? 100) ?? 100) / 100)));
+    whWinner.style.width = `${Math.max(60, Number(whCfg.textW) || Math.round(whCfg.size * 1.1)) * k}px`;
+    whWinner.style.whiteSpace = 'normal';
+    whWinner.style.overflowWrap = 'break-word';
+    whWinner.style.textAlign = 'center';
     whWinner.style.left = `${Math.round(W / 2 + tdx * k)}px`;
     whWinner.style.top = `${Math.round(W / 2 + tdy * k)}px`;
     whWinner.style.transform = 'translate(-50%, -50%)';

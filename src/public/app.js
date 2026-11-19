@@ -2392,12 +2392,15 @@ function whEdNorm(o = {}) {
     ? (size / 2 + 8 + Math.max(16, size * 0.065) * 0.6)
     : (Number(o.textDY) || 0);
   const fs = Math.max(16, Math.round(size * 0.065));
-  const tw = fs * 14; // оценка ширины, после рендера уточним по DOM
+  // окно текста: своя ширина (перенос строк) и свой размер шрифта (0 = авто от колеса)
+  const bw = Math.max(120, Math.round(Number(o.textW) || size * 1.1));
+  const tfs = Math.max(0, Math.round(Number(o.textFontSize) || 0));
+  const thEst = (tfs || fs) * 1.3;
   const objects = [
     { id: 'wheel-0', type: 'wheel', x: cx - size / 2, y: cy - size / 2, w: size, h: size, opacity: 100, z: 5,
       arrowAngle: Math.max(0, Math.min(359, Math.round(Number(o.arrowAngle) || 0))),
       arrowRotate: Math.max(-180, Math.min(180, Math.round(Number(o.arrowRotate) || 0))) },
-    { id: 'text-0', type: 'text', x: cx + tdx - tw / 2, y: cy + tdy - fs / 2, w: tw, h: fs, opacity: 100, z: 6, color: '#ffffff' },
+    { id: 'text-0', type: 'text', x: cx + tdx - bw / 2, y: cy + tdy - thEst / 2, w: bw, h: Math.round(thEst), fontSize: tfs, opacity: Math.max(0, Math.min(100, Number(o.textOpacity ?? 100))), z: 6, color: String(o.textColor || '#ffffff').slice(0, 20) },
   ];
   for (const im of (Array.isArray(o.images) ? o.images : [])) {
     if (!im || im.type !== 'image') continue;
@@ -2429,6 +2432,10 @@ function whSync() {
   if (text && wheel) {
     whOverlay.textDX = Math.round(text.x + text.w / 2 - (wheel.x + wheel.w / 2));
     whOverlay.textDY = Math.round(text.y + text.h / 2 - (wheel.y + wheel.h / 2));
+    whOverlay.textW = Math.round(text.w); // ширина окна (перенос строк)
+    whOverlay.textFontSize = Number(text.fontSize) || 0; // 0 = авто от колеса
+    whOverlay.textColor = text.color || '#ffffff';
+    whOverlay.textOpacity = text.opacity ?? 100;
   }
   whOverlay.images = images;
 }
@@ -2527,15 +2534,20 @@ function whRenderStage() {
       div.dataset.i = i;
       div.style.left = `${o.x * k}px`;
       div.style.top = `${o.y * k}px`;
+      div.style.width = `${Math.max(60, o.w) * k}px`;
       div.style.opacity = String((o.opacity ?? 100) / 100);
       div.style.color = o.color || '#ffffff';
-      div.style.fontSize = `${Math.round(Math.max(16, (wheel ? wheel.w : 400) * 0.065) * k)}px`;
+      div.style.fontSize = `${Math.round((Number(o.fontSize) || Math.max(16, (wheel ? wheel.w : 400) * 0.065)) * k)}px`;
       div.textContent = whTextMockText();
-      div.title = 'текст победителя — тяни куда угодно; двойной клик — вернуть под колесо';
+      div.title = 'текст победителя — тяни куда угодно, уголок — ширина окна; двойной клик — вернуть под колесо';
+      if (whEd.selSet.size === 1 && sel) {
+        const h = document.createElement('div');
+        h.className = 'plp-resize';
+        div.appendChild(h);
+      }
       stage.appendChild(div);
-      // габариты по DOM (для рамки выделения и магнитов) — без перерисовки
+      // высоту меряем по содержимому (перенос строк) — для рамки выделения и магнитов
       const r = div.getBoundingClientRect();
-      o.w = Math.round(r.width / k);
       o.h = Math.round(r.height / k);
     } else if (o.type === 'image') {
       const div = document.createElement('div');
@@ -2671,7 +2683,7 @@ function whGuides({ v, h }) {
     whEd.sel = whEd.selSet.has(idx) ? idx : [...whEd.selSet][0];
 
     const o = whEd.objects[idx];
-    if (handle && whEd.selSet.size === 1 && o.type !== 'text') mode = 'resize';
+    if (handle && whEd.selSet.size === 1) mode = 'resize'; // колесо/картинка/окно текста
     else mode = 'move';
     snapshot();
     whPush(); // снимок до жеста — для ctrl+z
@@ -2758,6 +2770,8 @@ function whGuides({ v, h }) {
       if (o.type === 'wheel') {
         o.w = Math.round(Math.max(100, Math.min(800, s.w + dx * 2)));
         o.h = o.w; // круг
+      } else if (o.type === 'text') {
+        o.w = Math.round(Math.max(60, Math.min(2500, s.w + dx))); // окно шире/уже; высота — по тексту
       } else {
         o.w = Math.round(Math.max(20, Math.min(2500, s.w + dx)));
         o.h = Math.round(Math.max(20, Math.min(2500, s.h + dy)));
@@ -2888,6 +2902,8 @@ function whRenderProps() {
       <p class="hint">Стрелку можно тянуть прямо в превью: за неё — едет по кругу, за ↻ — вращается. Двойной клик — сброс.</p>`;
   } else if (o.type === 'text') {
     html = `
+      ${row(`шрифт, px <span class="hint" id="whp-fs-val">${Number(o.fontSize) ? o.fontSize : 'авто'}</span>`, `<input type="range" id="whp-fs" min="0" max="150" value="${Number(o.fontSize) || 0}" title="0 = автоподбор от размера колеса" />`)}
+      ${row(`ширина окна, px <span class="hint" id="whp-w-val">${o.w}</span>`, `<input type="range" id="whp-w" min="60" max="2000" value="${o.w}" title="длинный текст переносится строками" />`)}
       ${row('цвет', `<input type="color" id="whp-color" value="${esc(o.color || '#ffffff')}" />`)}
       ${row('прозрачность', `<input type="range" id="whp-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="whp-op-val">${o.opacity}%</span>`)}
       <div class="rp-row">
@@ -2896,7 +2912,7 @@ function whRenderProps() {
         <span class="hint">z=${o.z}</span>
         <button class="act ghost" id="whp-zdown" title="опустить слой">▼</button>
       </div>
-      <p class="hint">Текст тяни мышкой, двойной клик — вернуть под колесо. Шрифт подстраивается под размер колеса.</p>`;
+      <p class="hint">Текст тяни мышкой, уголок — ширина окна, двойной клик — вернуть под колесо. Шрифт «авто» подстраивается под размер колеса.</p>`;
   } else if (o.type === 'image') {
     html = `
       ${row(`ширина, px <span class="hint" id="whp-w-val">${o.w}</span>`, `<input type="range" id="whp-w" min="20" max="2000" value="${o.w}" />`)}
@@ -2928,8 +2944,14 @@ function whRenderProps() {
     });
   };
   bindNum('#whp-w', '#whp-w-val', (el) => {
-    o.w = Math.max(100, Math.min(o.type === 'wheel' ? 800 : 2000, Number(el.value) || 100));
+    const mn = o.type === 'text' ? 60 : 100;
+    o.w = Math.max(mn, Math.min(o.type === 'wheel' ? 800 : 2000, Number(el.value) || mn));
     if (o.type === 'wheel') o.h = o.w;
+  });
+  bindNum('#whp-fs', '#whp-fs-val', (el) => {
+    o.fontSize = Math.max(0, Math.min(150, Number(el.value) || 0));
+    const v = $('#whp-fs-val');
+    if (v) v.textContent = Number(o.fontSize) ? String(o.fontSize) : 'авто';
   });
   bindNum('#whp-ang', '#whp-ang-val', (el) => { o.arrowAngle = Math.max(0, Math.min(359, Number(el.value) || 0)); });
   bindNum('#whp-rot', '#whp-rot-val', (el) => { o.arrowRotate = Math.max(-180, Math.min(180, Number(el.value) || 0)); });

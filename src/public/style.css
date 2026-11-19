@@ -291,7 +291,8 @@ input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; marg
 .wh-rot-handle:active { cursor: grabbing; }
 .wh-text-mock {
   position: absolute; text-align: center; color: #fff; font-weight: 700;
-  white-space: nowrap; text-shadow: 0 2px 8px rgba(0, 0, 0, .85);
+  white-space: normal; overflow-wrap: break-word;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, .85);
   cursor: grab; user-select: none;
 }
 .wh-text-mock:active { cursor: grabbing; }

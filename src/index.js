@@ -697,6 +697,11 @@ const app = {
         // позиция текста победителя (смещение от центра колеса, px сцены; null = под колесом)
         if (o.textDX !== undefined) curO.textDX = o.textDX === null ? null : Math.max(-2000, Math.min(2000, Math.round(Number(o.textDX) || 0)));
         if (o.textDY !== undefined) curO.textDY = o.textDY === null ? null : Math.max(-2000, Math.min(2000, Math.round(Number(o.textDY) || 0)));
+        // окно текста победителя: своя ширина (перенос строк) и свой размер шрифта (0 = авто)
+        if (o.textW !== undefined) curO.textW = Math.max(60, Math.min(2500, Math.round(Number(o.textW) || 500)));
+        if (o.textFontSize !== undefined) curO.textFontSize = Math.max(0, Math.min(200, Math.round(Number(o.textFontSize) || 0)));
+        if (o.textColor !== undefined) curO.textColor = String(o.textColor).slice(0, 20);
+        if (o.textOpacity !== undefined) curO.textOpacity = Math.max(0, Math.min(100, Math.round(Number(o.textOpacity) ?? 100)));
         // картинки-декор рулетки (как у плеера музыки): слой ≥6 — над колесом, ≤4 — под
         if (Array.isArray(o.images)) {
           const num = (v, mn, mx, d) => {
