@@ -340,6 +340,20 @@ const fakeFollowHelix = { getFollower: async () => ({ followed_at: new Date().to
 const gateFollower = await songsRequestAllowed({ allow: ['follower'] }, { level: 'everyone', login: 'x', userId: '9', broadcasterId: '100', helix: fakeFollowHelix });
 ok('музыка: доступ — фолловер пускается', gateFollower.ok === true && gateFollower.via === 'follower');
 
+// награда канала = заказ музыки: по режиму «reward» ИЛИ по song-маппингу
+// (баг: покупки награды молча пропадали, если в музыке стоял способ «командой»)
+const { songRewardSource } = await import('../src/bot/songs.js');
+ok('музыка: награда с song-маппингом заказывает трек',
+  songRewardSource({ requestMode: 'command' }, 'Заказать песню', 'song') === 'mapping');
+ok('музыка: награда без song-маппинга и не в режиме reward — игнор',
+  songRewardSource({ requestMode: 'command', rewardName: 'заказать песню' }, 'мем', 'say') === null);
+ok('музыка: режим reward — совпадение по имени (без регистра)',
+  songRewardSource({ requestMode: 'reward', rewardName: 'заказать песню' }, 'ЗАКАЗАТЬ ПЕСНЮ', null) === 'mode');
+ok('музыка: режим reward — другое имя награды → нет',
+  songRewardSource({ requestMode: 'reward', rewardName: 'заказать песню' }, 'колесо', null) === null);
+ok('музыка: пустое имя награды → нет',
+  songRewardSource({ requestMode: 'reward', rewardName: 'заказать песню' }, '  ', 'song') === null);
+
 // режим награды: команда перенаправляет
 songsSettings.songs.requestMode = 'reward';
 songsSettings.songs.rewardName = 'заказать песню';

@@ -331,6 +331,23 @@ export class SongsManager {
 }
 
 /**
+ * Считать ли покупку этой награды заказом музыки. Да, если
+ *   • она совпала с настройкой «заказ наградой» (Музыка → правила заказов), или
+ *   • в таблице наград канала (Награды → маппинги) ей назначено действие «song».
+ * Раньше маппинги со действие song игнорировались — покупки награды молча
+ * пропадали, если в музыке стоял способ «командой».
+ * Возвращает 'mode' | 'mapping' | null (источник совпадения — для логов).
+ */
+export function songRewardSource(songsCfg, rewardTitle, mappingAction) {
+  const evReward = String(rewardTitle ?? '').trim().toLowerCase();
+  if (!evReward) return null;
+  if (songsCfg?.requestMode === 'reward'
+    && String(songsCfg?.rewardName ?? '').trim().toLowerCase() === evReward) return 'mode';
+  if (mappingAction === 'song') return 'mapping';
+  return null;
+}
+
+/**
  * Кому можно заказывать музыку (общее для команды и награды).
  * roles: everyone/sub/vip/follower/mod/broadcaster; стример может всегда;
  * allowUsers — персональный белый список ников. level — роль из чата (у награды нет бейджей).

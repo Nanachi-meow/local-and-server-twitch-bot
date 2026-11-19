@@ -1,6 +1,6 @@
 import { overlay } from './alerts.js';
 
-/** Действия редемпций — пока справочные (диспетчеризация отдельной фазой). */
+/** Действия редемпций: 'song' — заказ музыки (диспетчеризация в index.js), остальные пока справочные. */
 export const REDEMPTION_ACTIONS = ['song', 'meme', 'wheel', 'say', 'command'];
 
 /**
@@ -17,7 +17,9 @@ export const REDEMPTION_ACTIONS = ['song', 'meme', 'wheel', 'say', 'command'];
  * Настройки (settings.redemptions):
  *   enabled   — роутер вообще работает;
  *   cooldown  — сек между overlay-алертами одного зрителя (анти-спам, лог ведётся всегда);
- *   mappings  — [{ rewardName, action, enabled }] — action пока справочное поле.
+ *   mappings  — [{ rewardName, action, enabled }]; action 'song' заказывает музыку
+ *               (см. onSongRedemption в index.js и songRewardSource в songs.js),
+ *               остальные действия пока справочные.
  */
 export class RedemptionRouter {
   constructor({ logs, settings }) {

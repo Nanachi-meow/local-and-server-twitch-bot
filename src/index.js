@@ -175,16 +175,24 @@ async function onWheelRedemption(event) {
 }
 
 /**
- * Заказ музыки через награду канала (settings.songs.requestMode === 'reward').
+ * Заказ музыки через награду канала.
+ * Награда считается заказом музыки, если она совпала с настройкой
+ * «заказ наградой» (settings.songs.requestMode === 'reward', имя совпало)
+ * ИЛИ в таблице наград канала ей назначено действие «song» (маппинги).
  * Заказ не прошёл (чс/лимиты/доступ) — редемпция отменяется, Twitch возвращает баллы.
  * Нужен токен стримера со скоупом channel:manage:redemptions (иначе вернётся 403 — просто запишем в лог).
  */
 async function onSongRedemption(event) {
   const scfg = settings.songs ?? {};
-  if (scfg.requestMode !== 'reward') return;
-  const wanted = String(scfg.rewardName ?? '').trim().toLowerCase();
   const evReward = String(event?.reward?.title ?? event?.reward_name ?? '').trim().toLowerCase();
-  if (!wanted || evReward !== wanted) return;
+  // match() у роутера наград уже проверяет enabled маппинга; действие хранится в нём
+  const mappingAction = redemptions.match(evReward)?.action ?? null;
+  const { parseVideoId, requestAllowed, cancelRedemption, songRewardSource } = await import('./bot/songs.js');
+  const source = songRewardSource(scfg, evReward, mappingAction);
+  if (!source) return;
+  if (source === 'mapping' && scfg.requestMode !== 'reward') {
+    logSystem(`Награда «${evReward}» заказана музыкой по маппингу наград (способ заказов в музыке — командой)`, 'info');
+  }
 
   const login = String(event?.user_login ?? '').toLowerCase();
   const byName = String(event?.user_name ?? '') || login;
@@ -196,7 +204,6 @@ async function onSongRedemption(event) {
     } catch { /* чат недоступен — молча; главное — очередь и возврат */ }
   };
 
-  const { parseVideoId, requestAllowed, cancelRedemption } = await import('./bot/songs.js');
   const videoId = parseVideoId(String(event?.user_input ?? ''));
   // возвраты баллов включаются/выключаются раздельно: «не подошёл» и «лимит юзера»
   const refundOnReject = scfg.refundOnReject !== false;
