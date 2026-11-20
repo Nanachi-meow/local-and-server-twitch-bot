@@ -1912,7 +1912,6 @@ function wodRenderProps() {
   if (!o) { props.innerHTML = ''; return; }
   const row = (label, html) => `<label>${label}<div class="am-sound-row">${html}</div></label>`;
   let html = `
-    ${row(`ширина, px <span class="hint" id="woded-w-val">${o.w}</span>`, `<input type="range" id="woded-w" min="20" max="2000" value="${o.w}" />`)}
     ${row('прозрачность', `<input type="range" id="woded-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="weded-op-val-x">${o.opacity}%</span>`)}
     ${row('поворот', `<input type="range" id="woded-rot" min="-15" max="15" value="${o.rotate}" /><span class="hint" id="woded-rot-val">${o.rotate}°</span>`)}
     <div class="rp-row">
@@ -1936,12 +1935,6 @@ function wodRenderProps() {
   html += `<button class="act ghost" id="woded-del">🗑 Удалить объект</button></div>`;
   props.innerHTML = html;
 
-  $('#woded-w').addEventListener('pointerdown', wodPushThrottled);
-  $('#woded-w').addEventListener('input', () => {
-    o.w = Number($('#woded-w').value);
-    $('#woded-w-val').textContent = String(o.w);
-    wodRenderStage();
-  });
   $('#woded-op').addEventListener('input', () => {
     o.opacity = Number($('#woded-op').value);
     $('#weded-op-val-x').textContent = `${o.opacity}%`;
@@ -2495,30 +2488,28 @@ const whEngine = EditorEngine.create({
       ],
       props: (o) => `
         <label>размер, px
-          <div class="am-sound-row"><input type="range" id="whp-w" min="100" max="800" value="${o.w}" /><span class="hint" id="whp-w-val">${o.w}</span></div>
+          <div class="am-sound-row"><input type="number" id="whp-w" min="100" max="800" value="${o.w}" style="width:70px" /><span class="hint">растягивается и ручкой в превью</span></div>
         </label>
         <label>стрелка: угол по кругу
-          <div class="am-sound-row"><input type="range" id="whp-ang" min="0" max="359" value="${o.arrowAngle}" /><span class="hint" id="whp-ang-val">${o.arrowAngle}° (0=лево, 90=верх)</span></div>
+          <div class="am-sound-row"><input type="number" id="whp-ang" min="0" max="359" value="${o.arrowAngle}" style="width:70px" /><span class="hint">0=лево, 90=верх</span></div>
         </label>
         <label>стрелка: свой поворот
-          <div class="am-sound-row"><input type="range" id="whp-rot" min="-180" max="180" value="${o.arrowRotate}" /><span class="hint" id="whp-rot-val">${o.arrowRotate}°</span></div>
+          <div class="am-sound-row"><input type="number" id="whp-rot" min="-180" max="180" value="${o.arrowRotate}" style="width:70px" /><span class="hint">°</span></div>
         </label>`,
       bind: (o, api) => {
-        const num = (id, valId, fn, valText) => {
+        const num = (id, fn, valText) => {
           const elr = $(id);
           if (!elr) return;
           elr.addEventListener('input', () => {
             api.pushThrottled();
             fn(elr);
-            const v = $(valId);
-            if (v) v.textContent = valText ? valText(elr) : elr.value;
             whSync();
             api.rerender();
           });
         };
-        num('#whp-w', '#whp-w-val', (el) => { o.w = Math.max(100, Math.min(800, Number(el.value) || 100)); o.h = o.w; });
-        num('#whp-ang', '#whp-ang-val', (el) => { o.arrowAngle = Math.max(0, Math.min(359, Number(el.value) || 0)); }, (el) => `${el.value}° (0=лево, 90=верх)`);
-        num('#whp-rot', '#whp-rot-val', (el) => { o.arrowRotate = Math.max(-180, Math.min(180, Number(el.value) || 0)); }, (el) => `${el.value}°`);
+        num('#whp-w', (el) => { o.w = Math.max(100, Math.min(800, Number(el.value) || 100)); o.h = o.w; });
+        num('#whp-ang', (el) => { o.arrowAngle = Math.max(0, Math.min(359, Number(el.value) || 0)); });
+        num('#whp-rot', (el) => { o.arrowRotate = Math.max(-180, Math.min(180, Number(el.value) || 0)); });
       },
     },
     // ---------- 📝 текст победителя ----------
@@ -2546,31 +2537,28 @@ const whEngine = EditorEngine.create({
       },
       props: (o) => `
         <label>шрифт, px
-          <div class="am-sound-row"><input type="range" id="whp-fs" min="0" max="150" value="${Number(o.fontSize) || 0}" title="0 = автоподбор от размера колеса" /><span class="hint" id="whp-fs-val">${Number(o.fontSize) ? o.fontSize : 'авто'}</span></div>
+          <div class="am-sound-row"><input type="number" id="whp-fs" min="0" max="150" value="${Number(o.fontSize) || 0}" style="width:70px" title="0 = автоподбор от размера колеса" /><span class="hint">${Number(o.fontSize) ? '' : 'авто'}</span></div>
         </label>
-        <label>ширина окна, px
-          <div class="am-sound-row"><input type="range" id="whp-tw" min="60" max="2000" value="${o.w}" title="длинный текст переносится строками" /><span class="hint" id="whp-tw-val">${o.w}</span></div>
+        <label>окно текста
+          <div class="am-sound-row"><span class="hint">растягивается ручкой в превью (длинный текст — переносится строками)</span></div>
         </label>
         <label>цвет
           <div class="am-sound-row"><input type="color" id="whp-color" value="${esc(o.color || '#ffffff')}" /> <input type="range" id="whp-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="whp-op-val">${o.opacity}%</span></div>
         </label>`,
       bind: (o, api) => {
-        const num = (id, valId, fn, valText) => {
+        const num = (id, fn, valText) => {
           const elr = $(id);
           if (!elr) return;
           elr.addEventListener('input', () => {
             api.pushThrottled();
             fn(elr);
-            const v = $(valId);
-            if (v) v.textContent = valText ? valText(elr) : elr.value;
             whSync();
             api.rerender();
           });
         };
-        num('#whp-fs', '#whp-fs-val', (el) => { o.fontSize = Math.max(0, Math.min(150, Number(el.value) || 0)); }, (el) => Number(el.value) ? el.value : 'авто');
-        num('#whp-tw', '#whp-tw-val', (el) => { o.w = Math.max(60, Math.min(2000, Number(el.value) || 60)); });
+        num('#whp-fs', (el) => { o.fontSize = Math.max(0, Math.min(150, Number(el.value) || 0)); });
         $('#whp-color')?.addEventListener('input', () => { o.color = $('#whp-color').value; whSync(); api.rerender(); });
-        $('#whp-op')?.addEventListener('input', () => { o.opacity = Number($('#whp-op').value); whSync(); api.rerender(); });
+        $('#whp-op')?.addEventListener('input', () => { o.opacity = Number($('#whp-op').value); $('#whp-op-val').textContent = `${o.opacity}%`; whSync(); api.rerender(); });
       },
     },
     // ---------- 🖼 картинка-декор ----------
@@ -2582,9 +2570,6 @@ const whEngine = EditorEngine.create({
         if (o.image) div.style.backgroundImage = `url(/media/${encodeURIComponent(o.image)})`;
       },
       props: (o) => `
-        <label>ширина, px
-          <div class="am-sound-row"><input type="range" id="whp-iw" min="20" max="2000" value="${o.w}" /><span class="hint" id="whp-iw-val">${o.w}</span></div>
-        </label>
         <label>прозрачность
           <div class="am-sound-row"><input type="range" id="whp-iop" min="0" max="100" value="${o.opacity}" /><span class="hint" id="whp-iop-val">${o.opacity}%</span></div>
         </label>
@@ -2595,7 +2580,7 @@ const whEngine = EditorEngine.create({
           <div class="am-sound-row"><span class="hint">углы</span><input type="number" id="whp-radius" min="0" max="120" value="${o.radius || 0}" style="width:56px" /></div>
         </label>
         <label>картинка <select id="whp-img"></select></label>
-        <div class="am-sound-row"><input type="file" id="whp-img-file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="max-width:220px" /><button class="act ghost" id="whp-img-up" title="загрузить и поставить сюда">⬆</button></div>`,
+        <div class="am-sound-row"><input type="file" id="whp-img-file" accept="image/png,image/jpeg,image/webp/image/gif,image/svg+xml" style="max-width:220px" /><button class="act ghost" id="whp-img-up" title="загрузить и поставить сюда">⬆</button></div>`,
       bind: (o, api) => {
         const num = (id, valId, fn, valText) => {
           const elr = $(id);
@@ -2609,7 +2594,6 @@ const whEngine = EditorEngine.create({
             api.rerender();
           });
         };
-        num('#whp-iw', '#whp-iw-val', (el) => { o.w = Math.max(20, Math.min(2000, Number(el.value) || 20)); });
         num('#whp-iop', '#whp-iop-val', (el) => { o.opacity = Math.max(0, Math.min(100, Number(el.value) || 0)); });
         num('#whp-bw', '#whp-bw-val', (el) => { o.borderWidth = Math.max(0, Math.min(12, Number(el.value) || 0)); }, (el) => `${el.value}px`);
         num('#whp-radius', null, (el) => { o.radius = Math.max(0, Math.min(120, Number(el.value) || 0)); });
@@ -3956,11 +3940,10 @@ function plpRenderProps() {
 
   const row = (label, html) => `<label>${label}<div class="am-sound-row">${html}</div></label>`;
   let html = `
-    ${row(`ширина, px <span class="hint" id="plp-w-val">${o.w}</span>`, `<input type="range" id="plp-w" min="20" max="2000" value="${o.w}" />`)}
     ${row('прозрачность', `<input type="range" id="plp-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="plp-op-val">${o.opacity}%</span>`)}
     ${row('грань (обводка)', `<span class="hint">цвет</span><input type="color" id="plp-b2color" value="${esc(o.borderColor || '#8b5cf6')}" /><span class="hint">толщ</span><input type="range" id="plp-bw" min="0" max="12" value="${o.borderWidth ?? 0}" style="width:90px" /><span class="hint" id="plp-bw-val">${o.borderWidth ?? 0}px</span>`)}
     <div class="rp-row">
-      <label class="hint">слой: сверху 🡒</label>
+      <label class="hint">размер — ручкой ↘ в превью · слой: сверху 🡒</label>
       <button class="act ghost" id="plp-zup" title="поднять слой">▲</button>
       <span class="hint">z=${o.z}</span>
       <button class="act ghost" id="plp-zdown" title="опустить слой">▼</button>
@@ -3980,14 +3963,6 @@ function plpRenderProps() {
   props.innerHTML = html;
 
   // слушатели полей
-  $('#plp-w')?.addEventListener('pointerdown', plpPush);
-  $('#plp-w')?.addEventListener('input', () => {
-    plpPushThrottled();
-    o.w = Number($('#plp-w').value);
-    if (o.type === 'video') o.h = Math.round(o.w * 9 / 16);
-    $('#plp-w-val').textContent = String(o.w);
-    plpRenderStage();
-  });
   $('#plp-op')?.addEventListener('input', () => {
     o.opacity = Number($('#plp-op').value);
     $('#plp-op-val').textContent = `${o.opacity}%`;
@@ -4379,7 +4354,8 @@ function asoRenderProps() {
   if (!o) { props.innerHTML = ''; return; }
   const row = (label, html) => `<label>${label}<div class="am-sound-row">${html}</div></label>`;
   let html = `
-    ${row(`ширина, px <span class="hint" id="aso-w-val">${o.w}</span>`, `<input type="range" id="aso-w" min="20" max="2000" value="${o.w}" />`)}
+    ${row('прозрачность', `<input type="range" id="aso-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="aso-op-val">${o.opacity}%</span>`)}
+    <p class="hint">размер — ручкой ↘ в превью</p>
     ${row('прозрачность', `<input type="range" id="aso-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="aso-op-val">${o.opacity}%</span></div>`)}
     <div class="rp-row">
       <label class="hint">слой:</label>
@@ -4399,13 +4375,6 @@ function asoRenderProps() {
   html += `<button class="act ghost" id="aso-del">🗑 Удалить объект</button></div>`;
   props.innerHTML = html;
 
-  $('#aso-w').addEventListener('pointerdown', asoPushThrottled);
-  $('#aso-w').addEventListener('input', () => {
-    o.w = Number($('#aso-w').value);
-    if (o.type === 'avatar') o.h = o.w; // аватар квадратный
-    $('#aso-w-val').textContent = String(o.w);
-    asoRenderStage();
-  });
   $('#aso-op').addEventListener('input', () => {
     o.opacity = Number($('#aso-op').value);
     $('#aso-op-val').textContent = `${o.opacity}%`;
