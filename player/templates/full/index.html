@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>Полный плеер музыки — Twitch-бот (шаблон)</title>
+<style>
+  /* ═══════════════════════════════════════════════════════════════════
+   * ПОЛНЫЙ ШАБЛОН ПЛЕЕРА — со всем функционалом бота.
+   * Не активен по умолчанию: положи этот файл в player/index.html,
+   * и страница /music станет вот такой. Конфиг — в объекте CFG ниже.
+   * ═══════════════════════════════════════════════════════════════════ */
+  html, body {
+    margin: 0; height: 100%; background: transparent; overflow: hidden;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+  #wr {
+    position: absolute; box-sizing: border-box;
+    background: rgba(255, 255, 255, .03);
+    border-radius: 18px; overflow: hidden;
+    transition: opacity .6s ease;
+  }
+  #wr.idle { opacity: 0; }
+  #wr.nobg #bg { display: none; }
+  #bg { position: absolute; inset: 0; z-index: 1; }
+  #video-box {
+    position: absolute; z-index: 2; box-sizing: border-box;
+    background: #000; border-radius: 12px; overflow: hidden;
+    outline: 2px solid rgba(255, 255, 255, .08);
+  }
+  #video-box iframe { width: 100%; height: 100%; border: 0; display: block; }
+  /* «сейчас играет»: бегущая строка */
+  #now-box {
+    position: absolute; z-index: 3; overflow: hidden;
+    border-radius: 8px; display: flex; align-items: center;
+    background: rgba(0, 0, 0, .35);
+  }
+  #now-track { display: inline-flex; width: max-content; will-change: transform; }
+  #now-box span { padding-right: 56px; font-weight: 700; white-space: nowrap; }
+  /* очередь */
+  #queue {
+    position: absolute; z-index: 3; overflow: hidden; border-radius: 8px;
+    font-size: 13px; line-height: 1.35; color: rgba(255, 255, 255, .85);
+  }
+  #queue b { color: var(--accent); }
+  #queue .qi { display: flex; gap: 6px; align-items: baseline; margin-bottom: 2px; }
+  #queue .qn { opacity: .55; min-width: 15px; }
+  /* тест-плеера плашка */
+  #test-chip {
+    position: absolute; z-index: 5; top: 8px; right: 8px;
+    background: var(--accent); color: #fff; font-size: 12px; font-weight: 700;
+    padding: 3px 10px; border-radius: 999px; display: none;
+  }
+  /* панель управления (для ручного режима стримера) */
+  #controls {
+    position: absolute; z-index: 6; left: 0; right: 0; bottom: 0;
+    display: flex; gap: 6px; align-items: center; padding: 8px 10px;
+    background: rgba(0, 0, 0, .5); opacity: 0; transition: opacity .25s;
+  }
+  #wr:hover #controls { opacity: 1; }
+  #controls button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    font-size: 15px; padding: 6px 12px; cursor: pointer; font-weight: 700;
+  }
+  #controls button.ghost { background: rgba(255, 255, 255, .12); }
+  #controls input[type='range'] { flex: 1; accent-color: var(--accent); }
+  .hidden { display: none !important; }
+  @keyframes now-run { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+</style>
+</head>
+<body>
+<div id="wr" class="idle">
+  <div id="bg"></div>
+  <div id="video-box"><div id="yt-holder"></div></div>
+  <div id="now-box"><div id="now-track"><span></span><span></span></div></div>
+  <div id="queue"></div>
+  <div id="test-chip">🧪 Тест</div>
+  <div id="controls">
+    <button id="btn-skip" title="следующий трек (sorry, заказчику)">⏭</button>
+    <button id="btn-pause" title="пауза/продолжить">⏸</button>
+    <button id="btn-mute" class="ghost" title="мут вкл/выкл">🔊</button>
+    <input type="range" id="vol" min="0" max="100" title="громкость" />
+    <span id="vol-val" style="color:#fff;font-size:12px;min-width:34px"></span>
+  </div>
+</div>
+<script>
+  // ═══ КОНФИГ — правь как хочешь ═══
+  const CFG = {
+    W: 600, H: 340,
+    accent: '#8b5cf6',
+    bg: '#0c0a19',
+    bgOpacity: 0.8,
+    queueCount: 5,   // 0 = скрыть очередь
+    showControls: true, // панель показывается при наведении мыши
+    hideOnIdle: true,
+  };
+  document.documentElement.style.setProperty('--accent', CFG.accent);
+
+  const wr = document.getElementById('wr');
+
+  let state = { current: null, queue: [], paused: false, volume: 60, enabled: true, testing: null };
+  let nowTemplate = '♪ {title} — заказал {by}';
+  let yt = null, apiLoading = false, lastVideoId = null;
+  let testId = null, testing = false;
+  let lastVolume = 60;
+
+  const clampVol = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
+  const fmt = (sec) => {
+    const s = Math.round(Number(sec) || 0);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // ---------- раскладка по конфигу ----------
+  function layout() {
+    const q = CFG.queueCount > 0;
+    const c = CFG.showControls ? 44 : 0;
+    wr.style.left = '0'; wr.style.top = '0';
+    wr.style.width = `${CFG.W}px`; wr.style.height = `${CFG.H}px`;
+    const bgEl = document.getElementById('bg');
+    bgEl.style.background = CFG.bg;
+    bgEl.style.opacity = String(CFG.bgOpacity);
+    if (CFG.bgOpacity <= 0) wr.classList.add('nobg');
+    const videoH = q ? CFG.H - 118 - c : CFG.H - 66 - c;
+    const vbox = document.getElementById('video-box');
+    vbox.style.left = '10px'; vbox.style.top = '10px';
+    vbox.style.width = `${CFG.W - 20}px`; vbox.style.height = `${videoH}px`;
+    const now = document.getElementById('now-box');
+    now.style.left = '10px'; now.style.top = `${videoH + 18}px`;
+    now.style.width = `${CFG.W - 20}px`; now.style.height = '38px';
+    now.style.fontSize = '17px';
+    const qu = document.getElementById('queue');
+    if (q) {
+      qu.classList.remove('hidden');
+      qu.style.left = '10px'; qu.style.top = `${videoH + 62}px`;
+      qu.style.width = `${CFG.W - 20}px`; qu.style.height = `${CFG.H - videoH - 72 - c}px`;
+    } else qu.classList.add('hidden');
+    document.getElementById('controls').style.display = CFG.showControls ? 'flex' : 'none';
+  }
+
+  // ---------- «сейчас играет» ----------
+  function renderNow() {
+    const src = testing
+      ? { title: `Тест: ${state.testing?.title || ''}`, by: 'плеер', author: '', duration: 0 }
+      : state.current;
+    const spans = document.querySelectorAll('#now-track span');
+    const text = src
+      ? nowTemplate
+        .replaceAll('{title}', src.title || '')
+        .replaceAll('{by}', src.byName || src.by || '')
+        .replaceAll('{author}', src.author || '')
+        .replaceAll('{duration}', fmt(src.duration || 0))
+      : '';
+    const track = document.getElementById('now-track');
+    document.getElementById('now-box').classList.toggle('hidden', !text);
+    spans[0].textContent = text;
+    spans[1].textContent = text;
+    // строка бежит, пока есть текст; пауза музыки — пауза строки
+    track.style.animation = text && !state.paused ? 'now-run 22s linear infinite' : 'none';
+  }
+
+  // ---------- очередь ----------
+  function renderQueue() {
+    const qu = document.getElementById('queue');
+    if (CFG.queueCount <= 0 || !state.queue?.length) { qu.innerHTML = ''; return; }
+    qu.innerHTML = state.queue.slice(0, CFG.queueCount).map((x, i) =>
+      `<div class="qi"><span class="qn">${i + 1}.</span><span>${esc(x.title || '')} <b>· ${esc(x.byName || x.by || '')}</b> <span style="opacity:.5">${fmt(x.duration || 0)}</span></span></div>`
+    ).join('');
+  }
+
+  // ---------- статус: гасим, если пусто ----------
+  function renderIdle() {
+    const busy = Boolean(state.enabled && (state.current || state.testing));
+    wr.classList.toggle('idle', CFG.hideOnIdle && !busy);
+    document.getElementById('btn-pause').textContent = state.paused ? '▶' : '⏸';
+    document.getElementById('vol').value = clampVol(state.volume);
+    document.getElementById('vol-val').textContent = `${clampVol(state.volume)}%`;
+    document.getElementById('test-chip').classList.toggle('hidden', !testing);
+  }
+
+  // ---------- YouTube IFrame API ----------
+  function ensureApi() {
+    if (yt || apiLoading) return;
+    apiLoading = true;
+    window.onYouTubeIframeAPIReady = () => {
+      yt = new YT.Player('yt-holder', {
+        width: '100%', height: '100%',
+        playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: 0, disablekb: 1 },
+        events: {
+          onReady: () => playCurrent(),
+          onStateChange: (e) => {
+            if (e.data === YT.PlayerState.ENDED && !testing && state.current) {
+              // трек закончился — сообщаем боту, очередь продвинется сама
+              fetch('/api/songs', {
+                method: 'POST', headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ op: 'ended' }),
+              }).then((r) => r.json()).catch(() => {});
+            }
+          },
+        },
+      });
+    };
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(tag);
+  }
+
+  function playCurrent() {
+    if (!yt) return;
+    const id = testing ? testId : state.current?.id;
+    if (!id) {
+      try { yt.stopVideo(); } catch {}
+      lastVideoId = null;
+      return;
+    }
+    if (lastVideoId !== id) { yt.loadVideoById(id); lastVideoId = id; }
+    yt.setVolume(clampVol(state.volume));
+    if (state.paused) { try { yt.pauseVideo(); } catch {} }
+    else { try { yt.playVideo(); } catch {} }
+  }
+
+  // ---------- контракты бота ----------
+  async function loadState() {
+    try {
+      const st = await fetch('/api/songs').then((r) => r.json());
+      state = { ...state, ...st };
+      nowTemplate = String(st.nowTemplate || nowTemplate);
+      layout(); renderNow(); renderQueue(); renderIdle(); ensureApi(); playCurrent();
+    } catch {}
+  }
+
+  const es = new EventSource('/overlay/feed');
+  es.onmessage = (m) => {
+    let ev; try { ev = JSON.parse(m.data); } catch { return; }
+    if (ev?.kind === 'sr') {
+      state.current = ev.current ?? null;
+      state.paused = Boolean(ev.paused);
+      state.volume = clampVol(ev.volume ?? state.volume);
+      state.enabled = ev.enabled !== undefined ? Boolean(ev.enabled) : state.enabled;
+      testing = false; testId = null;
+      if (ev.nowTemplate) nowTemplate = String(ev.nowTemplate);
+      if (ev.queue) state.queue = ev.queue;
+      renderNow(); renderQueue(); renderIdle();
+      ensureApi();
+      if (ev.op === 'play') playCurrent();
+      else if (ev.op === 'pause') { try { yt?.pauseVideo(); } catch {} }
+      else if (ev.op === 'resume') { try { yt?.playVideo(); } catch {} }
+      else if (ev.op === 'stop') { try { yt?.stopVideo(); } catch {} lastVideoId = null; }
+    } else if (ev?.kind === 'srtest') {
+      state.volume = clampVol(ev.volume ?? state.volume);
+      if (ev.op === 'play') {
+        testing = true; testId = ev.id; state.testing = { title: ev.title };
+        renderNow(); renderIdle(); ensureApi(); playCurrent();
+      } else if (ev.op === 'pause') { try { yt?.pauseVideo(); } catch {} }
+      else if (ev.op === 'resume') { try { yt?.playVideo(); } catch {} }
+      else if (ev.op === 'stop') {
+        testing = false; testId = null; state.testing = null;
+        try { yt?.stopVideo(); } catch {} lastVideoId = null;
+        renderNow(); renderIdle();
+      }
+    }
+  };
+
+  // ---------- управление (кнопки под мышкой) ----------
+  document.getElementById('btn-skip').addEventListener('click', () => {
+    fetch('/api/actions/srnext', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+      .then((r) => r.json()).catch(() => {});
+  });
+  document.getElementById('btn-pause').addEventListener('click', () => {
+    const op = state.paused ? 'resume' : 'pause';
+    state.paused = op !== 'resume';
+    renderIdle();
+    fetch('/api/actions/srcontrol', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ op }),
+    }).then((r) => r.json()).catch(() => {});
+  });
+  document.getElementById('btn-mute').addEventListener('click', () => {
+    const v = clampVol(state.volume) > 0 ? 0 : (lastVolume || 60);
+    if (clampVol(state.volume) > 0) lastVolume = clampVol(state.volume);
+    state.volume = v;
+    try { yt?.setVolume(v); } catch {}
+    renderIdle();
+    fetch('/api/settings', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ songs: { volume: v } }),
+    }).catch(() => {});
+  });
+  let volT = null;
+  document.getElementById('vol').addEventListener('input', () => {
+    const v = clampVol(document.getElementById('vol').value);
+    state.volume = v;
+    document.getElementById('vol-val').textContent = `${v}%`;
+    try { yt?.setVolume(v); } catch {}
+    clearTimeout(volT);
+    volT = setTimeout(() => {
+      fetch('/api/settings', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ songs: { volume: v } }),
+      }).catch(() => {});
+    }, 400);
+  });
+
+  layout();
+  loadState();
+</script>
+</body>
+</html>
