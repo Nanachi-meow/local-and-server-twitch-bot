@@ -2259,13 +2259,8 @@ $('#wod-reset').addEventListener('click', async () => {
 
 let whItems = [];
 let whOverlay = { x: 760, y: 340, size: 400 };
-// редактор рулетки = plp-движок (как у плеера музыки): объекты, магниты,
-// рамка-выделение, shift-мультивыделение, ctrl+z/y/c/x/v, свои картинки-декор
-let whEd = { objects: [], sel: -1, selSet: new Set(), clipboard: [] };
-let whArrowHint = null; // 'angle' — едем по кругу, 'rot' — вращаем стрелку (бейдж с градусами)
-let whGuideV = null; // прилипли по X: { pos, kind: 'scene'|'obj' } — рисуем пунктир
-let whGuideH = null;
-const WH_TYPE_RU = { wheel: '🎡 колесо', text: '📝 текст', image: '🖼 картинка' };
+// state рулетки: объекты редактора (движок держит ссылку на массив)
+let whEd = []; // wheel + text + картинки-декор
 
 function whK() { const s = $('#wh-stage'); return s ? s.clientWidth / 1920 : 0.25; }
 
@@ -2332,57 +2327,10 @@ async function renderWheelSoundSelect(selected) {
   } catch {}
 }
 
-// ---------- редактор раскладки рулетки: тот же движок, что у плеера музыки ----------
-// объекты (колесо + текст победителя + картинки-декор), магниты, рамка-выделение,
-// shift-мультивыделение, ctrl+z/y/c/x/v, слои, экспорт SVG-шаблона
+// ---------- редактор раскладки рулетки: типы + EditorEngine ----------
+// движок (рамка/магниты/история/копипаст/слои) — editor-engine.js, тот же,
+// что у редактора виджета музыки; рулетка подключает только СВОИ типы объектов
 
-/** Цвет секторов превью — как на оверлее (conic-gradient по весам вариантов). */
-function whMockGradient() {
-  const palette = ['#8b5cf6', '#22c55e', '#eab308', '#38bdf8', '#f97316', '#ec4899', '#14b8a6', '#a855f7'];
-  const items = whItems.filter((x) => x.label);
-  if (!items.length) return '';
-  const total = items.reduce((s, x) => s + Math.max(1, Number(x.weight) || 1), 0);
-  let acc = 0;
-  const stops = items.map((x, i) => {
-    const from = (acc / total) * 360;
-    acc += Math.max(1, Number(x.weight) || 1);
-    const to = (acc / total) * 360;
-    const col = x.color || palette[i % palette.length];
-    return `${col} ${from.toFixed(2)}deg ${to.toFixed(2)}deg`;
-  });
-  return `conic-gradient(${stops.join(', ')})`;
-}
-
-// ---------- история: ctrl+z / ctrl+y ----------
-const whHist = [];
-const whRedoStack = [];
-let whLastPush = 0;
-
-function whPush() {
-  whHist.push(JSON.stringify(whEd.objects));
-  if (whHist.length > 60) whHist.shift();
-  whRedoStack.length = 0;
-  whLastPush = Date.now();
-}
-function whPushThrottled() { if (Date.now() - whLastPush > 600) whPush(); }
-function whUndo() {
-  if (!whHist.length) { toast('Отменять нечего'); return; }
-  whRedoStack.push(JSON.stringify(whEd.objects));
-  whEd.objects = JSON.parse(whHist.pop());
-  whEd.selSet = new Set();
-  whEd.sel = -1;
-  whSync(); whRenderStage(); whRenderProps();
-}
-function whRedo() {
-  if (!whRedoStack.length) { toast('Повторять нечего'); return; }
-  whHist.push(JSON.stringify(whEd.objects));
-  whEd.objects = JSON.parse(whRedoStack.pop());
-  whEd.selSet = new Set();
-  whEd.sel = -1;
-  whSync(); whRenderStage(); whRenderProps();
-}
-
-/** Объекты редактора из настроек оверлея (x/y колеса там — центр; текст — смещение). */
 function whEdNorm(o = {}) {
   const size = Math.max(100, Math.min(800, Math.round(Number(o.size) || 400)));
   const cx = Math.max(0, Math.min(1920, Math.round(Number(o.x) || 760)));
@@ -2391,11 +2339,9 @@ function whEdNorm(o = {}) {
   const tdy = o.textDY == null
     ? (size / 2 + 8 + Math.max(16, size * 0.065) * 0.6)
     : (Number(o.textDY) || 0);
-  const fs = Math.max(16, Math.round(size * 0.065));
-  // окно текста: своя ширина (перенос строк) и свой размер шрифта (0 = авто от колеса)
-  const bw = Math.max(120, Math.round(Number(o.textW) || size * 1.1));
   const tfs = Math.max(0, Math.round(Number(o.textFontSize) || 0));
-  const thEst = (tfs || fs) * 1.3;
+  const bw = Math.max(60, Math.round(Number(o.textW) || size * 1.1));
+  const thEst = (tfs || Math.max(16, Math.round(size * 0.065))) * 1.3;
   const objects = [
     { id: 'wheel-0', type: 'wheel', x: cx - size / 2, y: cy - size / 2, w: size, h: size, opacity: 100, z: 5,
       arrowAngle: Math.max(0, Math.min(359, Math.round(Number(o.arrowAngle) || 0))),
@@ -2417,11 +2363,11 @@ function whEdNorm(o = {}) {
   return objects;
 }
 
-/** Обратно: объекты редактора → настройки оверлея (whOverlay — источник правды для сохранения). */
+/** Объекты редактора → настройки оверлея (whOverlay — источник правды для сохранения). */
 function whSync() {
-  const wheel = whEd.objects.find((x) => x.type === 'wheel');
-  const text = whEd.objects.find((x) => x.type === 'text');
-  const images = whEd.objects.filter((x) => x.type === 'image');
+  const wheel = whEd.find((x) => x.type === 'wheel');
+  const text = whEd.find((x) => x.type === 'text');
+  const images = whEd.filter((x) => x.type === 'image');
   if (wheel) {
     whOverlay.x = Math.round(wheel.x + wheel.w / 2);
     whOverlay.y = Math.round(wheel.y + wheel.h / 2);
@@ -2432,645 +2378,279 @@ function whSync() {
   if (text && wheel) {
     whOverlay.textDX = Math.round(text.x + text.w / 2 - (wheel.x + wheel.w / 2));
     whOverlay.textDY = Math.round(text.y + text.h / 2 - (wheel.y + wheel.h / 2));
-    whOverlay.textW = Math.round(text.w); // ширина окна (перенос строк)
-    whOverlay.textFontSize = Number(text.fontSize) || 0; // 0 = авто от колеса
+    whOverlay.textW = Math.round(text.w);
+    whOverlay.textFontSize = Number(text.fontSize) || 0;
     whOverlay.textColor = text.color || '#ffffff';
     whOverlay.textOpacity = text.opacity ?? 100;
   }
   whOverlay.images = images;
 }
 
-function whEdLoad(o = {}) {
-  whEd.objects = whEdNorm(o);
-  whEd.sel = 0;
-  whEd.selSet = new Set([0]);
-  whHist.length = 0;
-  whRedoStack.length = 0;
-  whRenderStage();
-  whRenderProps();
-}
-
-function whWheel() { return whEd.objects.find((x) => x.type === 'wheel'); }
-
-/** Превью текста победителя (шаблон с болванками). */
 function whTextMockText() {
   return (whOverlay.winnerTemplate || '🏆 {user} → {label}')
     .replaceAll('{user}', 'юзер').replaceAll('{label}', 'вариант');
 }
 
-function whRenderStage() {
-  const stage = $('#wh-stage');
-  if (!stage) return;
-  const k = whK();
-  const wheel = whWheel();
-  stage.innerHTML = '';
-  const sorted = whEd.objects.map((o, i) => ({ o, i })).sort((a, b) => (a.o.z ?? 0) - (b.o.z ?? 0));
-  for (const { o, i } of sorted) {
-    const sel = whEd.selSet.has(i);
-    if (o.type === 'wheel') {
-      const div = document.createElement('div');
-      div.className = `plp-obj wh-wheel-mock${sel ? ' sel' : ''}`;
-      div.dataset.i = i;
-      div.style.left = `${o.x * k}px`;
-      div.style.top = `${o.y * k}px`;
-      div.style.width = `${o.w * k}px`;
-      div.style.height = `${o.h * k}px`;
-      div.style.opacity = String((o.opacity ?? 100) / 100);
-      div.style.background = whMockGradient() || 'linear-gradient(0deg, #8b5cf6, #8b5cf6)';
-      if (whEd.selSet.size === 1 && sel) {
-        const h = document.createElement('div');
-        h.className = 'plp-resize';
-        div.appendChild(h);
-      }
-      // стрелка — прижата к ободу снаружи (та же формула, что на оверлее: r + 10)
-      const a = ((Number(o.arrowAngle) || 0) * Math.PI) / 180;
-      const rotRad = ((Number(o.arrowRotate) || 0) * Math.PI) / 180;
-      const r = (o.w * k) / 2;
-      const ax = r + Math.cos(a + Math.PI) * (r + 10);
-      const ay = r + Math.sin(a + Math.PI) * (r + 10);
-      const arrow = document.createElement('div');
-      arrow.className = 'wh-arrow-mock';
-      arrow.style.left = `${Math.round(ax - 14)}px`;
-      arrow.style.top = `${Math.round(ay - 11)}px`;
-      arrow.style.transform = `rotate(${a + Math.PI / 2 + rotRad}rad)${whArrowHint ? ' scale(1.25)' : ''}`;
-      arrow.title = 'тяни — едет по кругу; за ↻ — вращается сама; двойной клик — сброс поворота';
-      div.appendChild(arrow);
-      if (sel) {
-        const nx = -Math.cos(a), ny = -Math.sin(a);
-        const cnx = nx * Math.cos(rotRad) - ny * Math.sin(rotRad);
-        const cny = nx * Math.sin(rotRad) + ny * Math.cos(rotRad);
-        const rotHandle = document.createElement('div');
-        rotHandle.className = 'wh-rot-handle';
-        rotHandle.textContent = '↻';
-        rotHandle.title = 'вращение стрелки — тяни по кругу';
-        rotHandle.style.left = `${Math.round(ax + cnx * 34)}px`;
-        rotHandle.style.top = `${Math.round(ay + cny * 34)}px`;
-        div.appendChild(rotHandle);
-      }
-      if (whArrowHint === 'angle') {
-        const bx = r + Math.cos(a + Math.PI) * (r + 36);
-        const by = r + Math.sin(a + Math.PI) * (r + 36);
-        const badge = document.createElement('div');
-        badge.className = 'wh-angle-badge';
-        badge.textContent = `${Math.round(((Number(o.arrowAngle) || 0) + 360) % 360)}°`;
-        badge.style.left = `${Math.round(bx)}px`;
-        badge.style.top = `${Math.round(by)}px`;
-        div.appendChild(badge);
-      } else if (whArrowHint === 'rot') {
-        const nx = -Math.cos(a), ny = -Math.sin(a);
-        const cnx = nx * Math.cos(rotRad) - ny * Math.sin(rotRad);
-        const cny = nx * Math.sin(rotRad) + ny * Math.cos(rotRad);
-        const badge = document.createElement('div');
-        badge.className = 'wh-angle-badge';
-        badge.textContent = `↻ ${Math.round(Number(o.arrowRotate) || 0)}°`;
-        badge.style.left = `${Math.round(ax + cnx * 58)}px`;
-        badge.style.top = `${Math.round(ay + cny * 58)}px`;
-        div.appendChild(badge);
-      }
-      stage.appendChild(div);
-    } else if (o.type === 'text') {
-      const div = document.createElement('div');
-      div.className = `plp-obj wh-text-mock${sel ? ' sel' : ''}`;
-      div.dataset.i = i;
-      div.style.left = `${o.x * k}px`;
-      div.style.top = `${o.y * k}px`;
-      div.style.width = `${Math.max(60, o.w) * k}px`;
-      div.style.opacity = String((o.opacity ?? 100) / 100);
-      div.style.color = o.color || '#ffffff';
-      div.style.fontSize = `${Math.round((Number(o.fontSize) || Math.max(16, (wheel ? wheel.w : 400) * 0.065)) * k)}px`;
-      div.textContent = whTextMockText();
-      div.title = 'текст победителя — тяни куда угодно, уголок — ширина окна; двойной клик — вернуть под колесо';
-      if (whEd.selSet.size === 1 && sel) {
-        const h = document.createElement('div');
-        h.className = 'plp-resize';
-        div.appendChild(h);
-      }
-      stage.appendChild(div);
-      // высоту меряем по содержимому (перенос строк) — для рамки выделения и магнитов
-      const r = div.getBoundingClientRect();
-      o.h = Math.round(r.height / k);
-    } else if (o.type === 'image') {
-      const div = document.createElement('div');
-      div.className = `plp-obj wh-obj-image${sel ? ' sel' : ''}`;
-      div.dataset.i = i;
-      div.style.left = `${o.x * k}px`;
-      div.style.top = `${o.y * k}px`;
-      div.style.width = `${o.w * k}px`;
-      div.style.height = `${o.h * k}px`;
-      div.style.opacity = String((o.opacity ?? 100) / 100);
-      div.style.borderRadius = `${(o.radius || 0) * k}px`;
-      if (o.borderWidth) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor || '#8b5cf6'}`;
-      if (o.image) div.style.backgroundImage = `url(/media/${encodeURIComponent(o.image)})`;
-      if (whEd.selSet.size === 1 && sel) {
-        const h = document.createElement('div');
-        h.className = 'plp-resize';
-        div.appendChild(h);
-      }
-      stage.appendChild(div);
-    }
-  }
-}
-
-// ---------- «магнит»: прилипание центров/краёв к осям и к другим объектам ----------
-const WH_SNAP = 14;
-
-function whSnapAxis(anchors, targets) {
-  let best = null;
-  for (const a of anchors) {
-    for (const t of targets) {
-      const d = t.pos - a;
-      if (Math.abs(d) <= WH_SNAP && (best === null || Math.abs(d) < Math.abs(best.shift))) best = { shift: d, target: t };
-    }
-  }
-  return best;
-}
-
-function whSnap(nx, ny, self, idx) {
-  const others = whEd.objects.filter((_, j) => j !== idx && !whEd.selSet.has(j));
-  const anchorsX = [nx, nx + self.w / 2, nx + self.w];
-  const anchorsY = [ny, ny + self.h / 2, ny + self.h];
-  const targetsX = [{ pos: 960, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.x, kind: 'obj' }, { pos: t.x + t.w / 2, kind: 'obj' }, { pos: t.x + t.w, kind: 'obj' }])];
-  const targetsY = [{ pos: 540, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.y, kind: 'obj' }, { pos: t.y + t.h / 2, kind: 'obj' }, { pos: t.y + t.h, kind: 'obj' }])];
-  const gx = whSnapAxis(anchorsX, targetsX);
-  const gy = whSnapAxis(anchorsY, targetsY);
-  return { x: nx + (gx ? gx.shift : 0), y: ny + (gy ? gy.shift : 0), guides: { v: gx ? gx.target : null, h: gy ? gy.target : null } };
-}
-
-// направляющие: синий пунктир — ось сцены, оранжевый — центр/край другого объекта.
-// рисуются ТОЛЬКО когда реально прилипли
-function whGuides({ v, h }) {
-  $('#wh-guide-v')?.remove();
-  $('#wh-guide-h')?.remove();
-  if (!v && !h) return;
-  const stage = $('#wh-stage');
-  const k = whK();
-  if (v) {
-    const g = document.createElement('div');
-    g.id = 'wh-guide-v';
-    g.className = `plp-guide plp-guide-v ${v.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
-    g.style.left = `${v.pos * k}px`;
-    stage.appendChild(g);
-  }
-  if (h) {
-    const g = document.createElement('div');
-    g.id = 'wh-guide-h';
-    g.className = `plp-guide plp-guide-h ${h.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
-    g.style.top = `${h.pos * k}px`;
-    stage.appendChild(g);
-  }
-}
-
-// ---------- drag / resize / рамка / стрелка ----------
-(() => {
-  const stage = $('#wh-stage');
-  if (!stage) return;
-  let mode = null; // 'move' | 'resize' | 'band' | 'arrow' | 'arrowself'
-  let idx = -1;
-  let grabX = 0, grabY = 0;
-  let starts = null;
-  let band = null;
-  let bandShift = false;
-  let moved = false;
-  let pendingGuides = null;
-
-  function snapshot() {
-    starts = new Map();
-    for (const i of whEd.selSet) starts.set(i, { ...whEd.objects[i] });
-    // текст едет вместе с колесом (это один виджет) — добавляем его в «перемещаемое»
-    const wheelI = whEd.objects.findIndex((x) => x.type === 'wheel');
-    const textI = whEd.objects.findIndex((x) => x.type === 'text');
-    if (wheelI >= 0 && textI >= 0 && starts.has(wheelI) && !starts.has(textI)) starts.set(textI, { ...whEd.objects[textI] });
-  }
-
-  stage.addEventListener('pointerdown', (e) => {
-    const rotHandle = e.target.closest('.wh-rot-handle');
-    const arrow = e.target.closest('.wh-arrow-mock');
-    const handle = e.target.closest('.plp-resize');
-    const obj = e.target.closest('.plp-obj');
-    grabX = e.clientX; grabY = e.clientY;
-    moved = false;
-    stage.setPointerCapture?.(e.pointerId);
-
-    if (rotHandle || arrow) {
-      // работа со стрелкой: позиция по кругу / собственное вращение
-      mode = rotHandle ? 'arrowself' : 'arrow';
-      whArrowHint = rotHandle ? 'rot' : 'angle';
-      idx = whEd.objects.findIndex((x) => x.type === 'wheel');
-      whPush();
-      whRenderStage();
-      e.preventDefault();
-      return;
-    }
-
-    if (!obj) {
-      // пустое место: короткий клик снимет выделение, потянешь — рамка «как в винде»
-      mode = 'band';
-      bandShift = e.shiftKey;
-      band = { x: e.clientX, y: e.clientY, w: 0, h: 0 };
-      whGuides({ v: null, h: null });
-      e.preventDefault();
-      return;
-    }
-
-    idx = Number(obj.dataset.i);
-    if (e.shiftKey) {
-      if (whEd.selSet.has(idx)) whEd.selSet.delete(idx);
-      else whEd.selSet.add(idx);
-    } else if (!whEd.selSet.has(idx)) {
-      whEd.selSet = new Set([idx]);
-    }
-    if (!whEd.selSet.size) whEd.selSet = new Set([idx]);
-    whEd.sel = whEd.selSet.has(idx) ? idx : [...whEd.selSet][0];
-
-    const o = whEd.objects[idx];
-    if (handle && whEd.selSet.size === 1) mode = 'resize'; // колесо/картинка/окно текста
-    else mode = 'move';
-    snapshot();
-    whPush(); // снимок до жеста — для ctrl+z
-    whRenderStage();
-    whRenderProps();
-    e.preventDefault();
-  });
-
-  function bandRect(e) {
-    const r = stage.getBoundingClientRect();
-    const x0 = Math.min(grabX, e.clientX) - r.left;
-    const y0 = Math.min(grabY, e.clientY) - r.top;
-    const x1 = Math.max(grabX, e.clientX) - r.left;
-    const y1 = Math.max(grabY, e.clientY) - r.top;
-    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
-  }
-
-  stage.addEventListener('pointermove', (e) => {
-    if (!mode) return;
-    const k = whK();
-    moved = true;
-
-    if (mode === 'band') {
-      band = bandRect(e);
-      $('#wh-band')?.remove();
-      const b = document.createElement('div');
-      b.id = 'wh-band';
-      b.style.left = `${band.x}px`;
-      b.style.top = `${band.y}px`;
-      b.style.width = `${band.w}px`;
-      b.style.height = `${band.h}px`;
-      stage.appendChild(b);
-      return;
-    }
-
-    const wheel = whWheel();
-
-    if (mode === 'arrow') {
-      // угол стрелки = позиция курсора относительно центра колеса (0=лево, 90=верх…)
-      const rect = stage.getBoundingClientRect();
-      const mx = e.clientX - (rect.left + (wheel.x + wheel.w / 2) * k);
-      const my = e.clientY - (rect.top + (wheel.y + wheel.h / 2) * k);
-      const deg = Math.round(((Math.atan2(my, mx) * 180) / Math.PI + 180 + 360) % 360);
-      wheel.arrowAngle = Math.max(0, Math.min(359, deg));
-      whRenderStage();
-      return;
-    }
-    if (mode === 'arrowself') {
-      // собственный поворот: носик смотрит на курсор
-      const s2 = (wheel.w * k) / 2;
-      const aRad = ((Number(wheel.arrowAngle) || 0) * Math.PI) / 180;
-      const acx = s2 + Math.cos(aRad + Math.PI) * (s2 + 10);
-      const acy = s2 + Math.sin(aRad + Math.PI) * (s2 + 10);
-      const rect = stage.getBoundingClientRect();
-      const mx = e.clientX - rect.left - (wheel.x * k) - acx;
-      const my = e.clientY - rect.top - (wheel.y * k) - acy;
-      let d = (Math.atan2(my, mx) - (aRad + Math.PI)) * 180 / Math.PI;
-      d = ((Math.round(d) % 360) + 540) % 360 - 180;
-      wheel.arrowRotate = d;
-      whRenderStage();
-      return;
-    }
-
-    const dx = (e.clientX - grabX) / k;
-    const dy = (e.clientY - grabY) / k;
-
-    if (mode === 'move') {
-      const anchor = starts.get(idx);
-      if (!anchor) return;
-      const rawX = anchor.x + dx;
-      const rawY = anchor.y + dy;
-      const snap = whSnap(rawX, rawY, anchor, idx); // магнит считаем по якорю
-      pendingGuides = snap.guides; // нарисуем ПОСЛЕ перерисовки, иначе innerHTML их сотрёт
-      const shiftX = snap.x - rawX; // прилипание переносим всей группе — едет монолитно
-      const shiftY = snap.y - rawY;
-      for (const [i, s] of starts) {
-        const o = whEd.objects[i];
-        o.x = Math.round(Math.max(-500, Math.min(2500, s.x + dx + shiftX)));
-        o.y = Math.round(Math.max(-500, Math.min(2500, s.y + dy + shiftY)));
-      }
-    } else if (mode === 'resize') {
-      const o = whEd.objects[idx];
-      const s = starts.get(idx);
-      if (o.type === 'wheel') {
-        o.w = Math.round(Math.max(100, Math.min(800, s.w + dx * 2)));
-        o.h = o.w; // круг
-      } else if (o.type === 'text') {
-        o.w = Math.round(Math.max(60, Math.min(2500, s.w + dx))); // окно шире/уже; высота — по тексту
-      } else {
-        o.w = Math.round(Math.max(20, Math.min(2500, s.w + dx)));
-        o.h = Math.round(Math.max(20, Math.min(2500, s.h + dy)));
-      }
-    }
-    whSync();
-    whRenderStage();
-    whRenderProps();
-    if (pendingGuides) { whGuides(pendingGuides); pendingGuides = null; }
-  });
-
-  const stop = (e) => {
-    if (mode === 'band') {
-      $('#wh-band')?.remove();
-      // клик по пустому (без движения) — снять выделение; потянули — выбрать рамкой
-      if (!moved && !bandShift) {
-        whEd.selSet = new Set();
-        whEd.sel = -1;
-      } else if (band && (band.w > 3 || band.h > 3)) {
-        if (!bandShift) whEd.selSet = new Set();
-        const k = whK();
-        for (const [i, o] of whEd.objects.entries()) {
-          const r = { x: o.x * k, y: o.y * k, w: o.w * k, h: o.h * k };
-          if (r.x < band.x + band.w && r.x + r.w > band.x && r.y < band.y + band.h && r.y + r.h > band.y) whEd.selSet.add(i);
-        }
-        if (whEd.selSet.size) whEd.sel = [...whEd.selSet].at(-1);
-      }
-      whRenderStage();
-      whRenderProps();
-    }
-    mode = null;
-    starts = null;
-    band = null;
-    whArrowHint = null;
-    whGuides({ v: null, h: null });
-  };
-  stage.addEventListener('pointerup', stop);
-  stage.addEventListener('pointercancel', stop);
-
-  // двойной клик: по стрелке — сброс поворота, по тексту — вернуть под колесо
-  stage.addEventListener('dblclick', (e) => {
+const whEngine = EditorEngine.create({
+  stage: $('#wh-stage'),
+  chips: $('#wh-objects'),
+  props: $('#wh-props'),
+  objects: whEd,
+  k: whK,
+  onChange: whSync,
+  hotkeyGate: () => {
+    const st = $('#wh-stage');
+    return Boolean(st?.closest('details')?.open) && Boolean(st?.offsetParent);
+  },
+  propsHint: '<p class="hint">Стрелку тянуть прямо в превью: за неё — едет по кругу, за ↻ — вращается сама. Слой картинки ≥6 — над колесом, ≤4 — под.</p>',
+  onDblclick: (o, e) => {
     if (e.target.closest('.wh-arrow-mock')) {
-      const wheel = whWheel();
-      if (wheel) { wheel.arrowRotate = 0; whSync(); whRenderStage(); }
+      o.arrowRotate = 0;
+      whSync();
+      whEngine.rerender();
       return;
     }
-    if (e.target.closest('.wh-text-mock')) {
-      const wheel = whWheel();
-      const text = whEd.objects.find((x) => x.type === 'text');
-      if (wheel && text) {
-        whPush();
-        text.x = Math.round(wheel.x + wheel.w / 2 - text.w / 2);
-        text.y = Math.round(wheel.y + wheel.h / 2 + 8 + Math.max(16, wheel.w * 0.065) * 0.6 - text.h / 2);
-        whSync();
-        whRenderStage();
-        toast('Текст вернулся под колесо');
-      }
+    if (o.type === 'text') {
+      const wheel = whEd.find((x) => x.type === 'wheel');
+      if (!wheel) return;
+      o.x = Math.round(wheel.x + wheel.w / 2 - o.w / 2);
+      o.y = Math.round(wheel.y + wheel.h / 2 + 8 + Math.max(16, wheel.w * 0.065) * 0.6 - o.h / 2);
+      whSync();
+      whEngine.rerender();
+      toast('Текст вернулся под колесо');
     }
-  });
-})();
-
-// любые контролы свойств: снимок истории при первом касании (жест = одно undo)
-$('#wh-props')?.addEventListener('pointerdown', whPushThrottled);
-
-// ---------- свойства выделенного (одного или группы) ----------
-function whRenderProps() {
-  const chips = $('#wh-objects');
-  const props = $('#wh-props');
-  if (!chips || !props) return;
-  chips.innerHTML = whEd.objects.map((o, i) =>
-    `<span class="chip${whEd.selSet.has(i) ? ' sel' : ''}" data-i="${i}">${WH_TYPE_RU[o.type] ?? o.type}${o.type === 'image' && o.image ? ` · ${esc(o.image)}` : ''}</span>`
-  ).join('') || '<span class="hint">объектов нет</span>';
-
-  if (!whEd.selSet.size) {
-    props.innerHTML = '<p class="hint">Клик — выделить объект · shift+клик — несколько · потяни по пустому месту — рамка, как на рабочем столе.<br>Хоткеи: <b>ctrl+z</b> отменить · <b>ctrl+y</b> вернуть · <b>ctrl+c/x/v</b> копировать/вырезать/вставить (картинки).<br>Слой картинки ≥6 — над колесом, ≤4 — под ним.</p>';
-    return;
-  }
-
-  const imagesOnly = [...whEd.selSet].every((i) => whEd.objects[i].type === 'image');
-
-  if (whEd.selSet.size > 1) {
-    props.innerHTML = `
-      <p class="hint">выделено: ${whEd.selSet.size} — тащатся вместе, магнит считается по тому, за который взялся</p>
-      <label>прозрачность всем
-        <div class="am-sound-row"><input type="range" id="whp-op" min="0" max="100" value="${whEd.objects[whEd.sel]?.opacity ?? 100}" /><span class="hint" id="whp-op-val">${whEd.objects[whEd.sel]?.opacity ?? 100}%</span></div>
-      </label>
-      <div class="rp-row">
-        <button class="act ghost" id="whp-zup" title="поднять всем">▲ слой</button>
-        <button class="act ghost" id="whp-zdown" title="опустить всем">▼ слой</button>
-        ${imagesOnly ? '<button class="act ghost" id="whp-del">🗑 удалить выбранное</button>' : '<span class="hint">колесо и текст — одни на рулетку, не удаляются</span>'}
-      </div>`;
-    $('#whp-op')?.addEventListener('input', () => {
-      const v = Number($('#whp-op').value);
-      $('#whp-op-val').textContent = `${v}%`;
-      for (const i of whEd.selSet) whEd.objects[i].opacity = v;
-      whRenderStage();
-    });
-    $('#whp-zup')?.addEventListener('click', () => { for (const i of whEd.selSet) whEd.objects[i].z = Math.min(30, (whEd.objects[i].z ?? 1) + 1); whSync(); whRenderStage(); whRenderProps(); });
-    $('#whp-zdown')?.addEventListener('click', () => { for (const i of whEd.selSet) whEd.objects[i].z = Math.max(0, (whEd.objects[i].z ?? 1) - 1); whSync(); whRenderStage(); whRenderProps(); });
-    $('#whp-del')?.addEventListener('click', () => {
-      whPush();
-      whEd.objects = whEd.objects.filter((_, i) => !whEd.selSet.has(i));
-      whEd.selSet = new Set();
-      whEd.sel = -1;
-      whSync();
-      whRenderStage();
-      whRenderProps();
-    });
-    return;
-  }
-
-  const o = whEd.objects[whEd.sel];
-  if (!o) { props.innerHTML = ''; return; }
-
-  const row = (label, html) => `<label>${label}<div class="am-sound-row">${html}</div></label>`;
-  let html = '';
-  if (o.type === 'wheel') {
-    html = `
-      ${row(`размер, px <span class="hint" id="whp-w-val">${o.w}</span>`, `<input type="range" id="whp-w" min="100" max="800" value="${o.w}" />`)}
-      ${row(`стрелка: угол по кругу <span class="hint" id="whp-ang-val">${o.arrowAngle}°</span>`, `<input type="range" id="whp-ang" min="0" max="359" value="${o.arrowAngle}" />`)}
-      ${row(`стрелка: свой поворот <span class="hint" id="whp-rot-val">${o.arrowRotate}°</span>`, `<input type="range" id="whp-rot" min="-180" max="180" value="${o.arrowRotate}" />`)}
-      <div class="rp-row">
-        <label class="hint">слой: </label>
-        <button class="act ghost" id="whp-zup" title="поднять слой">▲</button>
-        <span class="hint">z=${o.z}</span>
-        <button class="act ghost" id="whp-zdown" title="опустить слой">▼</button>
-      </div>
-      <p class="hint">Стрелку можно тянуть прямо в превью: за неё — едет по кругу, за ↻ — вращается. Двойной клик — сброс.</p>`;
-  } else if (o.type === 'text') {
-    html = `
-      ${row(`шрифт, px <span class="hint" id="whp-fs-val">${Number(o.fontSize) ? o.fontSize : 'авто'}</span>`, `<input type="range" id="whp-fs" min="0" max="150" value="${Number(o.fontSize) || 0}" title="0 = автоподбор от размера колеса" />`)}
-      ${row(`ширина окна, px <span class="hint" id="whp-w-val">${o.w}</span>`, `<input type="range" id="whp-w" min="60" max="2000" value="${o.w}" title="длинный текст переносится строками" />`)}
-      ${row('цвет', `<input type="color" id="whp-color" value="${esc(o.color || '#ffffff')}" />`)}
-      ${row('прозрачность', `<input type="range" id="whp-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="whp-op-val">${o.opacity}%</span>`)}
-      <div class="rp-row">
-        <label class="hint">слой: </label>
-        <button class="act ghost" id="whp-zup" title="поднять слой">▲</button>
-        <span class="hint">z=${o.z}</span>
-        <button class="act ghost" id="whp-zdown" title="опустить слой">▼</button>
-      </div>
-      <p class="hint">Текст тяни мышкой, уголок — ширина окна, двойной клик — вернуть под колесо. Шрифт «авто» подстраивается под размер колеса.</p>`;
-  } else if (o.type === 'image') {
-    html = `
-      ${row(`ширина, px <span class="hint" id="whp-w-val">${o.w}</span>`, `<input type="range" id="whp-w" min="20" max="2000" value="${o.w}" />`)}
-      ${row('прозрачность', `<input type="range" id="whp-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="whp-op-val">${o.opacity}%</span>`)}
-      ${row('грань (обводка)', `<span class="hint">цвет</span><input type="color" id="whp-b2color" value="${esc(o.borderColor || '#8b5cf6')}" /><span class="hint">толщ</span><input type="range" id="whp-bw" min="0" max="12" value="${o.borderWidth ?? 0}" style="width:90px" /><span class="hint" id="whp-bw-val">${o.borderWidth ?? 0}px</span>`)}
-      ${row('вид', `<span class="hint">углы</span><input type="number" id="whp-radius" min="0" max="120" value="${o.radius || 0}" style="width:56px" />`)}
-      <label>картинка <select id="whp-img"></select></label>
-      <div class="am-sound-row"><input type="file" id="whp-img-file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="max-width:220px" /><button class="act ghost" id="whp-img-up" title="загрузить и поставить сюда">⬆</button></div>
-      <div class="rp-row">
-        <label class="hint">слой: </label>
-        <button class="act ghost" id="whp-zup" title="поднять слой">▲</button>
-        <span class="hint">z=${o.z}</span>
-        <button class="act ghost" id="whp-zdown" title="опустить слой">▼</button>
-        <button class="act ghost" id="whp-del" title="удалить этот элемент">🗑 Удалить элемент</button>
-      </div>`;
-  }
-  props.innerHTML = html;
-
-  const bindNum = (id, valId, fn) => {
-    const el = $(id);
-    if (!el) return;
-    el.addEventListener('input', () => {
-      whPushThrottled();
-      fn(el);
-      const v = $(valId);
-      if (v) v.textContent = el.value;
-      whSync();
-      whRenderStage();
-    });
-  };
-  bindNum('#whp-w', '#whp-w-val', (el) => {
-    const mn = o.type === 'text' ? 60 : 100;
-    o.w = Math.max(mn, Math.min(o.type === 'wheel' ? 800 : 2000, Number(el.value) || mn));
-    if (o.type === 'wheel') o.h = o.w;
-  });
-  bindNum('#whp-fs', '#whp-fs-val', (el) => {
-    o.fontSize = Math.max(0, Math.min(150, Number(el.value) || 0));
-    const v = $('#whp-fs-val');
-    if (v) v.textContent = Number(o.fontSize) ? String(o.fontSize) : 'авто';
-  });
-  bindNum('#whp-ang', '#whp-ang-val', (el) => { o.arrowAngle = Math.max(0, Math.min(359, Number(el.value) || 0)); });
-  bindNum('#whp-rot', '#whp-rot-val', (el) => { o.arrowRotate = Math.max(-180, Math.min(180, Number(el.value) || 0)); });
-  $('#whp-color')?.addEventListener('input', () => { o.color = $('#whp-color').value; whRenderStage(); });
-  $('#whp-op')?.addEventListener('input', () => {
-    o.opacity = Number($('#whp-op').value);
-    $('#whp-op-val').textContent = `${o.opacity}%`;
-    whRenderStage();
-  });
-  $('#whp-radius')?.addEventListener('input', () => { o.radius = Number($('#whp-radius').value) || 0; whRenderStage(); });
-  $('#whp-b2color')?.addEventListener('input', () => { o.borderColor = $('#whp-b2color').value; whRenderStage(); });
-  $('#whp-bw')?.addEventListener('input', () => {
-    o.borderWidth = Number($('#whp-bw').value) || 0;
-    $('#whp-bw-val').textContent = `${o.borderWidth}px`;
-    whRenderStage();
-  });
-  $('#whp-zup')?.addEventListener('click', () => { o.z = Math.min(30, (o.z ?? 1) + 1); whSync(); whRenderStage(); whRenderProps(); });
-  $('#whp-zdown')?.addEventListener('click', () => { o.z = Math.max(0, (o.z ?? 1) - 1); whSync(); whRenderStage(); whRenderProps(); });
-
-  const imgSel = $('#whp-img');
-  if (imgSel) {
-    api('/api/media').then(({ files }) => {
-      const images = files.filter((f) => ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'apng'].includes(fileExt(f)));
-      imgSel.innerHTML = ['<option value="">— не задано —</option>',
-        ...images.map((f) => `<option value="${esc(f)}" ${o.image === f ? 'selected' : ''}>${esc(f)}</option>`)].join('');
-    }).catch(() => {});
-    imgSel.addEventListener('change', () => { o.image = imgSel.value; whSync(); whRenderStage(); whRenderProps(); });
-    $('#whp-img-up')?.addEventListener('click', async () => {
-      const file = $('#whp-img-file')?.files?.[0];
-      if (!file) { toast('Сначала выбери картинку', true); return; }
-      try {
-        const r = await fetch(`/api/media/upload?name=${encodeURIComponent(file.name)}`, {
-          method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
+  },
+  types: {
+    // ---------- 🎡 колесо с стрелкой ----------
+    wheel: {
+      label: '🎡 колесо',
+      copyable: false, // одно на рулетку
+      render: (o, div, api) => {
+        div.classList.add('wh-wheel-mock');
+        div.style.borderRadius = '50%';
+        div.style.background = whMockGradient() || 'linear-gradient(0deg, #8b5cf6, #8b5cf6)';
+        const kk = api.k();
+        const a = ((Number(o.arrowAngle) || 0) * Math.PI) / 180;
+        const rot = ((Number(o.arrowRotate) || 0) * Math.PI) / 180;
+        const rPx = (o.w * kk) / 2;
+        // стрелка прижата к ободу снаружи, носиком от центра (та же формула, что на оверлее: r + 10)
+        const ax = rPx + Math.cos(a + Math.PI) * (rPx + 10);
+        const ay = rPx + Math.sin(a + Math.PI) * (rPx + 10);
+        const arrow = document.createElement('div');
+        arrow.className = 'wh-arrow-mock';
+        arrow.style.left = `${Math.round(ax - 14)}px`;
+        arrow.style.top = `${Math.round(ay - 11)}px`;
+        arrow.style.transform = `rotate(${a + Math.PI / 2 + rot}rad)`;
+        arrow.title = 'тяни — едет по кругу; за ↻ — вращается сама; двойной клик — сброс поворота';
+        div.appendChild(arrow);
+        if (api.getSelection().has(whEd.indexOf(o))) {
+          const nx = -Math.cos(a), ny = -Math.sin(a);
+          const cnx = nx * Math.cos(rot) - ny * Math.sin(rot);
+          const cny = nx * Math.sin(rot) + ny * Math.cos(rot);
+          const rh = document.createElement('div');
+          rh.className = 'wh-rot-handle';
+          rh.textContent = '↻';
+          rh.title = 'вращение стрелки — тяни по кругу';
+          rh.style.left = `${Math.round(ax + cnx * 34)}px`;
+          rh.style.top = `${Math.round(ay + cny * 34)}px`;
+          div.appendChild(rh);
+        }
+      },
+      resize: (o, s, dx) => { // круг: сторона растёт в обе стороны, форма не меняется
+        o.w = Math.round(Math.max(100, Math.min(800, s.w + dx * 2)));
+        o.h = o.w;
+      },
+      handles: [
+        { // стрелка едет по кругу вокруг колеса
+          selector: '.wh-arrow-mock',
+          drag: (o, api, ev) => {
+            if (!ev) return;
+            const { sx, sy } = api.scene(ev);
+            const cx = o.x + o.w / 2;
+            const cy = o.y + o.h / 2;
+            const deg = Math.round(((Math.atan2(sy - cy, sx - cx) * 180) / Math.PI + 180 + 360) % 360);
+            o.arrowAngle = Math.max(0, Math.min(359, deg));
+            api.setHint({ x: cx, y: cy, text: `${o.arrowAngle}°` });
+            whSync();
+            api.rerender();
+          },
+        },
+        { // ↻: стрелка вращается сама (носик смотрит на курсор)
+          selector: '.wh-rot-handle',
+          drag: (o, api, ev) => {
+            if (!ev) return;
+            const { sx, sy } = api.scene(ev);
+            const aRad = ((Number(o.arrowAngle) || 0) * Math.PI) / 180;
+            const cx = o.x + o.w / 2 + Math.cos(aRad + Math.PI) * (o.w / 2 + 10);
+            const cy = o.y + o.h / 2 + Math.sin(aRad + Math.PI) * (o.w / 2 + 10);
+            let d = (Math.atan2(sy - cy, sx - cx) - (aRad + Math.PI)) * 180 / Math.PI;
+            d = ((Math.round(d) % 360) + 540) % 360 - 180;
+            o.arrowRotate = d;
+            api.setHint({ x: cx, y: cy, text: `↻ ${d}°` });
+            whSync();
+            api.rerender();
+          },
+        },
+      ],
+      props: (o) => `
+        <label>размер, px
+          <div class="am-sound-row"><input type="range" id="whp-w" min="100" max="800" value="${o.w}" /><span class="hint" id="whp-w-val">${o.w}</span></div>
+        </label>
+        <label>стрелка: угол по кругу
+          <div class="am-sound-row"><input type="range" id="whp-ang" min="0" max="359" value="${o.arrowAngle}" /><span class="hint" id="whp-ang-val">${o.arrowAngle}° (0=лево, 90=верх)</span></div>
+        </label>
+        <label>стрелка: свой поворот
+          <div class="am-sound-row"><input type="range" id="whp-rot" min="-180" max="180" value="${o.arrowRotate}" /><span class="hint" id="whp-rot-val">${o.arrowRotate}°</span></div>
+        </label>`,
+      bind: (o, api) => {
+        const num = (id, valId, fn, valText) => {
+          const elr = $(id);
+          if (!elr) return;
+          elr.addEventListener('input', () => {
+            api.pushThrottled();
+            fn(elr);
+            const v = $(valId);
+            if (v) v.textContent = valText ? valText(elr) : elr.value;
+            whSync();
+            api.rerender();
+          });
+        };
+        num('#whp-w', '#whp-w-val', (el) => { o.w = Math.max(100, Math.min(800, Number(el.value) || 100)); o.h = o.w; });
+        num('#whp-ang', '#whp-ang-val', (el) => { o.arrowAngle = Math.max(0, Math.min(359, Number(el.value) || 0)); }, (el) => `${el.value}° (0=лево, 90=верх)`);
+        num('#whp-rot', '#whp-rot-val', (el) => { o.arrowRotate = Math.max(-180, Math.min(180, Number(el.value) || 0)); }, (el) => `${el.value}°`);
+      },
+    },
+    // ---------- 📝 текст победителя ----------
+    text: {
+      label: '📝 текст',
+      copyable: false, // один на рулетку
+      render: (o, div, api) => {
+        div.classList.add('wh-text-mock');
+        const wheel = whEd.find((x) => x.type === 'wheel');
+        div.style.fontSize = `${Math.round((Number(o.fontSize) || Math.max(16, (wheel ? wheel.w : 400) * 0.065)) * api.k())}px`;
+        div.style.color = o.color || '#ffffff';
+        div.textContent = whTextMockText();
+        div.title = 'тяни куда угодно, уголок — ширина окна; двойной клик — вернуть под колесо';
+        // высоту уточняем по содержимому (перенос строк) — для рамки выделения и магнитов
+        setTimeout(() => {
+          const r = div.getBoundingClientRect();
+          if (r.height && api.k() > 0) {
+            const h = Math.round(r.height / api.k());
+            if (h !== o.h) o.h = h;
+          }
+        }, 0);
+      },
+      resize: (o, s, dx) => { // окно шире/уже; высота — по тексту
+        o.w = Math.round(Math.max(60, Math.min(2500, s.w + dx)));
+      },
+      props: (o) => `
+        <label>шрифт, px
+          <div class="am-sound-row"><input type="range" id="whp-fs" min="0" max="150" value="${Number(o.fontSize) || 0}" title="0 = автоподбор от размера колеса" /><span class="hint" id="whp-fs-val">${Number(o.fontSize) ? o.fontSize : 'авто'}</span></div>
+        </label>
+        <label>ширина окна, px
+          <div class="am-sound-row"><input type="range" id="whp-tw" min="60" max="2000" value="${o.w}" title="длинный текст переносится строками" /><span class="hint" id="whp-tw-val">${o.w}</span></div>
+        </label>
+        <label>цвет
+          <div class="am-sound-row"><input type="color" id="whp-color" value="${esc(o.color || '#ffffff')}" /> <input type="range" id="whp-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="whp-op-val">${o.opacity}%</span></div>
+        </label>`,
+      bind: (o, api) => {
+        const num = (id, valId, fn, valText) => {
+          const elr = $(id);
+          if (!elr) return;
+          elr.addEventListener('input', () => {
+            api.pushThrottled();
+            fn(elr);
+            const v = $(valId);
+            if (v) v.textContent = valText ? valText(elr) : elr.value;
+            whSync();
+            api.rerender();
+          });
+        };
+        num('#whp-fs', '#whp-fs-val', (el) => { o.fontSize = Math.max(0, Math.min(150, Number(el.value) || 0)); }, (el) => Number(el.value) ? el.value : 'авто');
+        num('#whp-tw', '#whp-tw-val', (el) => { o.w = Math.max(60, Math.min(2000, Number(el.value) || 60)); });
+        $('#whp-color')?.addEventListener('input', () => { o.color = $('#whp-color').value; whSync(); api.rerender(); });
+        $('#whp-op')?.addEventListener('input', () => { o.opacity = Number($('#whp-op').value); whSync(); api.rerender(); });
+      },
+    },
+    // ---------- 🖼 картинка-декор ----------
+    image: {
+      label: '🖼 картинка',
+      render: (o, div, api) => {
+        div.classList.add('wh-obj-image');
+        div.style.borderRadius = `${(o.radius || 0) * api.k()}px`;
+        if (o.image) div.style.backgroundImage = `url(/media/${encodeURIComponent(o.image)})`;
+      },
+      props: (o) => `
+        <label>ширина, px
+          <div class="am-sound-row"><input type="range" id="whp-iw" min="20" max="2000" value="${o.w}" /><span class="hint" id="whp-iw-val">${o.w}</span></div>
+        </label>
+        <label>прозрачность
+          <div class="am-sound-row"><input type="range" id="whp-iop" min="0" max="100" value="${o.opacity}" /><span class="hint" id="whp-iop-val">${o.opacity}%</span></div>
+        </label>
+        <label>грань (обводка)
+          <div class="am-sound-row"><span class="hint">цвет</span><input type="color" id="whp-b2color" value="${esc(o.borderColor || '#8b5cf6')}" /><span class="hint">толщ</span><input type="range" id="whp-bw" min="0" max="12" value="${o.borderWidth ?? 0}" style="width:90px" /><span class="hint" id="whp-bw-val">${o.borderWidth ?? 0}px</span></div>
+        </label>
+        <label>вид
+          <div class="am-sound-row"><span class="hint">углы</span><input type="number" id="whp-radius" min="0" max="120" value="${o.radius || 0}" style="width:56px" /></div>
+        </label>
+        <label>картинка <select id="whp-img"></select></label>
+        <div class="am-sound-row"><input type="file" id="whp-img-file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="max-width:220px" /><button class="act ghost" id="whp-img-up" title="загрузить и поставить сюда">⬆</button></div>`,
+      bind: (o, api) => {
+        const num = (id, valId, fn, valText) => {
+          const elr = $(id);
+          if (!elr) return;
+          elr.addEventListener('input', () => {
+            api.pushThrottled();
+            fn(elr);
+            const v = $(valId);
+            if (v) v.textContent = valText ? valText(elr) : elr.value;
+            whSync();
+            api.rerender();
+          });
+        };
+        num('#whp-iw', '#whp-iw-val', (el) => { o.w = Math.max(20, Math.min(2000, Number(el.value) || 20)); });
+        num('#whp-iop', '#whp-iop-val', (el) => { o.opacity = Math.max(0, Math.min(100, Number(el.value) || 0)); });
+        num('#whp-bw', '#whp-bw-val', (el) => { o.borderWidth = Math.max(0, Math.min(12, Number(el.value) || 0)); }, (el) => `${el.value}px`);
+        num('#whp-radius', null, (el) => { o.radius = Math.max(0, Math.min(120, Number(el.value) || 0)); });
+        $('#whp-b2color')?.addEventListener('input', () => { o.borderColor = $('#whp-b2color').value; whSync(); api.rerender(); });
+        const imgSel = $('#whp-img');
+        if (imgSel) {
+          api('/api/media').then(({ files }) => {
+            const images = files.filter((f) => ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'apng'].includes(fileExt(f)));
+            imgSel.innerHTML = ['<option value="">— не задано —</option>',
+              ...images.map((f) => `<option value="${esc(f)}" ${o.image === f ? 'selected' : ''}>${esc(f)}</option>`)].join('');
+          }).catch(() => {});
+          imgSel.addEventListener('change', () => { o.image = imgSel.value; whSync(); api.rerender(); api.renderProps(); });
+        }
+        $('#whp-img-up')?.addEventListener('click', async () => {
+          const file = $('#whp-img-file')?.files?.[0];
+          if (!file) { toast('Сначала выбери картинку', true); return; }
+          try {
+            const r = await fetch(`/api/media/upload?name=${encodeURIComponent(file.name)}`, {
+              method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
+            });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+            o.image = file.name;
+            whSync();
+            toast('Картинка загружена и поставлена ✅');
+            api.rerender();
+            api.renderProps();
+          } catch (e) { toast(e.message, true); }
         });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-        o.image = file.name;
-        whSync();
-        toast('Картинка загружена и поставлена ✅');
-        whRenderStage();
-        whRenderProps();
-      } catch (e) { toast(e.message, true); }
-    });
-  }
-  $('#whp-del')?.addEventListener('click', () => {
-    whPush();
-    whEd.objects.splice(whEd.sel, 1);
-    whEd.sel = Math.max(0, whEd.sel - 1);
-    whEd.selSet = new Set(whEd.sel >= 0 ? [whEd.sel] : []);
-    whSync();
-    whRenderStage();
-    whRenderProps();
-  });
-}
-
-$('#wh-objects').addEventListener('click', (e) => {
-  const chip = e.target.closest('.chip[data-i]');
-  if (!chip) return;
-  const i = Number(chip.dataset.i);
-  if (e.shiftKey) {
-    if (whEd.selSet.has(i)) whEd.selSet.delete(i);
-    else whEd.selSet.add(i);
-    whEd.sel = whEd.selSet.has(i) ? i : whEd.sel;
-  } else {
-    whEd.selSet = new Set([i]);
-    whEd.sel = i;
-  }
-  whRenderStage();
-  whRenderProps();
+      },
+    },
+  },
 });
 
-// ---------- копирование картинок: ctrl+c / ctrl+x / ctrl+v ----------
-function whCopy(cut = false) {
-  const selImg = [...whEd.selSet].filter((i) => whEd.objects[i].type === 'image');
-  if (!selImg.length) { toast('Копировать можно картинки — колесо и текст одни на рулетку', true); return; }
-  whEd.clipboard = selImg.map((i) => JSON.parse(JSON.stringify(whEd.objects[i])));
-  if (cut) {
-    whPush();
-    whEd.objects = whEd.objects.filter((_, i) => !whEd.selSet.has(i));
-    whEd.selSet = new Set();
-    whEd.sel = -1;
-    whSync();
-    whRenderStage();
-    whRenderProps();
-    toast(`Вырезано: ${whEd.clipboard.length}`);
-  } else toast(`Скопировано: ${whEd.clipboard.length}`);
+/** Загрузка настроек оверлея в редактор (без смены массива — движок держит ссылку). */
+function whEdLoad(o = {}) {
+  const fresh = whEdNorm(o);
+  whEd.length = 0;
+  whEd.push(...fresh);
+  whEngine.rerender();
+  whEngine.select(0);
 }
-
-function whPaste() {
-  if (!whEd.clipboard?.length) { toast('Буфер пуст — сначала копируй (ctrl+c)', true); return; }
-  whPush();
-  const pasted = [];
-  for (const [n, o] of whEd.clipboard.entries()) {
-    const c = { ...o, x: o.x + 30, y: o.y + 30 };
-    c.id = `image-${Date.now()}-${n}`;
-    whEd.objects.push(c);
-    pasted.push(whEd.objects.length - 1);
-  }
-  whEd.selSet = new Set(pasted);
-  whEd.sel = pasted.at(-1);
-  whSync();
-  whRenderStage();
-  whRenderProps();
-  toast(`Вставлено: ${pasted.length}`);
-}
-
-// хоткеи редактора — только когда редактор рулетки открыт и фокус не в поле ввода
-document.addEventListener('keydown', (e) => {
-  const stage = $('#wh-stage');
-  if (!stage || !stage.closest('details')?.open || !stage.offsetParent) return;
-  if (e.target.closest('input, textarea, select')) return;
-  if (!(e.ctrlKey || e.metaKey)) return;
-  const key = String(e.key || '').toLowerCase();
-  if (key === 'z' && !e.shiftKey) { e.preventDefault(); whUndo(); }
-  else if (key === 'y' || (key === 'z' && e.shiftKey)) { e.preventDefault(); whRedo(); }
-  else if (key === 'c') { e.preventDefault(); whCopy(); }
-  else if (key === 'x') { e.preventDefault(); whCopy(true); }
-  else if (key === 'v') { e.preventDefault(); whPaste(); }
-});
 
 // ---------- тулбар: своя картинка + SVG-шаблон ----------
 $('#wh-widget-add').addEventListener('click', () => $('#wh-image-file').click());
@@ -3083,15 +2663,12 @@ $('#wh-image-file').addEventListener('change', async () => {
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-    const zMax = Math.max(5, ...whEd.objects.map((o) => o.z ?? 1));
-    whPush();
-    whEd.objects.push({ id: `image-${Date.now()}`, type: 'image', x: 660, y: 120, w: 400, h: 267, opacity: 100, z: zMax + 1, image: file.name, radius: 0, borderColor: '', borderWidth: 0 });
-    whEd.sel = whEd.objects.length - 1;
-    whEd.selSet = new Set([whEd.sel]);
+    whEngine.push();
+    whEd.push({ id: `image-${Date.now()}`, type: 'image', x: 660, y: 120, w: 400, h: 267, opacity: 100, z: Math.max(5, ...whEd.map((x) => x.z ?? 1)) + 1, image: file.name, radius: 0, borderColor: '', borderWidth: 0 });
     $('#wh-image-file').value = '';
     whSync();
-    whRenderStage();
-    whRenderProps();
+    whEngine.select(whEd.length - 1);
+    whEngine.rerender();
     toast('Картинка добавлена — двигай её в превью 🖼');
   } catch (e) { toast(e.message, true); }
 });
@@ -3099,9 +2676,9 @@ $('#wh-image-file').addEventListener('change', async () => {
 // ⬇ SVG-шаблон: зоны всех объектов с честными размерами
 $('#wh-template-btn').addEventListener('click', () => {
   const colors = { wheel: '#8b5cf6', text: '#eab308', image: '#38bdf8' };
-  const shapes = whEd.objects.map((o) => o.type === 'wheel'
-    ? `<circle cx="${o.x + o.w / 2}" cy="${o.y + o.h / 2}" r="${o.w / 2}" fill="none" stroke="${colors[o.type]}" stroke-width="4" stroke-dasharray="14 8"/><text x="${o.x + 12}" y="${Math.max(20, o.y - 8)}" fill="${colors[o.type]}" font-size="22" font-family="sans-serif">${WH_TYPE_RU[o.type]} ${o.w}×${o.h} px, слой ${o.z}</text>`
-    : `<rect x="${o.x}" y="${o.y}" width="${o.w}" height="${o.h}" fill="none" stroke="${colors[o.type]}" stroke-width="4" stroke-dasharray="14 8" rx="${o.radius || 0}"/><text x="${o.x + 8}" y="${Math.max(20, o.y - 8)}" fill="${colors[o.type]}" font-size="22" font-family="sans-serif">${WH_TYPE_RU[o.type]} ${o.w}×${o.h} px, слой ${o.z}</text>`).join('');
+  const shapes = whEd.map((o) => o.type === 'wheel'
+    ? `<circle cx="${o.x + o.w / 2}" cy="${o.y + o.h / 2}" r="${o.w / 2}" fill="none" stroke="${colors[o.type]}" stroke-width="4" stroke-dasharray="14 8"/><text x="${o.x + 12}" y="${Math.max(20, o.y - 8)}" fill="${colors[o.type]}" font-size="22" font-family="sans-serif">${o.type} ${o.w}×${o.h} px, слой ${o.z}</text>`
+    : `<rect x="${o.x}" y="${o.y}" width="${o.w}" height="${o.h}" fill="none" stroke="${colors[o.type]}" stroke-width="4" stroke-dasharray="14 8" rx="${o.radius || 0}"/><text x="${o.x + 8}" y="${Math.max(20, o.y - 8)}" fill="${colors[o.type]}" font-size="22" font-family="sans-serif">${o.type} ${o.w}×${o.h} px, слой ${o.z}</text>`).join('');
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
   <title>Шаблон оверлея рулетки</title>
@@ -3115,6 +2692,7 @@ $('#wh-template-btn').addEventListener('click', () => {
   URL.revokeObjectURL(url);
   toast('Шаблон скачан: зоны всех объектов с их размерами');
 });
+
 
 
 $('#wh-add').addEventListener('click', () => {
