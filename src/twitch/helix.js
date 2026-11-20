@@ -1,6 +1,8 @@
 import { sleep } from '../store.js';
 
 const API = 'https://api.twitch.tv/helix';
+const FETCH_TIMEOUT_MS = 15_000;
+const RETRY_DELAYS = [1_000, 3_000]; // паузы перед повторами GET при сетевых сбоях
 
 export class HelixError extends Error {
   constructor(message, status = 0, body = null) {
@@ -9,6 +11,34 @@ export class HelixError extends Error {
     this.status = status;
     this.body = body;
   }
+}
+
+/** Голые «fetch failed»/«operation aborted» переводим в понятный русский текст.
+ *  Возвращает HelixError для сетевых сбоёв и таймаутов, null — для прочих ошибок. */
+export function friendlyNetworkError(e, url) {
+  // AbortSignal.timeout() рвёт fetch DOMException-ом TimeoutError (в старых версиях AbortError)
+  if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
+    return new HelixError(
+      `Twitch не ответил за ${Math.round(FETCH_TIMEOUT_MS / 1000)} сек — проверь интернет; если Twitch режется провайдером, включи прокси (Настройки → Прокси)`,
+      0
+    );
+  }
+  // Node оборачивает сетевые сбои в TypeError: fetch failed, реальная причина — в e.cause
+  if (e instanceof TypeError || /fetch failed/i.test(e?.message || '')) {
+    const code = e?.cause?.code;
+    const host = url?.hostname || 'api.twitch.tv';
+    if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
+      return new HelixError(`не удалось найти адрес Twitch (${host}) — нет интернета, DNS или блокировка провайдера`, 0);
+    }
+    if (code === 'ECONNREFUSED') {
+      return new HelixError('соединение отклонено — firewall/антивирус блокирует бота', 0);
+    }
+    if (code === 'ETIMEDOUT' || code === 'UND_ERR_CONNECT_TIMEOUT') {
+      return new HelixError('Twitch не ответил — связь медленная или режется', 0);
+    }
+    return new HelixError(`сеть недоступна: ${e?.cause?.message || e?.message || 'неизвестная сетевая ошибка'}`, 0);
+  }
+  return null;
 }
 
 /**
@@ -42,7 +72,7 @@ export class Helix {
         Authorization: `Bearer ${token}`,
       };
       if (body !== undefined) headers['Content-Type'] = 'application/json';
-      return fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
+      return this._fetchNetwork(url, method, headers, body === undefined ? undefined : JSON.stringify(body));
     };
     let res = await doFetch();
     if (res.status === 401) {
@@ -55,6 +85,23 @@ export class Helix {
       throw new HelixError(msg, res.status, json);
     }
     return json;
+  }
+
+  /** fetch с человеческими текстами сетевых ошибок и ретраями.
+   *  Повторяем только сетевые сбои/таймауты (НЕ HTTP 4xx/5xx — их отдаёт уже сам Twitch)
+   *  и только GET: POST (чат/награды) не дублируем, чтобы сообщения не задваивались. */
+  async _fetchNetwork(url, method, headers, body) {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await fetch(url, { method, headers, body, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      } catch (e) {
+        const friendly = friendlyNetworkError(e, url);
+        if (!friendly || method !== 'GET' || attempt >= RETRY_DELAYS.length) {
+          throw friendly ?? e; // нераспознанные ошибки пробрасываем как есть
+        }
+        await sleep(RETRY_DELAYS[attempt]);
+      }
+    }
   }
 
   // ---------- users / streams ----------

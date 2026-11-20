@@ -377,6 +377,7 @@ async function startRuntime() {
     state.running = false;
     state.lastError = e.message;
     logSystem(`Не удалось запустить: ${e.message}`, 'error');
+    logSystem('Проверь интернет. Если Twitch блокируется провайдером — Настройки → Прокси. Кнопка „Запустить" попробует ещё раз.', 'warn');
   }
 }
 

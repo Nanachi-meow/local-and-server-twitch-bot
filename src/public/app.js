@@ -2309,6 +2309,7 @@ function renderWheelItems() {
       <td><button class="act ghost wh-del" title="удалить">🗑</button></td>
     </tr>`;
   }).join('') || '<tr><td colspan="4" class="hint">Вариантов нет — добавь первый</td></tr>';
+  try { whEngine.rerender(); } catch {}
 }
 
 async function renderWheelSoundSelect(selected) {
@@ -2437,18 +2438,27 @@ const whEngine = EditorEngine.create({
         arrow.style.transform = `rotate(${a + Math.PI / 2 + rot}rad)`;
         arrow.title = 'тяни — едет по кругу; за ↻ — вращается сама; двойной клик — сброс поворота';
         div.appendChild(arrow);
-        if (api.getSelection().has(whEd.indexOf(o))) {
-          const nx = -Math.cos(a), ny = -Math.sin(a);
-          const cnx = nx * Math.cos(rot) - ny * Math.sin(rot);
-          const cny = nx * Math.sin(rot) + ny * Math.cos(rot);
-          const rh = document.createElement('div');
-          rh.className = 'wh-rot-handle';
-          rh.textContent = '↻';
-          rh.title = 'вращение стрелки — тяни по кругу';
-          rh.style.left = `${Math.round(ax + cnx * 34)}px`;
-          rh.style.top = `${Math.round(ay + cny * 34)}px`;
-          div.appendChild(rh);
-        }
+        const nx = -Math.cos(a), ny = -Math.sin(a);
+        const cnx = nx * Math.cos(rot) - ny * Math.sin(rot);
+        const cny = nx * Math.sin(rot) + ny * Math.cos(rot);
+        const rh = document.createElement('div');
+        rh.className = 'wh-rot-handle';
+        rh.textContent = '↻';
+        rh.title = 'вращение стрелки — тяни по кругу';
+        rh.style.left = `${Math.round(ax + cnx * 34)}px`;
+        rh.style.top = `${Math.round(ay + cny * 34)}px`;
+        // ручка видна всегда; без выделения — чуть приглушена
+        if (!api.getSelection().has(whEd.indexOf(o))) rh.style.opacity = '.75';
+        div.appendChild(rh);
+        // счётчик вариантов в левом верхнем углу колеса
+        const cnt = whItems.filter((x) => x.label).length;
+        const cntWord = (cnt % 10 === 1 && cnt % 100 !== 11) ? 'вариант'
+          : ([2, 3, 4].includes(cnt % 10) && ![12, 13, 14].includes(cnt % 100)) ? 'варианта'
+          : 'вариантов';
+        const badge = document.createElement('div');
+        badge.className = 'wh-count-badge';
+        badge.textContent = `${cnt} ${cntWord}`;
+        div.appendChild(badge);
       },
       resize: (o, s, dx) => { // круг: сторона растёт в обе стороны, форма не меняется
         o.w = Math.round(Math.max(100, Math.min(800, s.w + dx * 2)));

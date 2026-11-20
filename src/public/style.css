@@ -266,9 +266,9 @@ input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; marg
 }
 .wh-arrow-mock {
   position: absolute; width: 0; height: 0;
-  border-left: 14px solid transparent; border-right: 14px solid transparent;
-  border-top: 22px solid #fff;
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,.6));
+  border-left: 16px solid transparent; border-right: 16px solid transparent;
+  border-top: 26px solid #fff;
+  filter: drop-shadow(0 0 2px #000) drop-shadow(0 2px 6px rgba(0, 0, 0, .8));
   cursor: grab; pointer-events: auto;
 }
 .wh-arrow-mock:hover { filter: drop-shadow(0 0 6px #fff); }
@@ -281,14 +281,21 @@ input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; marg
 }
 .wh-rot-handle {
   position: absolute; transform: translate(-50%, -50%);
-  width: 20px; height: 20px; border-radius: 50%;
+  width: 24px; height: 24px; border-radius: 50%;
   background: var(--accent); border: 2px solid #fff; color: #fff;
-  font-size: 12px; line-height: 15px; text-align: center; font-weight: 700;
-  cursor: grab; pointer-events: auto; box-shadow: 0 1px 4px rgba(0,0,0,.5);
+  font-size: 14px; line-height: 19px; text-align: center; font-weight: 700;
+  cursor: grab; pointer-events: auto; box-shadow: 0 1px 5px rgba(0,0,0,.6);
   user-select: none;
 }
 .wh-rot-handle:hover { box-shadow: 0 0 8px var(--accent); }
 .wh-rot-handle:active { cursor: grabbing; }
+.wh-count-badge {
+  position: absolute; top: 4px; left: 4px;
+  background: rgba(12,10,25,.92); color: #fff;
+  border: 1px solid rgba(255,255,255,.4); border-radius: 6px;
+  font-size: 11px; font-weight: 600; padding: 2px 7px;
+  pointer-events: none; white-space: nowrap;
+}
 .wh-text-mock {
   position: absolute; text-align: center; color: #fff; font-weight: 700;
   white-space: normal; overflow-wrap: break-word;
