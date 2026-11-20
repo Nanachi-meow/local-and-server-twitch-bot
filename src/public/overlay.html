@@ -513,9 +513,12 @@
 
   function whRenderScene() {
     const k = (window.innerWidth || 1920) / 1920;
+    // без x/y — колесо по центру сцены (как дефолт редактора)
+    const cx = whCfg.x == null ? 960 : (Number(whCfg.x) || 960);
+    const cy = whCfg.y == null ? 540 : (Number(whCfg.y) || 540);
     const W = whCfg.size * k;
-    whWidget.style.left = `${whCfg.x * k - W / 2}px`;
-    whWidget.style.top = `${whCfg.y * k - W / 2}px`;
+    whWidget.style.left = `${cx * k - W / 2}px`;
+    whWidget.style.top = `${cy * k - W / 2}px`;
     whCanvas.width = W;
     whCanvas.height = W;
     whWinner.style.fontSize = `${Math.max(16, whCfg.size * 0.065) * k}px`;

@@ -59,7 +59,7 @@ $$('.tab').forEach((btn) => {
     // вкладка была скрыта — превью раскладки музыки рисовалось с нулевой шириной; перерисуем
     if (btn.dataset.tab === 'songs') requestAnimationFrame(() => { plpRenderStage(); plpRenderProps(); });
     if (btn.dataset.tab === 'autoso') requestAnimationFrame(() => { asoRenderStage(); asoRenderProps(); });
-    if (btn.dataset.tab === 'overlay') requestAnimationFrame(() => { wodRenderStage(); wodRenderProps(); whRenderStage(); });
+    if (btn.dataset.tab === 'overlay') requestAnimationFrame(() => { wodRenderStage(); wodRenderProps(); whEdLoad(whOverlay); });
   });
 });
 
@@ -2267,7 +2267,7 @@ function whK() { const s = $('#wh-stage'); return s ? s.clientWidth / 1920 : 0.2
 async function loadWheel() {
   const st = await api('/api/settings');
   const w = st.wheel ?? {};
-  whOverlay = w.overlay ?? { x: 760, y: 340, size: 400 };
+  whOverlay = w.overlay ?? { size: 400 }; // без x/y = колесо по центру сцены в редакторе
   $('#wh-enabled').checked = w.enabled !== false;
   $('#wh-mode').value = w.mode ?? 'reward';
   $('#wh-reward').value = w.rewardName ?? 'колесо';
@@ -2333,8 +2333,9 @@ async function renderWheelSoundSelect(selected) {
 
 function whEdNorm(o = {}) {
   const size = Math.max(100, Math.min(800, Math.round(Number(o.size) || 400)));
-  const cx = Math.max(0, Math.min(1920, Math.round(Number(o.x) || 760)));
-  const cy = Math.max(0, Math.min(1080, Math.round(Number(o.y) || 340)));
+  // пустые настройки = дефолт по центру сцены (960×540), а не в углу
+  const cx = o.x == null ? 960 : Math.max(0, Math.min(1920, Math.round(Number(o.x) || 960)));
+  const cy = o.y == null ? 540 : Math.max(0, Math.min(1080, Math.round(Number(o.y) || 540)));
   const tdx = o.textDX == null ? 0 : (Number(o.textDX) || 0);
   const tdy = o.textDY == null
     ? (size / 2 + 8 + Math.max(16, size * 0.065) * 0.6)
@@ -2643,13 +2644,20 @@ const whEngine = EditorEngine.create({
   },
 });
 
-/** Загрузка настроек оверлея в редактор (без смены массива — движок держит ссылку). */
+/** Загрузка настроек оверлея в редактор (без смены массива — движок держит ссылку).
+ *  Если секция ещё скрыта (details закрыт / вкладка не активна) — stage имеет
+ *  нулевую ширину и рендер выйдет в левый верхний угол; откладываем до открытия. */
 function whEdLoad(o = {}) {
   const fresh = whEdNorm(o);
   whEd.length = 0;
   whEd.push(...fresh);
-  whEngine.rerender();
-  whEngine.select(0);
+  const st = $('#wh-stage');
+  const visible = st && st.clientWidth > 0 && Boolean(st.offsetParent);
+  if (visible) {
+    whEngine.rerender();
+    whEngine.select(0);
+  }
+  // невидимо: ничего не рисуем — toggle вкладки/details вызовет whEdLoad заново
 }
 
 // ---------- тулбар: своя картинка + SVG-шаблон ----------
@@ -2709,7 +2717,7 @@ $('#wh-add-label').addEventListener('keydown', (e) => { if (e.key === 'Enter') $
 // шаблон победителя печатаем — превью текста под колесом обновляется сразу
 $('#wh-template').addEventListener('input', () => {
   whOverlay.winnerTemplate = $('#wh-template').value;
-  whRenderStage();
+  whEngine.rerender();
 });
 
 $('#wh-body').addEventListener('click', (e) => {
@@ -3164,7 +3172,7 @@ sendParentMessage({ Type: "WidgetLoaded", ID: "{ID}" });
     d.addEventListener('toggle', () => {
       if (d.open) {
         requestAnimationFrame(() => {
-          if ($('#wh-stage') && d.contains($('#wh-stage'))) whRenderStage();
+          if ($('#wh-stage') && d.contains($('#wh-stage'))) whEdLoad(whOverlay);
           if ($('#wod-stage') && d.contains($('#wod-stage'))) { wodRenderStage(); wodRenderProps(); }
           if ($('#plp-stage') && d.contains($('#plp-stage'))) { plpRenderStage(); plpRenderProps(); }
           if ($('#aso-stage') && d.contains($('#aso-stage'))) { asoRenderStage(); asoRenderProps(); }
@@ -3242,7 +3250,7 @@ async function applyWheelImport(text, fileName) {
   }
   whOverlay.size = r.size;
   renderWheelItems();
-  whRenderStage();
+  whEdLoad(whOverlay);
   if (r.soundFile) {
     await renderWheelSoundSelect(r.soundFile);
   }
