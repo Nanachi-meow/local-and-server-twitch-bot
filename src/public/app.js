@@ -56,6 +56,7 @@ $$('.tab').forEach((btn) => {
     $$('.tabpane').forEach((p) => p.classList.remove('active'));
     btn.classList.add('active');
     $(`#tab-${btn.dataset.tab}`).classList.add('active');
+    try { localStorage.setItem('panel:tab', btn.dataset.tab); } catch {}
     // вкладка была скрыта — превью раскладки музыки рисовалось с нулевой шириной; перерисуем
     if (btn.dataset.tab === 'songs') requestAnimationFrame(() => { plpRenderStage(); plpRenderProps(); });
     if (btn.dataset.tab === 'autoso') requestAnimationFrame(() => { asoRenderStage(); asoRenderProps(); });
@@ -73,8 +74,23 @@ $$('.subtab').forEach((btn) => {
     btn.classList.add('active');
     const target = pane.querySelector(`#sub-${btn.dataset.subtab}`);
     if (target) target.classList.remove('hidden');
+    try { localStorage.setItem(`panel:subtab:${pane.id.replace('tab-', '')}`, btn.dataset.subtab); } catch {}
   });
 });
+
+// после F5 — вернуться на вкладку/подвкладку, где пользователь был (клик = тот же путь, что руками)
+(() => {
+  let savedTab = null;
+  try { savedTab = localStorage.getItem('panel:tab'); } catch {}
+  if (savedTab && $(`.tab[data-tab="${savedTab}"]`)) {
+    $(`.tab[data-tab="${savedTab}"]`).click();
+    let savedSub = null;
+    try { savedSub = localStorage.getItem(`panel:subtab:${savedTab}`); } catch {}
+    if (savedSub && $(`#tab-${savedTab} .subtab[data-subtab="${savedSub}"]`)) {
+      $(`#tab-${savedTab} .subtab[data-subtab="${savedSub}"]`).click();
+    }
+  }
+})();
 document.addEventListener('click', (e) => {
   const link = e.target.closest('.goto-tab');
   if (!link) return;
