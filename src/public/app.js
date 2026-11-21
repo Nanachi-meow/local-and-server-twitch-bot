@@ -283,7 +283,10 @@ function renderState(st) {
     if (chans.includes(prev)) sel.value = prev;
     sel.dataset.key = selKey;
   }
-  $('#auth-login').classList.toggle('hidden', !configured);
+  // «Войти» показываем только пока входа нет: после входа прячем — иначе
+  // Twitch каждый раз просит «Authorize» и выглядит как «опять авторизуйся»
+  $('#auth-login').classList.toggle('hidden', !configured || Boolean(a.login));
+  $('#auth-logout').classList.toggle('hidden', !a.login);
   $('#auth-info').innerHTML = a.login
     ? `Вход выполнен: <b>${esc(a.login)}</b>${a.expiresAt ? ` · токен истекает ${new Date(a.expiresAt).toLocaleString('ru-RU')}` : ''}`
     : '';
