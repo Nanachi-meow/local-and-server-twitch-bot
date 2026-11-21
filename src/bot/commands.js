@@ -1051,7 +1051,7 @@ export function loadSettings() {
       ...(stored.redemptions ?? {}),
     },
     wheel: {
-      enabled: true,
+      enabled: false, // включается в панели первым делом — из коробки молчит
       mode: 'reward', // 'reward' (наградой канала — главное) | 'command' (!колесо) | 'off'
       rewardName: 'колесо', // название награды-запуска
       cooldown: 60, // сек между вращениями одного юзера
@@ -1101,7 +1101,7 @@ export function loadSettings() {
     },
     songs: (() => {
       const s = {
-        enabled: true,
+        enabled: false, // включается в панели — из коробки музыка молчит
         maxLenSec: 600,  // длиннее — не принимаем
         perUser: 2,      // максимум треков юзера в очереди подряд
         volume: 60,      // громкость плеера (0–100) — применяется в /music
