@@ -2325,6 +2325,23 @@ async function renderWheelSoundSelect(selected) {
 // движок (рамка/магниты/история/копипаст/слои) — editor-engine.js, тот же,
 // что у редактора виджета музыки; рулетка подключает только СВОИ типы объектов
 
+/** Сектора превью колеса — conic-gradient по весам вариантов (как на оверлее). */
+function whMockGradient() {
+  const palette = ['#8b5cf6', '#22c55e', '#eab308', '#38bdf8', '#f97316', '#ec4899', '#14b8a6', '#a855f7'];
+  const items = whItems.filter((x) => x.label);
+  if (!items.length) return '';
+  const total = items.reduce((s, x) => s + Math.max(1, Number(x.weight) || 1), 0);
+  let acc = 0;
+  const stops = items.map((x, i) => {
+    const from = (acc / total) * 360;
+    acc += Math.max(1, Number(x.weight) || 1);
+    const to = (acc / total) * 360;
+    const col = x.color || palette[i % palette.length];
+    return `${col} ${from.toFixed(2)}deg ${to.toFixed(2)}deg`;
+  });
+  return `conic-gradient(${stops.join(', ')})`;
+}
+
 function whEdNorm(o = {}) {
   const size = Math.max(100, Math.min(800, Math.round(Number(o.size) || 400)));
   // пустые настройки = дефолт по центру сцены (960×540), а не в углу
@@ -3233,8 +3250,42 @@ function importMiuOverlay(text) {
   };
 }
 
+/** Импорт OWE (Overlay Widget Editor): HTML-виджет рулетки — вытащить
+ *  names/colors/probabilities/размер/звук так же, как их пишет наш экспорт. */
+function importOweHtml(text) {
+  const raw = String(text || '');
+  if (!/<html/i.test(raw)) return { error: 'это не HTML-виджет OWE' };
+  const pick = (re) => {
+    const m = raw.match(re);
+    return m ? m[1] : null;
+  };
+  // массив строк: names/outcomeNames, colors/outcomeColors; вероятности — probabilities
+  const namesArr = pick(/(?:var|const|let)\s+(?:outcome)?names?\s*=\s*\[([^\]]*)\]/i);
+  const colorsArr = pick(/(?:var|const|let)\s+(?:outcome)?colors?\s*=\s*\[([^\]]*)\]/i);
+  const probsArr = pick(/(?:var|const|let)\s+(?:outcome)?probabilit(?:ies|y)\s*=\s*\[([^\]]*)\]/i);
+  if (!namesArr && !probsArr) return { error: 'в файле нет вариантов (names/probabilities)' };
+  const splitStr = (s) => (s ? s.split(',').map((x) => x.trim().replace(/^["']|["']$/g, '')).filter(Boolean) : []);
+  const splitNum = (s) => (s ? s.split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)) : []);
+  const names = splitStr(namesArr);
+  const colors = splitStr(colorsArr).map((c) => (/^#/.test(c) ? c : resolveColor(c)));
+  const probs = splitNum(probsArr);
+  if (!names.length) return { error: 'варианты пустые' };
+  const items = names.slice(0, 12).map((label, i) => ({
+    label: label.slice(0, 60),
+    weight: Math.max(1, Math.round((probs[i] ?? 0) * 100)) || 10,
+    color: colors[i] || '',
+  }));
+  const size = Math.max(100, Math.min(800, Math.round(Number(raw.match(/radius\s*=\s*(\d+)/)?.[1] ? raw.match(/radius\s*=\s*(\d+)/)[1] * 2 : 400))));
+  const soundUrl = pick(/(?:var|const|let)\s+wheelClickSoundURL\s*=\s*"([^"]*)"/i) || '';
+  const soundFile = soundUrl ? decodeURIComponent(soundUrl.split('/').pop() || '') : '';
+  return { items, size, soundFile };
+}
+
 async function applyWheelImport(text, fileName) {
-  const r = importMiuOverlay(text);
+  // .miuoverlay/.json (MixItUp) — сначала; HTML-виджет — Overlay Widget Editor
+  let r = null;
+  if (/\.html?$/i.test(fileName) || /<html/i.test(String(text).slice(0, 200))) r = importOweHtml(text);
+  else r = importMiuOverlay(text);
   if (r.error) { toast(`Импорт: ${r.error}`, true); return; }
 
   whItems = r.items;
