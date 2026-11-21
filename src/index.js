@@ -14,6 +14,7 @@ import { RedemptionRouter } from './bot/redemptions.js';
 import { overlay } from './bot/alerts.js';
 import { createHttpServer } from './server.js';
 import { logs } from './logs.js';
+import { diagStart, diagAttach, diagLog } from './bot/diag.js';
 import {
   loadConfig, saveConfig, isConfigured, effectivePort,
 } from './config.js';
@@ -22,6 +23,10 @@ import { createRequire } from 'node:module';
 
 // версия — единственный источник правды package.json (его же читает апдейтер и GitHub)
 const VERSION = createRequire(import.meta.url)('../package.json').version;
+
+// файл-диагностика: системные логи последних двух запусков, без личного
+diagStart({ version: VERSION });
+diagAttach(logs);
 
 const state = {
   startedAt: Date.now(),

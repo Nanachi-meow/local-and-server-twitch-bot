@@ -1356,6 +1356,34 @@ fakeObs.setCurrentProgramScene = async () => { throw new Error('SceneNotFound: �
 await engine.handleChatMessage({ userId: '9', login: 'modguy', displayName: 'ModGuy', text: '!сцена Кухня', badges: [{ set_id: 'moderator' }] });
 ok('obs: ошибка переключения подсказывает доступные сцены', sent.at(-1).includes('не вышло') && sent.at(-1).includes('есть сцены'));
 
+// ---------- файл-диагностика: 2 запуска, без личного ----------
+{
+  const { diagSanitize, diagStart, diagLog, diagAttach } = await import('../src/bot/diag.js');
+  ok('диагностика: @ники затёрты', diagSanitize('Ошибка входа: @cumsya_bot не отвечает') === 'Ошибка входа: @*** не отвечает');
+  ok('диагностика: токены затёрты', diagSanitize('refresh_token=abc123secret_key_here').includes('***') && !diagSanitize('refresh_token=abc123secret_key_here').includes('secret_key_here'));
+  ok('диагностика: query-параметры затёрты', diagSanitize('GET https://twitch.tv/api?code=abcdef123456&state=xyz').includes('?***'));
+  ok('диагностика: длинные hex затёрты', !diagSanitize('сессия 0123456789abcdef0123456789abcdef').includes('0123456789abcdef0123456789abcdef'));
+  ok('диагностика: обычный текст цел', diagSanitize('Не удалось запустить: fetch failed') === 'Не удалось запустить: fetch failed');
+  ok('диагностика: логины частично замаскированы', diagSanitize('Бот nanachi_nya_bot подключается к каналам: krolik_nya, cumsya').includes('n***t') && diagSanitize('Бот nanachi_nya_bot подключается к каналам: krolik_nya, cumsya').includes('k***a'));
+  // ротация двух запусков
+  diagStart({ version: '1.0.0' });
+  diagLog('info', 'запуск один');
+  diagStart({ version: '2.0.0' });
+  diagLog('error', 'запуск два');
+  const d1 = fs.readFileSync(path.join(process.env.BOT_DATA_DIR, 'diag.log'), 'utf8');
+  ok('диагностика: в файле оба запуска', d1.includes('запуск один') && d1.includes('запуск два'));
+  ok('диагностика: версия запуска записана', d1.includes('v1.0.0') && d1.includes('v2.0.0'));
+  diagStart({ version: '3.0.0' });
+  diagLog('info', 'запуск три');
+  const d2 = fs.readFileSync(path.join(process.env.BOT_DATA_DIR, 'diag.log'), 'utf8');
+  ok('диагностика: третий запуск вытеснил первый (хранятся 2)', d2.includes('запуск два') && d2.includes('запуск три') && !d2.includes('запуск один'));
+  // перехват системного лога
+  const fakeLogs = { system: { push: (e) => {} } };
+  diagAttach(fakeLogs);
+  fakeLogs.system.push({ level: 'warn', message: 'Возврат баллов не удался (@krolik_nya)' });
+  const d3 = fs.readFileSync(path.join(process.env.BOT_DATA_DIR, 'diag.log'), 'utf8');
+  ok('диагностика: системный лог льётся в файл (санитизированным)', d3.includes('Возврат баллов не удался') && d3.includes('@***') && !d3.includes('krolik_nya'));
+}
 
 console.log(`\nВсе ${passed} тестов прошли ✅`);
 fs.rmSync(process.env.BOT_DATA_DIR, { recursive: true, force: true });
