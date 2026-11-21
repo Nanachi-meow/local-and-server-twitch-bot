@@ -2224,6 +2224,14 @@ $('#wod-widget-reset').addEventListener('click', () => {
   toast('Дефолтная раскладка (не забудь сохранить)');
 });
 
+// тумблер «виджет включён» применяется сразу (без «Сохранить»)
+$('#wod-enabled').addEventListener('change', async () => {
+  try {
+    await putSettings({ wordOfDay: { enabled: $('#wod-enabled').checked } });
+    toast($('#wod-enabled').checked ? 'Слово дня включено 🔤' : 'Слово дня выключено');
+  } catch (e) { toast(e.message, true); }
+});
+
 $('#wod-save').addEventListener('click', async () => {
   try {
     await putSettings({ wordOfDay: { enabled: $('#wod-enabled').checked, corner: $('#wod-corner').value, objects: wodEd.objects } });
@@ -2808,6 +2816,15 @@ $('#wh-body').addEventListener('wheel', (e) => {
   el.value = String(it.weight);
   whRefreshPcts();
 }, { passive: false });
+
+// тумблер «включено» применяется сразу (без «Сохранить») — F5 не вернёт старое состояние
+$('#wh-enabled').addEventListener('change', async () => {
+  try {
+    whSync();
+    await putSettings({ wheel: { enabled: $('#wh-enabled').checked } });
+    toast($('#wh-enabled').checked ? 'Рулетка включена 🎡' : 'Рулетка выключена');
+  } catch (e) { toast(e.message, true); }
+});
 
 $('#wh-save').addEventListener('click', async () => {
   try {
@@ -3556,6 +3573,14 @@ $('#sg-bl-add').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#
 $('#music-copy').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText($('#music-url-field').value); toast('Скопировано ✅'); }
   catch { $('#music-url-field').select(); toast('Выделила поле — Ctrl+C', true); }
+});
+
+// тумблер «музыка включена» применяется сразу (без «Сохранить»)
+$('#sg-enabled').addEventListener('change', async () => {
+  try {
+    await putSettings({ songs: { enabled: $('#sg-enabled').checked } });
+    toast($('#sg-enabled').checked ? 'Музыка включена 🎵' : 'Музыка выключена');
+  } catch (e) { toast(e.message, true); }
 });
 
 $('#sg-save').addEventListener('click', async () => {
