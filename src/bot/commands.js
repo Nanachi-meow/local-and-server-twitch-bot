@@ -1111,9 +1111,9 @@ export function loadSettings() {
     },
     // источники донатов (мульти): donatex / da (DonationAlerts) / donatepay
     donations: {
-      donatex: { enabled: false, token: '' },
-      da: { enabled: false, token: '' },
-      donatepay: { enabled: false, token: '' },
+      donatex: { enabled: false, token: '', webhookSecret: '' },
+      da: { enabled: false, token: '', webhookSecret: '' },
+      donatepay: { enabled: false, token: '', webhookSecret: '' },
       ...(stored.donations ?? {}),
     },
     songs: (() => {

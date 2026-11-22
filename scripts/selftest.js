@@ -1445,6 +1445,43 @@ ok('obs: ошибка переключения подсказывает дост
   dtZero.onStreamStart();
   ok('донатон: нулевая база без донатов → почти ноль сразу', dtZero.secondsLeft() <= 1);
 
+  // ---------- webhook: HMAC-SHA256 подпись ----------
+  const { verifyWebhookSignature } = await import('../src/bot/donatimer.js');
+  const { createHmac } = await import('node:crypto');
+  const SECRET = 'test-secret-123';
+  const body = JSON.stringify({ id: 777, amountInRub: 250, username: 'Валера', message: 'продли стрим!' });
+  const goodHex = createHmac('sha256', SECRET).update(body).digest('hex');
+  ok('донатон-webhook: валидная подпись hex → true', verifyWebhookSignature(body, SECRET, goodHex));
+  ok('донатон-webhook: формат sha256=<hex> (X-Hub-Signature) → true', verifyWebhookSignature(body, SECRET, `sha256=${goodHex}`));
+  ok('донатон-webhook: чужая/битая подпись → false', verifyWebhookSignature(body, SECRET, 'a'.repeat(64)) === false);
+  ok('донатон-webhook: без секрета или подписи → false', verifyWebhookSignature(body, '', goodHex) === false && verifyWebhookSignature(body, SECRET, '') === false);
+  ok('донатон-webhook: не-hex мусор → false', verifyWebhookSignature(body, SECRET, 'zzzz') === false);
+
+  const whSettings = { donaTimer: { enabled: true, baseMinutes: 10, pricePerMinute: 50 }, donations: { donatex: { enabled: true, token: '', webhookSecret: SECRET } } };
+  const wh = new DonaTimer({ logs: dtLogs, settings: whSettings });
+  wh.onStreamStart();
+  const wh1 = wh.handleWebhook({ source: 'donatex', rawBody: body, signature: goodHex });
+  ok('донатон-webhook: валидный донат засчитан (added=1, totalRub=250)',
+    wh1.ok === true && wh1.added === 1 && wh.state().totalRub === 250);
+  const wh2 = wh.handleWebhook({ source: 'donatex', rawBody: body, signature: goodHex });
+  ok('донатон-webhook: повторный тот же донат — идемпотентность (added=0)',
+    wh2.ok === true && wh2.added === 0 && wh.state().totalRub === 250);
+  const whBad = wh.handleWebhook({ source: 'donatex', rawBody: body, signature: 'b'.repeat(64) });
+  ok('донатон-webhook: плохая подпись → error, сумма не растёт', whBad.error === 'bad signature' && wh.state().totalRub === 250);
+  const whJson = wh.handleWebhook({ source: 'donatex', rawBody: 'не json', signature: goodHex });
+  ok('донатон-webhook: не-JSON тело → error', whJson.error === 'bad json');
+  const whOff = new DonaTimer({ logs: dtLogs, settings: { donaTimer: { enabled: false }, donations: { donatex: { webhookSecret: SECRET } } } });
+  ok('донатон-webhook: выключенный таймер отклоняет донат', whOff.handleWebhook({ source: 'donatex', rawBody: body, signature: goodHex }).error === 'timer disabled');
+  wh.stop();
+
+  // ---------- объектная раскладка ----------
+  const objSettings = { donaTimer: { enabled: true, objects: [{ id: 'clock-9', type: 'clock', x: 10, y: 20, w: 300, h: 80, opacity: 100, z: 4, fontSize: 60 }] }, donations: {} };
+  const dtObj = new DonaTimer({ logs: dtLogs, settings: objSettings });
+  const stObj = dtObj.state();
+  ok('донатон: state().objects отдаёт объекты раскладки из настроек',
+    Array.isArray(stObj.objects) && stObj.objects.length === 1 && stObj.objects[0].type === 'clock');
+  dtObj.stop();
+
   dt.stop();
   dtZero.stop();
 }

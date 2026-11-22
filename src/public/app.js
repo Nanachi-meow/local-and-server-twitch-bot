@@ -11,6 +11,22 @@ function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
+// ---------- шрифты для редакторов раскладки (виджет-объекты) ----------
+const FONT_CHOICES = [
+  ['', 'По умолчанию (наследует оверлей)'],
+  ['Consolas, monospace', 'Consolas / моноширинный'],
+  ["'Courier New', monospace", 'Courier New'],
+  ['Arial, sans-serif', 'Arial / без засечек'],
+  ["'Segoe UI', sans-serif", 'Segoe UI'],
+  ["'Times New Roman', serif", 'Times New Roman / с засечками'],
+  ['Georgia, serif', 'Georgia'],
+  ["'Comic Sans MS', cursive", 'Рукописный (Comic Sans)'],
+  ["'Segoe Print', cursive", 'Segoe Print'],
+];
+const fontOptions = (val) => FONT_CHOICES
+  .map(([v, l]) => `<option value="${esc(v)}"${(v || '') === (val || '') ? ' selected' : ''}>${l}</option>`)
+  .join('');
+
 function fmtTime(ts) {
   return new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
@@ -1760,6 +1776,8 @@ function wodNorm(raw) {
       radius: Math.max(0, Number(o.radius) || 0),
       rotate: Math.max(-15, Math.min(15, Number(o.rotate) || 0)),
       fontSize: Math.max(10, Number(o.fontSize) || 22),
+      fontFamily: String(o.fontFamily || '').slice(0, 80),
+      visible: o.visible !== false,
       borderColor: String(o.borderColor || ''),
       borderWidth: Math.max(0, Math.min(12, Number(o.borderWidth) || 0)),
     }));
@@ -1824,6 +1842,8 @@ function wodRenderStage() {
     div.style.opacity = String(o.opacity / 100);
     div.style.borderRadius = `${o.radius * k}px`;
     div.style.transform = o.rotate ? `rotate(${o.rotate}deg)` : '';
+    div.style.outline = o.visible === false ? '2px dashed #f59e0b' : '';
+    div.title = o.visible === false ? 'скрыт (не виден на стриме)' : '';
     if (o.borderWidth) div.style.border = `${o.borderWidth}px solid ${o.borderColor || '#8b5cf6'}`;
     const fillText = o.type === 'caption'
       ? (o.text || 'Слово дня:')
@@ -1835,6 +1855,7 @@ function wodRenderStage() {
     if (o.type === 'caption' || o.type === 'word' || o.type === 'count') {
       div.style.color = o.color || '#ffffff';
       div.style.fontSize = `${o.fontSize * k}px`;
+      if (o.fontFamily) div.style.fontFamily = o.fontFamily;
       div.style.fontWeight = '700';
       div.style.display = 'flex';
       div.style.alignItems = 'center';
@@ -1932,6 +1953,7 @@ function wodRenderProps() {
   if (!o) { props.innerHTML = ''; return; }
   const row = (label, html) => `<label>${label}<div class="am-sound-row">${html}</div></label>`;
   let html = `
+    <label class="hint"><input type="checkbox" id="woded-visible" ${o.visible === false ? '' : 'checked'} /> видимый на стриме</label>
     ${row('прозрачность', `<input type="range" id="woded-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="weded-op-val-x">${o.opacity}%</span>`)}
     ${row('поворот', `<input type="range" id="woded-rot" min="-15" max="15" value="${o.rotate}" /><span class="hint" id="woded-rot-val">${o.rotate}°</span>`)}
     <div class="rp-row">
@@ -1941,6 +1963,7 @@ function wodRenderProps() {
       <button class="act ghost" id="woded-zdown" title="опустить">▼</button>`;
   if (o.type === 'caption' || o.type === 'word' || o.type === 'count') {
     html += row('текст', `<span class="hint">цвет</span><input type="color" id="woded-color" value="${esc(o.color || '#ffffff')}" /><span class="hint">шрифт</span><input type="number" id="woded-fs" min="10" max="60" value="${o.fontSize}" style="width:56px" />`);
+    html += row('семейство шрифта', `<select id="woded-font" style="max-width:260px">${fontOptions(o.fontFamily)}</select>`);
   }
   if (o.type === 'caption') {
     html += `<label>надпись <input type="text" id="woded-text" class="wide" maxlength="60" value="${esc(o.text || 'Слово дня:')}" /></label>`;
@@ -1955,6 +1978,8 @@ function wodRenderProps() {
   html += `<button class="act ghost" id="woded-del">🗑 Удалить объект</button></div>`;
   props.innerHTML = html;
 
+  $('#woded-visible')?.addEventListener('change', () => { wodPushThrottled(); o.visible = $('#woded-visible').checked; wodRenderStage(); });
+  $('#woded-font')?.addEventListener('change', () => { o.fontFamily = $('#woded-font').value; wodRenderStage(); });
   $('#woded-op').addEventListener('input', () => {
     o.opacity = Number($('#woded-op').value);
     $('#weded-op-val-x').textContent = `${o.opacity}%`;
@@ -2187,11 +2212,12 @@ document.addEventListener('keydown', (e) => {
   if (e.target.closest('input, textarea, select')) return;
   if (!(e.ctrlKey || e.metaKey)) return;
   const key = String(e.key || '').toLowerCase();
-  if (key === 'z' && !e.shiftKey) { e.preventDefault(); wodUndo(); }
-  else if (key === 'y' || (key === 'z' && e.shiftKey)) { e.preventDefault(); wodRedo(); }
-  else if (key === 'c') { e.preventDefault(); wodCopy(); }
-  else if (key === 'x') { e.preventDefault(); wodCopy(true); }
-  else if (key === 'v') { e.preventDefault(); wodPaste(); }
+  const dtVisible = (document.getElementById('dt-stage')?.offsetParent ?? null) !== null;
+  if (key === 'z' && !e.shiftKey) { e.preventDefault(); if (dtVisible) dtUndo(); else wodUndo(); }
+  else if (key === 'y' || (key === 'z' && e.shiftKey)) { e.preventDefault(); if (dtVisible) dtRedo(); else wodRedo(); }
+  else if (key === 'c') { e.preventDefault(); if (dtVisible) dtCopy(); else wodCopy(); }
+  else if (key === 'x') { e.preventDefault(); if (dtVisible) dtCopy(true); else wodCopy(true); }
+  else if (key === 'v') { e.preventDefault(); if (dtVisible) dtPaste(); else wodPaste(); }
 });
 
 $('#wod-widget-add').addEventListener('click', () => $('#wod-image-file').click());
@@ -2275,6 +2301,524 @@ $('#wod-reset').addEventListener('click', async () => {
     loadWordOfDayCurrent();
   } catch (e) { toast(e.message, true); }
 });
+
+// ---------------- ⏱ «Таймер донатона»: редактор раскладки ----------------
+// виджет по центру сверху: сцена = сам виджет 480×170 (координаты локальные)
+// типы объектов: label (надпись) / clock (часы HH:MM:SS) / footer (нижняя строка) /
+//               backdrop (подложка) / image (картинка)
+
+const DT_W = 480;
+const DT_H = 170;
+
+let dtEd = { objects: [], enabled: false };
+const DT_TYPE_RU = { label: '🏷 надпись', clock: '⏱ часы', footer: '📝 нижняя строка', backdrop: '🟪 подложка', image: '🖼 картинка' };
+const dtHist = [];
+const dtRedoStack = [];
+let dtLastPush = 0;
+let dtClipboard = [];
+
+function dtDefault() {
+  // карточка по центру сверху: подложка на весь виджет + надпись/часы/строка
+  return [
+    { id: 'backdrop-0', type: 'backdrop', x: 0, y: 0, w: DT_W, h: DT_H, opacity: 80, z: 1, color: '#0c0a19', radius: 18, rotate: 0, image: '', borderColor: '', borderWidth: 0 },
+    { id: 'label-0', type: 'label', x: 20, y: 14, w: 440, h: 26, opacity: 85, z: 3, color: '#ffffff', text: 'стрим закончится через', fontSize: 16, radius: 0, rotate: 0, borderColor: '', borderWidth: 0 },
+    { id: 'clock-0', type: 'clock', x: 20, y: 42, w: 440, h: 76, opacity: 100, z: 4, color: '#ff5a4d', fontSize: 60, radius: 0, rotate: 0, borderColor: '', borderWidth: 0 },
+    { id: 'footer-0', type: 'footer', x: 20, y: 128, w: 440, h: 24, opacity: 80, z: 3, color: '#ffffff', text: 'продлить стрим: 30₽ за минуту', fontSize: 14, radius: 0, rotate: 0, borderColor: '', borderWidth: 0 },
+  ];
+}
+
+function dtNorm(raw) {
+  const c = raw ?? {};
+  const objects = (Array.isArray(c.objects) && c.objects.length
+    ? c.objects.filter((o) => o && ['label', 'clock', 'footer', 'backdrop', 'image'].includes(o.type))
+    : dtDefault())
+    .map((o, i) => ({
+      id: o.id || `${o.type}-${i}`,
+      type: o.type,
+      x: Number(o.x) || 0, y: Number(o.y) || 0,
+      w: Math.max(20, Number(o.w) || 300), h: Math.max(20, Number(o.h) || 120),
+      opacity: Math.max(0, Math.min(100, Number(o.opacity ?? 100))),
+      z: Math.max(0, Math.min(30, Number(o.z ?? 1))),
+      image: String(o.image || ''),
+      color: String(o.color || ''),
+      text: String(o.text || ''),
+      radius: Math.max(0, Number(o.radius) || 0),
+      rotate: Math.max(-15, Math.min(15, Number(o.rotate) || 0)),
+      fontSize: Math.max(10, Number(o.fontSize) || 22),
+      fontFamily: String(o.fontFamily || '').slice(0, 80),
+      visible: o.visible !== false,
+      borderColor: String(o.borderColor || ''),
+      borderWidth: Math.max(0, Math.min(12, Number(o.borderWidth) || 0)),
+    }));
+  return { enabled: Boolean(c.enabled), objects };
+}
+
+function dtK() { return 1; } // виджет маленький: превью = реальный размер
+const DT_OX = 110; // зона виджета в сцене редактора
+const DT_OY = 45;
+
+function dtPush() {
+  dtHist.push(JSON.stringify(dtEd.objects));
+  if (dtHist.length > 60) dtHist.shift();
+  dtRedoStack.length = 0;
+  dtLastPush = Date.now();
+}
+function dtPushThrottled() { if (Date.now() - dtLastPush > 600) dtPush(); }
+function dtUndo() {
+  if (!dtHist.length) { toast('Отменять нечего'); return; }
+  dtRedoStack.push(JSON.stringify(dtEd.objects));
+  dtEd.objects = JSON.parse(dtHist.pop());
+  dtSel = new Set();
+  dtSelIdx = -1;
+  dtRenderStage();
+  dtRenderProps();
+}
+function dtRedo() {
+  if (!dtRedoStack.length) { toast('Повторять нечего'); return; }
+  dtHist.push(JSON.stringify(dtEd.objects));
+  dtEd.objects = JSON.parse(dtRedoStack.pop());
+  dtSel = new Set();
+  dtSelIdx = -1;
+  dtRenderStage();
+  dtRenderProps();
+}
+
+let dtSel = new Set();
+let dtSelIdx = 0;
+
+function dtRenderStage() {
+  const stage = $('#dt-stage');
+  if (!stage) return;
+  const sorted = dtEd.objects.map((o, i) => ({ o, i })).sort((a, b) => (a.o.z ?? 0) - (b.o.z ?? 0));
+  stage.innerHTML = '<div id="dt-zone"></div>';
+  for (const { o, i } of sorted) {
+    const div = document.createElement('div');
+    div.className = `plp-obj plp-${o.type}${dtSel.has(i) ? ' sel' : ''}`;
+    div.dataset.i = i;
+    div.style.left = `${Math.round(DT_OX + o.x * dtK())}px`;
+    div.style.top = `${Math.round(DT_OY + o.y * dtK())}px`;
+    div.style.width = `${o.w * dtK()}px`;
+    div.style.height = `${o.h * dtK()}px`;
+    div.style.opacity = String(o.opacity / 100);
+    div.style.borderRadius = `${o.radius * dtK()}px`;
+    div.style.transform = o.rotate ? `rotate(${o.rotate}deg)` : '';
+    div.style.outline = o.visible === false ? '2px dashed #f59e0b' : '';
+    div.title = o.visible === false ? 'скрыт (не виден на стриме)' : '';
+    if (o.borderWidth) div.style.border = `${o.borderWidth}px solid ${o.borderColor || '#8b5cf6'}`;
+    const fillText = o.type === 'label'
+      ? (o.text || 'стрим закончится через')
+      : o.type === 'clock'
+        ? '1:23:45'
+        : o.type === 'footer'
+          ? (o.text || 'продлить стрим: 30₽ за минуту')
+          : '';
+    if (o.type === 'label' || o.type === 'clock' || o.type === 'footer') {
+      div.style.color = o.color || '#ffffff';
+      div.style.fontSize = `${o.fontSize * dtK()}px`;
+      if (o.fontFamily) div.style.fontFamily = o.fontFamily;
+      div.style.fontWeight = '700';
+      div.style.display = 'flex';
+      div.style.alignItems = 'center';
+      div.style.justifyContent = 'center';
+      div.style.overflow = 'hidden';
+      div.style.whiteSpace = 'pre-wrap';
+      div.textContent = fillText;
+    } else if (o.type === 'backdrop') {
+      if (o.image) div.style.backgroundImage = `url(/media/${encodeURIComponent(o.image)})`;
+      else div.style.backgroundColor = o.color || '#0c0a19';
+    } else if (o.type === 'image' && o.image) {
+      div.style.backgroundImage = `url(/media/${encodeURIComponent(o.image)})`;
+    }
+    if (dtSel.size === 1 && i === dtSelIdx) {
+      const h = document.createElement('div');
+      h.className = 'plp-resize';
+      div.appendChild(h);
+    }
+    stage.appendChild(div);
+  }
+}
+
+function dtSnap(nx, ny, self) {
+  const others = dtEd.objects.filter((_, j) => !dtSel.has(j));
+  const anchorsX = [nx, nx + self.w / 2, nx + self.w];
+  const anchorsY = [ny, ny + self.h / 2, ny + self.h];
+  const targetsX = [{ pos: DT_W / 2, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.x, kind: 'obj' }, { pos: t.x + t.w / 2, kind: 'obj' }, { pos: t.x + t.w, kind: 'obj' }])];
+  const targetsY = [{ pos: DT_H / 2, kind: 'scene' }, ...others.flatMap((t) => [{ pos: t.y, kind: 'obj' }, { pos: t.y + t.h / 2, kind: 'obj' }, { pos: t.y + t.h, kind: 'obj' }])];
+  let bestX = null;
+  for (const a of anchorsX) for (const t of targetsX) {
+    const d = t.pos - a;
+    if (Math.abs(d) <= 14 && (!bestX || Math.abs(d) < Math.abs(bestX.shift))) bestX = { shift: d, target: t };
+  }
+  let bestY = null;
+  for (const a of anchorsY) for (const t of targetsY) {
+    const d = t.pos - a;
+    if (Math.abs(d) <= 14 && (!bestY || Math.abs(d) < Math.abs(bestY.shift))) bestY = { shift: d, target: t };
+  }
+  return { x: nx + (bestX ? bestX.shift : 0), y: ny + (bestY ? bestY.shift : 0), guides: { v: bestX ? bestX.target : null, h: bestY ? bestY.target : null } };
+}
+
+function dtGuides({ v, h }) {
+  $('#dt-guide-v')?.remove();
+  $('#dt-guide-h')?.remove();
+  if (!v && !h) return;
+  const stage = $('#dt-stage');
+  if (v) {
+    const g = document.createElement('div');
+    g.id = 'dt-guide-v';
+    g.className = `plp-guide plp-guide-v ${v.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
+    g.style.left = `${DT_OX + v.pos * dtK()}px`;
+    stage.appendChild(g);
+  }
+  if (h) {
+    const g = document.createElement('div');
+    g.id = 'dt-guide-h';
+    g.className = `plp-guide plp-guide-h ${h.kind === 'scene' ? 'plp-g-scene' : 'plp-g-obj'}`;
+    g.style.top = `${DT_OY + h.pos * dtK()}px`;
+    stage.appendChild(g);
+  }
+}
+
+function dtRenderProps() {
+  const chips = $('#dt-objects');
+  const props = $('#dt-props');
+  if (!chips || !props) return;
+  chips.innerHTML = dtEd.objects.map((o, i) =>
+    `<span class="chip${dtSel.has(i) ? ' sel' : ''}" data-i="${i}">${DT_TYPE_RU[o.type] ?? o.type}${(o.type === 'label' || o.type === 'footer') && o.text ? ` · ${esc(o.text.slice(0, 14))}` : ''}</span>`
+  ).join('');
+  if (!dtSel.size) {
+    props.innerHTML = '<p class="hint">Клик — выделить · shift+клик — несколько · рамка по пустому месту · ctrl+z/y/c/x/v. «Часы» тикают сами — тут только стиль.</p>';
+    return;
+  }
+  if (dtSel.size > 1) {
+    props.innerHTML = `
+      <p class="hint">выделено: ${dtSel.size} — тащатся вместе</p>
+      <div class="rp-row">
+        <button class="act ghost" id="dted-zup">▲ слой</button>
+        <button class="act ghost" id="dted-zdown">▼ слой</button>
+        <button class="act ghost" id="dted-del">🗑 удалить выбранное</button>
+      </div>`;
+    $('#dted-zup').addEventListener('click', () => { for (const i of dtSel) dtEd.objects[i].z = Math.min(30, dtEd.objects[i].z + 1); dtRenderStage(); dtRenderProps(); });
+    $('#dted-zdown').addEventListener('click', () => { for (const i of dtSel) dtEd.objects[i].z = Math.max(0, dtEd.objects[i].z - 1); dtRenderStage(); dtRenderProps(); });
+    $('#dted-del').addEventListener('click', () => {
+      dtPush();
+      dtEd.objects = dtEd.objects.filter((_, i) => !dtSel.has(i));
+      dtSel = new Set();
+      dtSelIdx = -1;
+      dtRenderStage();
+      dtRenderProps();
+    });
+    return;
+  }
+  const o = dtEd.objects[dtSelIdx];
+  if (!o) { props.innerHTML = ''; return; }
+  const row = (label, html) => `<label>${label}<div class="am-sound-row">${html}</div></label>`;
+  let html = `
+    <label class="hint"><input type="checkbox" id="dted-visible" ${o.visible === false ? '' : 'checked'} /> видимый на стриме</label>
+    ${row('прозрачность', `<input type="range" id="dted-op" min="0" max="100" value="${o.opacity}" /><span class="hint" id="dted-op-val">${o.opacity}%</span>`)}
+    ${row('поворот', `<input type="range" id="dted-rot" min="-15" max="15" value="${o.rotate}" /><span class="hint" id="dted-rot-val">${o.rotate}°</span>`)}
+    <div class="rp-row">
+      <label class="hint">слой:</label>
+      <button class="act ghost" id="dted-zup" title="поднять">▲</button>
+      <span class="hint">z=${o.z}</span>
+      <button class="act ghost" id="dted-zdown" title="опустить">▼</button>`;
+  if (o.type === 'label' || o.type === 'clock' || o.type === 'footer') {
+    html += row('текст', `<span class="hint">цвет</span><input type="color" id="dted-color" value="${esc(o.color || '#ffffff')}" /><span class="hint">шрифт</span><input type="number" id="dted-fs" min="10" max="120" value="${o.fontSize}" style="width:56px" />`);
+    html += row('семейство шрифта', `<select id="dted-font" style="max-width:260px">${fontOptions(o.fontFamily)}</select>`);
+  }
+  if (o.type === 'label' || o.type === 'footer') {
+    html += `<label>надпись <input type="text" id="dted-text" class="wide" maxlength="60" value="${esc(o.text || '')}" /></label>`;
+  }
+  if (o.type === 'clock') {
+    html += '<p class="hint">Время подставляется само: HH:MM:SS (часы — только если больше часа).</p>';
+  }
+  html += row('закругление', `<input type="number" id="dted-radius" min="0" max="120" value="${o.radius}" style="width:56px" />`);
+  html += row('грань (обводка)', `<span class="hint">цвет</span><input type="color" id="dted-bcolor2" value="${esc(o.borderColor || '#8b5cf6')}" /><span class="hint">толщ</span><input type="range" id="dted-bw" min="0" max="12" value="${o.borderWidth}" style="width:90px" /><span class="hint" id="dted-bw-val">${o.borderWidth}px</span>`);
+  if (o.type === 'backdrop' || o.type === 'image') {
+    html += o.type === 'backdrop' ? `<label>цвет <input type="color" id="dted-bcolor" value="${esc(o.color || '#0c0a19')}" style="width:46px" /></label>` : '';
+    html += `<label>картинка <select id="dted-img"></select></label>
+      <div class="am-sound-row"><input type="file" id="dted-img-file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" style="max-width:220px" /><button class="act ghost" id="dted-img-up">⬆</button></div>`;
+  }
+  html += `<button class="act ghost" id="dted-del">🗑 Удалить объект</button></div>`;
+  props.innerHTML = html;
+
+  $('#dted-visible')?.addEventListener('change', () => { dtPushThrottled(); o.visible = $('#dted-visible').checked; dtRenderStage(); });
+  $('#dted-font')?.addEventListener('change', () => { o.fontFamily = $('#dted-font').value; dtRenderStage(); });
+  $('#dted-op').addEventListener('input', () => {
+    o.opacity = Number($('#dted-op').value);
+    $('#dted-op-val').textContent = `${o.opacity}%`;
+    dtRenderStage();
+  });
+  $('#dted-rot').addEventListener('input', () => {
+    o.rotate = Number($('#dted-rot').value);
+    $('#dted-rot-val').textContent = `${o.rotate}°`;
+    dtRenderStage();
+  });
+  $('#dted-zup').addEventListener('click', () => { o.z = Math.min(30, o.z + 1); dtRenderStage(); dtRenderProps(); });
+  $('#dted-zdown').addEventListener('click', () => { o.z = Math.max(0, o.z - 1); dtRenderStage(); dtRenderProps(); });
+  $('#dted-color')?.addEventListener('input', () => { o.color = $('#dted-color').value; dtRenderStage(); });
+  $('#dted-fs')?.addEventListener('pointerdown', dtPushThrottled);
+  $('#dted-fs')?.addEventListener('input', () => { o.fontSize = Number($('#dted-fs').value) || 22; dtRenderStage(); });
+  $('#dted-text')?.addEventListener('input', () => { o.text = $('#dted-text').value; dtRenderStage(); dtRenderProps(); });
+  $('#dted-radius')?.addEventListener('pointerdown', dtPushThrottled);
+  $('#dted-radius')?.addEventListener('input', () => { o.radius = Number($('#dted-radius').value) || 0; dtRenderStage(); });
+  $('#dted-bcolor2')?.addEventListener('input', () => { o.borderColor = $('#dted-bcolor2').value; dtRenderStage(); });
+  $('#dted-bw')?.addEventListener('input', () => {
+    o.borderWidth = Number($('#dted-bw').value) || 0;
+    $('#dted-bw-val').textContent = `${o.borderWidth}px`;
+    dtRenderStage();
+  });
+  $('#dted-bcolor')?.addEventListener('input', () => { o.color = $('#dted-bcolor').value; dtRenderStage(); });
+  $('#dted-del').addEventListener('click', () => {
+    dtPush();
+    dtEd.objects.splice(dtSelIdx, 1);
+    dtSelIdx = Math.max(-1, dtSelIdx - 1);
+    dtSel = dtSelIdx >= 0 ? new Set([dtSelIdx]) : new Set();
+    dtRenderStage();
+    dtRenderProps();
+  });
+
+  const imgSel = $('#dted-img');
+  if (imgSel) {
+    api('/api/media').then(({ files }) => {
+      const images = files.filter((f) => ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'apng'].includes(fileExt(f)));
+      imgSel.innerHTML = ['<option value="">— не задано —</option>',
+        ...images.map((f) => `<option value="${esc(f)}" ${o.image === f ? 'selected' : ''}>${esc(f)}</option>`)].join('');
+    }).catch(() => {});
+    imgSel.addEventListener('change', () => { dtPush(); o.image = imgSel.value; dtRenderStage(); dtRenderProps(); });
+    $('#dted-img-up').addEventListener('click', async () => {
+      const file = $('#dted-img-file')?.files?.[0];
+      if (!file) { toast('Сначала выбери картинку', true); return; }
+      const r = await fetch(`/api/media/upload?name=${encodeURIComponent(file.name)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(j.error || `HTTP ${r.status}`, true); return; }
+      dtPush();
+      o.image = file.name;
+      toast('Картинка загружена ✅');
+      dtRenderStage();
+      dtRenderProps();
+    });
+  }
+}
+
+// drag/рамка/магнит — своя сцена (как у wod/plp)
+(() => {
+  const stage = $('#dt-stage');
+  if (!stage) return;
+  let mode = null;
+  let idx = -1;
+  let grabX = 0, grabY = 0;
+  let starts = null;
+  let band = null;
+  let bandShift = false;
+  let moved = false;
+  let pendingGuides = null;
+
+  const snapshot = () => {
+    starts = new Map();
+    for (const i of dtSel) starts.set(i, { ...dtEd.objects[i] });
+  };
+
+  stage.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.plp-resize');
+    const obj = e.target.closest('.plp-obj');
+    grabX = e.clientX; grabY = e.clientY;
+    moved = false;
+    stage.setPointerCapture?.(e.pointerId);
+    if (!obj) {
+      mode = 'band';
+      bandShift = e.shiftKey;
+      band = { x: e.clientX, y: e.clientY, w: 0, h: 0 };
+      dtGuides({ v: null, h: null });
+      e.preventDefault();
+      return;
+    }
+    idx = Number(obj.dataset.i);
+    dtSelIdx = idx;
+    if (e.shiftKey) {
+      if (dtSel.has(idx)) dtSel.delete(idx);
+      else dtSel.add(idx);
+    } else if (!dtSel.has(idx)) {
+      dtSel = new Set([idx]);
+    }
+    if (!dtSel.size) dtSel = new Set([idx]);
+    dtSelIdx = dtSel.has(idx) ? idx : [...dtSel][0];
+    mode = (handle && dtSel.size === 1) ? 'resize' : 'move';
+    snapshot();
+    dtPush();
+    dtRenderStage();
+    dtRenderProps();
+    e.preventDefault();
+  });
+
+  stage.addEventListener('pointermove', (e) => {
+    if (!mode) return;
+    const k = dtK();
+    moved = true;
+    if (mode === 'band') {
+      const r = stage.getBoundingClientRect();
+      band = {
+        x: Math.min(grabX, e.clientX) - r.left,
+        y: Math.min(grabY, e.clientY) - r.top,
+        w: Math.abs(e.clientX - grabX),
+        h: Math.abs(e.clientY - grabY),
+      };
+      $('#dt-band')?.remove();
+      const b = document.createElement('div');
+      b.id = 'dt-band';
+      b.style.left = `${band.x}px`;
+      b.style.top = `${band.y}px`;
+      b.style.width = `${band.w}px`;
+      b.style.height = `${band.h}px`;
+      stage.appendChild(b);
+      return;
+    }
+    const dx = (e.clientX - grabX) / k;
+    const dy = (e.clientY - grabY) / k;
+    if (mode === 'move') {
+      const anchor = starts.get(idx);
+      if (!anchor) return;
+      const snap = dtSnap(anchor.x + dx, anchor.y + dy, anchor);
+      const shiftX = snap.x - (anchor.x + dx);
+      const shiftY = snap.y - (anchor.y + dy);
+      for (const [i, s] of starts) {
+        const o = dtEd.objects[i];
+        o.x = Math.round(Math.max(-110, Math.min(DT_W + 110, s.x + dx + shiftX)));
+        o.y = Math.round(Math.max(-45, Math.min(DT_H + 45, s.y + dy + shiftY)));
+      }
+      pendingGuides = snap.guides;
+    } else {
+      const o = dtEd.objects[idx];
+      const s = starts.get(idx);
+      o.w = Math.round(Math.max(20, Math.min(DT_W + 200, s.w + dx)));
+      o.h = Math.round(Math.max(20, Math.min(DT_H + 200, s.h + dy)));
+    }
+    dtRenderStage();
+    dtRenderProps();
+    if (pendingGuides) { dtGuides(pendingGuides); pendingGuides = null; }
+  });
+
+  const stop = () => {
+    if (mode === 'band') {
+      $('#dt-band')?.remove();
+      if (!moved && !bandShift) {
+        dtSel = new Set();
+        dtSelIdx = -1;
+      } else if (band && (band.w > 3 || band.h > 3)) {
+        dtSel = new Set();
+        const k = dtK();
+        for (const [i, o] of dtEd.objects.entries()) {
+          const r = { x: DT_OX + o.x * k, y: DT_OY + o.y * k, w: o.w * k, h: o.h * k };
+          if (r.x < band.x + band.w && r.x + r.w > band.x && r.y < band.y + band.h && r.y + r.h > band.y) dtSel.add(i);
+        }
+        if (dtSel.size) dtSelIdx = [...dtSel].at(-1);
+      }
+      dtRenderStage();
+      dtRenderProps();
+    }
+    mode = null;
+    starts = null;
+    band = null;
+    dtGuides({ v: null, h: null });
+  };
+  stage.addEventListener('pointerup', stop);
+  stage.addEventListener('pointercancel', stop);
+})();
+
+$('#dt-objects').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip[data-i]');
+  if (!chip) return;
+  const i = Number(chip.dataset.i);
+  if (e.shiftKey) {
+    if (dtSel.has(i)) dtSel.delete(i);
+    else dtSel.add(i);
+  } else dtSel = new Set([i]);
+  dtSelIdx = i;
+  dtRenderStage();
+  dtRenderProps();
+});
+
+$('#dt-props').addEventListener('pointerdown', dtPushThrottled);
+
+function dtCopy(cut = false) {
+  if (!dtSel.size) { toast('Сначала выдели объект(ы)', true); return; }
+  dtClipboard = [...dtSel].map((i) => JSON.parse(JSON.stringify(dtEd.objects[i])));
+  if (cut) {
+    dtPush();
+    dtEd.objects = dtEd.objects.filter((_, i) => !dtSel.has(i));
+    dtSel = new Set();
+    dtSelIdx = -1;
+    dtRenderStage();
+    dtRenderProps();
+    toast(`Вырезано: ${dtClipboard.length}`);
+  } else toast(`Скопировано: ${dtClipboard.length}`);
+}
+function dtPaste() {
+  if (!dtClipboard?.length) { toast('Буфер пуст', true); return; }
+  dtPush();
+  const pasted = [];
+  for (const [n, o] of dtClipboard.entries()) {
+    const c = { ...o, x: o.x + 30, y: o.y + 30 };
+    c.id = `${c.type}-${Date.now()}-${n}`;
+    dtEd.objects.push(c);
+    pasted.push(dtEd.objects.length - 1);
+  }
+  dtSel = new Set(pasted);
+  dtSelIdx = pasted.at(-1);
+  dtRenderStage();
+  dtRenderProps();
+  toast(`Вставлено: ${pasted.length}`);
+}
+
+$('#dt-widget-add').addEventListener('click', () => $('#dt-image-file').click());
+$('#dt-image-file').addEventListener('change', async () => {
+  const file = $('#dt-image-file')?.files?.[0];
+  if (!file) return;
+  try {
+    const r = await fetch(`/api/media/upload?name=${encodeURIComponent(file.name)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    const zMax = Math.max(0, ...dtEd.objects.map((o) => o.z));
+    dtPush();
+    dtEd.objects.push({ id: `image-${Date.now()}`, type: 'image', x: 1500, y: 200, w: 340, h: 220, opacity: 100, z: zMax + 1, image: file.name, radius: 0, rotate: 0 });
+    dtSelIdx = dtEd.objects.length - 1;
+    dtSel = new Set([dtSelIdx]);
+    $('#dt-image-file').value = '';
+    dtRenderStage();
+    dtRenderProps();
+    toast('Элемент добавлен 🖼');
+  } catch (e) { toast(e.message, true); }
+});
+$('#dt-widget-reset').addEventListener('click', () => {
+  dtPush();
+  dtEd.objects = dtDefault();
+  dtSelIdx = 0;
+  dtSel = new Set([0]);
+  dtRenderStage();
+  dtRenderProps();
+  toast('Дефолтная раскладка (не забудь сохранить)');
+});
+
+$('#dt-save-layout').addEventListener('click', async () => {
+  try {
+    await putSettings({ donaTimer: { enabled: $('#dt-enabled').checked, objects: dtEd.objects } });
+    toast('Раскладка таймера сохранена ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+async function loadDonaTimerLayout() {
+  const st = await api('/api/settings');
+  dtEd = dtNorm(st.donaTimer ?? {});
+  $('#dt-enabled').checked = dtEd.enabled;
+  dtSelIdx = 0;
+  dtSel = new Set(dtEd.objects.length ? [0] : []);
+  dtRenderStage();
+  dtRenderProps();
+}
+loadDonaTimerLayout().catch(() => {});
 
 // ---------------- 🎰 Рулетка (за баллы канала) ----------------
 
@@ -2420,6 +2964,7 @@ function whSync() {
     whOverlay.textDY = Math.round(text.y + text.h / 2 - (wheel.y + wheel.h / 2));
     whOverlay.textW = Math.round(text.w);
     whOverlay.textFontSize = Number(text.fontSize) || 0;
+    whOverlay.textFontFamily = String(text.fontFamily || '');
     whOverlay.textColor = text.color || '#ffffff';
     whOverlay.textOpacity = text.opacity ?? 100;
   }
@@ -2576,6 +3121,7 @@ const whEngine = EditorEngine.create({
         const wheel = whEd.find((x) => x.type === 'wheel');
         div.style.fontSize = `${Math.round((Number(o.fontSize) || Math.max(16, (wheel ? wheel.w : 400) * 0.065)) * api.k())}px`;
         div.style.color = o.color || '#ffffff';
+        if (o.fontFamily) div.style.fontFamily = o.fontFamily;
         div.textContent = whTextMockText();
         div.title = 'тяни куда угодно, уголок — ширина окна; двойной клик — вернуть под колесо';
         // высоту уточняем по содержимому (перенос строк) — для рамки выделения и магнитов
@@ -2593,6 +3139,9 @@ const whEngine = EditorEngine.create({
       props: (o) => `
         <label>шрифт, px
           <div class="am-sound-row"><input type="number" id="whp-fs" min="0" max="150" value="${Number(o.fontSize) || 0}" style="width:70px" title="0 = автоподбор от размера колеса" /><span class="hint">${Number(o.fontSize) ? '' : 'авто'}</span></div>
+        </label>
+        <label>семейство шрифта
+          <div class="am-sound-row"><select id="whp-font" style="max-width:260px">${fontOptions(o.fontFamily)}</select></div>
         </label>
         <label>окно текста
           <div class="am-sound-row"><span class="hint">растягивается ручкой в превью (длинный текст — переносится строками)</span></div>
@@ -2612,6 +3161,7 @@ const whEngine = EditorEngine.create({
           });
         };
         num('#whp-fs', (el) => { o.fontSize = Math.max(0, Math.min(150, Number(el.value) || 0)); });
+        $('#whp-font')?.addEventListener('change', () => { o.fontFamily = $('#whp-font').value; whSync(); api.rerender(); });
         $('#whp-color')?.addEventListener('input', () => { o.color = $('#whp-color').value; whSync(); api.rerender(); });
         $('#whp-op')?.addEventListener('input', () => { o.opacity = Number($('#whp-op').value); $('#whp-op-val').textContent = `${o.opacity}%`; whSync(); api.rerender(); });
       },
@@ -3224,6 +3774,14 @@ function dtRender(st) {
   if (document.activeElement?.id !== 'dt-label') $('#dt-label').value = cfg.label ?? 'стрим закончится через';
   if (document.activeElement?.id !== 'dt-footer') $('#dt-footer').value = cfg.footer ?? 'продлить стрим: 30₽ за минуту';
   if (document.activeElement?.id !== 'dt-accent') $('#dt-accent').value = cfg.accent ?? '#ff5a4d';
+  // источники: токены и webhook-секреты (password-поля не перезаписываем, пока юзер печатает)
+  const don = window.__settings?.donations ?? {};
+  if (document.activeElement?.id !== 'dt-donatex-token') $('#dt-donatex-token').value = don.donatex?.token ?? '';
+  if (document.activeElement?.id !== 'dt-donatex-wh') $('#dt-donatex-wh').value = don.donatex?.webhookSecret ?? '';
+  if (document.activeElement?.id !== 'dt-da-token') $('#dt-da-token').value = don.da?.token ?? '';
+  if (document.activeElement?.id !== 'dt-da-wh') $('#dt-da-wh').value = don.da?.webhookSecret ?? '';
+  if (document.activeElement?.id !== 'dt-dpay-token') $('#dt-dpay-token').value = don.donatepay?.token ?? '';
+  if (document.activeElement?.id !== 'dt-dpay-wh') $('#dt-dpay-wh').value = don.donatepay?.webhookSecret ?? '';
   const h = Math.floor((dt.secondsLeft ?? 0) / 3600);
   const m = Math.floor(((dt.secondsLeft ?? 0) % 3600) / 60);
   const s = (dt.secondsLeft ?? 0) % 60;
@@ -3261,9 +3819,9 @@ $('#dt-src-save').addEventListener('click', async () => {
   try {
     await putSettings({
       donations: {
-        donatex: { enabled: $('#dt-donatex-on').checked, token: $('#dt-donatex-token').value.trim() },
-        da: { enabled: $('#dt-da-on').checked, token: $('#dt-da-token').value.trim() },
-        donatepay: { enabled: $('#dt-dpay-on').checked, token: $('#dt-dpay-token').value.trim() },
+        donatex: { enabled: $('#dt-donatex-on').checked, token: $('#dt-donatex-token').value.trim(), webhookSecret: $('#dt-donatex-wh').value.trim() },
+        da: { enabled: $('#dt-da-on').checked, token: $('#dt-da-token').value.trim(), webhookSecret: $('#dt-da-wh').value.trim() },
+        donatepay: { enabled: $('#dt-dpay-on').checked, token: $('#dt-dpay-token').value.trim(), webhookSecret: $('#dt-dpay-wh').value.trim() },
       },
     });
     toast('Источники донатов сохранены 💰');
@@ -3808,6 +4366,7 @@ function plpNorm(raw) {
           color: String(o.color || ''),
           radius: Math.max(0, Number(o.radius) || 0),
           fontSize: Math.max(10, Number(o.fontSize) || 22),
+          fontFamily: String(o.fontFamily || '').slice(0, 80),
           speed: Math.max(5, Number(o.speed) || 30),
         })),
     };
@@ -3857,6 +4416,7 @@ function plpRenderStage() {
     } else if (o.type === 'marquee') {
       div.style.color = o.color || '#ffffff';
       div.style.fontSize = `${o.fontSize * k}px`;
+      if (o.fontFamily) div.style.fontFamily = o.fontFamily;
       const t = plpMarqueeText();
       div.innerHTML = `<div class="pl-track" style="animation-duration:${o.speed}s"><span>${esc(t)}</span><span>${esc(t)}</span></div>`;
     } else if (o.type === 'backdrop') {
@@ -4137,6 +4697,7 @@ function plpRenderProps() {
     </div>`;
   if (o.type === 'marquee') {
     html += row('строка', `<span class="hint">цвет</span><input type="color" id="plp-color" value="${esc(o.color || '#ffffff')}" /><span class="hint">шрифт</span><input type="number" id="plp-fs" min="10" max="60" value="${o.fontSize}" style="width:56px" /><span class="hint">круг, сек</span><input type="number" id="plp-speed" min="5" max="300" value="${o.speed}" style="width:56px" />`);
+    html += row('семейство шрифта', `<select id="plp-font" style="max-width:260px">${fontOptions(o.fontFamily)}</select>`);
   }
   if (o.type === 'backdrop' || o.type === 'image') {
     html += row('вид', `<span class="hint">углы</span><input type="number" id="plp-radius" min="0" max="120" value="${o.radius}" style="width:56px" />${o.type === 'backdrop' ? `<span class="hint">цвет</span><input type="color" id="plp-bcolor" value="${esc(o.color || '#0c0a19')}" />` : ''}`);
@@ -4159,6 +4720,7 @@ function plpRenderProps() {
   $('#plp-idle')?.addEventListener('change', () => { o.hideOnIdle = $('#plp-idle').checked; });
   $('#plp-color')?.addEventListener('input', () => { o.color = $('#plp-color').value; plpRenderStage(); });
   $('#plp-fs')?.addEventListener('input', () => { o.fontSize = Number($('#plp-fs').value) || 22; o.h = o.fontSize + 16; plpRenderStage(); });
+  $('#plp-font')?.addEventListener('change', () => { o.fontFamily = $('#plp-font').value; plpRenderStage(); });
   $('#plp-speed')?.addEventListener('input', () => { o.speed = Number($('#plp-speed').value) || 30; plpRenderStage(); });
   $('#plp-radius')?.addEventListener('input', () => { o.radius = Number($('#plp-radius').value) || 0; plpRenderStage(); });
   $('#plp-b2color')?.addEventListener('input', () => { o.borderColor = $('#plp-b2color').value; plpRenderStage(); });
@@ -4368,6 +4930,7 @@ function asoNorm(raw) {
       color: String(o.color || ''),
       radius: Math.max(0, Number(o.radius) || 0),
       fontSize: Math.max(10, Number(o.fontSize) || 22),
+      fontFamily: String(o.fontFamily || '').slice(0, 80),
     }));
   return {
     v: 1,
@@ -4443,6 +5006,7 @@ function asoRenderStage() {
     } else if (o.type === 'text') {
       div.style.color = o.color || '#ffffff';
       div.style.fontSize = `${o.fontSize * k}px`;
+      if (o.fontFamily) div.style.fontFamily = o.fontFamily;
       div.style.fontWeight = '700';
       div.style.display = 'flex';
       div.style.alignItems = 'center';
@@ -4550,6 +5114,7 @@ function asoRenderProps() {
       <button class="act ghost" id="aso-zdown" title="опустить">▼</button>`;
   if (o.type === 'text') {
     html += row('текст', `<span class="hint">цвет</span><input type="color" id="aso-color" value="${esc(o.color || '#ffffff')}" /><span class="hint">шрифт</span><input type="number" id="aso-fs" min="10" max="60" value="${o.fontSize}" style="width:56px" />`);
+    html += row('семейство шрифта', `<select id="aso-font" style="max-width:260px">${fontOptions(o.fontFamily)}</select>`);
   }
   html += row('закругление', `<input type="number" id="aso-radius" min="0" max="120" value="${o.radius}" style="width:56px" />`);
   html += row('грань (обводка)', `<span class="hint">цвет</span><input type="color" id="aso-b2color" value="${esc(o.borderColor || '#8b5cf6')}" /><span class="hint">толщ</span><input type="range" id="aso-bw" min="0" max="12" value="${o.borderWidth ?? 0}" style="width:90px" /><span class="hint" id="aso-bw-val">${o.borderWidth ?? 0}px</span>`);
@@ -4571,6 +5136,7 @@ function asoRenderProps() {
   $('#aso-color')?.addEventListener('input', () => { o.color = $('#aso-color').value; asoRenderStage(); });
   $('#aso-fs')?.addEventListener('pointerdown', asoPushThrottled);
   $('#aso-fs')?.addEventListener('input', () => { o.fontSize = Number($('#aso-fs').value) || 22; asoRenderStage(); });
+  $('#aso-font')?.addEventListener('change', () => { o.fontFamily = $('#aso-font').value; asoRenderStage(); });
   $('#aso-radius')?.addEventListener('pointerdown', asoPushThrottled);
   $('#aso-radius')?.addEventListener('input', () => { o.radius = Number($('#aso-radius').value) || 0; asoRenderStage(); });
   $('#aso-b2color')?.addEventListener('input', () => { o.borderColor = $('#aso-b2color').value; asoRenderStage(); });

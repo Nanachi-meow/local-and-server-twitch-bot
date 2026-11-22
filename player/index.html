@@ -90,6 +90,7 @@
               color: String(o.color || ''),
               radius: Math.max(0, Number(o.radius) || 0),
               fontSize: Math.max(10, Number(o.fontSize) || 22),
+              fontFamily: String(o.fontFamily || ''),
               speed: Math.max(5, Number(o.speed) || 30),
             })),
         };
@@ -160,6 +161,7 @@
         } else if (o.type === 'marquee') {
           div.style.color = o.color || '#ffffff';
           div.style.fontSize = `${(Number(o.fontSize) || 22) * k}px`;
+          if (o.fontFamily) div.style.fontFamily = o.fontFamily;
           const track = div.querySelector('.pl-track');
           if (track) {
             track.style.animationDuration = `${Math.max(5, Number(o.speed) || 30)}s`;

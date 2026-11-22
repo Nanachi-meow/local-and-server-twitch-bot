@@ -647,6 +647,7 @@ const app = {
               borderWidth: num(o.borderWidth, 0, 12, 0),
               radius: num(o.radius, 0, 120, 0),
               fontSize: num(o.fontSize, 10, 60, 22),
+              fontFamily: String(o.fontFamily || '').slice(0, 80),
             };
             if (o.type === 'avatar') base.h = base.w; // аватар — квадратный
             return base;
@@ -684,6 +685,8 @@ const app = {
             radius: num(o.radius, 0, 120, 0),
             rotate: num(o.rotate, -15, 15, 0),
             fontSize: num(o.fontSize, 10, 60, 22),
+            fontFamily: String(o.fontFamily || '').slice(0, 80),
+            visible: o.visible !== false,
           }));
       }
       try { overlay.push({ kind: 'wordofday', ...processor.wodState(), objects: cur.objects ?? [] }); } catch {}
@@ -698,6 +701,35 @@ const app = {
       if (a.label !== undefined) cur.label = String(a.label).slice(0, 80);
       if (a.footer !== undefined) cur.footer = String(a.footer).slice(0, 120);
       if (a.accent !== undefined) cur.accent = String(a.accent).slice(0, 20);
+      if (a.objects !== undefined) {
+        const num = (v, min, max, dflt) => {
+          const n = Number(v);
+          return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : dflt;
+        };
+        cur.objects = a.objects
+          .filter((o) => o && ['label', 'clock', 'footer', 'backdrop', 'image'].includes(o.type))
+          .slice(0, 20)
+          .map((o) => ({
+            id: String(o.id || '').slice(0, 40),
+            type: o.type,
+            x: num(o.x, -500, 2500, 0),
+            y: num(o.y, -500, 2500, 0),
+            w: num(o.w, 20, 2500, 300),
+            h: num(o.h, 20, 2500, 120),
+            opacity: num(o.opacity, 0, 100, 100),
+            z: num(o.z, 0, 30, 1),
+            image: String(o.image || '').slice(0, 200),
+            color: String(o.color || '').slice(0, 20),
+            text: String(o.text || '').slice(0, 120),
+            radius: num(o.radius, 0, 120, 0),
+            rotate: num(o.rotate, -15, 15, 0),
+            fontSize: num(o.fontSize, 10, 150, 22),
+            fontFamily: String(o.fontFamily || '').slice(0, 80),
+            visible: o.visible !== false,
+            borderColor: String(o.borderColor || '').slice(0, 20),
+            borderWidth: num(o.borderWidth, 0, 12, 0),
+          }));
+      }
       try { donaTimer.push(true); } catch {}
       if (cur.enabled && !donaTimer._tick) donaTimer.start();
       if (!cur.enabled) donaTimer.stop();
@@ -707,9 +739,10 @@ const app = {
       const cur = settings.donations ??= {};
       for (const key of ['donatex', 'da', 'donatepay']) {
         if (a[key] !== undefined && a[key] !== null && typeof a[key] === 'object') {
-          cur[key] ??= { enabled: false, token: '' };
+          cur[key] ??= { enabled: false, token: '', webhookSecret: '' };
           if (a[key].enabled !== undefined) cur[key].enabled = Boolean(a[key].enabled);
           if (a[key].token !== undefined) cur[key].token = String(a[key].token).trim().slice(0, 300);
+          if (a[key].webhookSecret !== undefined) cur[key].webhookSecret = String(a[key].webhookSecret).trim().slice(0, 300);
         }
       }
       if (Object.values(cur).some((x) => x?.enabled && x?.token)) donaTimer.startPolling();
@@ -746,6 +779,7 @@ const app = {
         // окно текста победителя: своя ширина (перенос строк) и свой размер шрифта (0 = авто)
         if (o.textW !== undefined) curO.textW = Math.max(60, Math.min(2500, Math.round(Number(o.textW) || 500)));
         if (o.textFontSize !== undefined) curO.textFontSize = Math.max(0, Math.min(200, Math.round(Number(o.textFontSize) || 0)));
+        if (o.textFontFamily !== undefined) curO.textFontFamily = String(o.textFontFamily).slice(0, 80);
         if (o.textColor !== undefined) curO.textColor = String(o.textColor).slice(0, 20);
         if (o.textOpacity !== undefined) curO.textOpacity = Math.max(0, Math.min(100, Math.round(Number(o.textOpacity) ?? 100)));
         // картинки-декор рулетки (как у плеера музыки): слой ≥6 — над колесом, ≤4 — под
@@ -879,6 +913,7 @@ const app = {
                 borderWidth: num(o.borderWidth, 0, 12, 0),
                 radius: num(o.radius, 0, 120, 0),
                 fontSize: num(o.fontSize, 10, 60, 22),
+                fontFamily: String(o.fontFamily || '').slice(0, 80),
                 speed: num(o.speed, 5, 300, 30),
               };
               if (o.type === 'video') base.h = Math.round(base.w * 9 / 16); // форма 16:9 не меняется

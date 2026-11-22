@@ -15,6 +15,7 @@
  * счётчик донатов обнуляется (время «этого» стрима живёт в состояния стрима).
  */
 import { overlay } from './alerts.js';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
 const CUR = { RUB: 1, USD: 92, EUR: 100, KZT: 0.19, UAH: 2.2, BYN: 30 }; // грубые курсы к рублю
 
@@ -22,6 +23,21 @@ export function toRub(amount, currency = 'RUB') {
   const n = Number(amount) || 0;
   const k = CUR[String(currency || 'RUB').toUpperCase()] ?? 1;
   return Math.round(n * k * 100) / 100;
+}
+
+/**
+ * Проверка подписи webhook (HMAC-SHA256 от СЫРОГО тела запроса).
+ * Принимает hex-подпись или "sha256=<hex>" (формат X-Hub-Signature).
+ * Сравнение — constant-time, чтобы не светить секрет по таймингу.
+ */
+export function verifyWebhookSignature(rawBody, secret, signature) {
+  if (!secret || !signature) return false;
+  const s = String(signature).trim();
+  const hex = s.startsWith('sha256=') ? s.slice(7) : s;
+  if (!/^[0-9a-f]{64}$/i.test(hex)) return false;
+  const a = Buffer.from(createHmac('sha256', secret).update(String(rawBody)).digest('hex'), 'utf8');
+  const b = Buffer.from(hex.toLowerCase(), 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export class DonaTimer {
@@ -227,7 +243,41 @@ export class DonaTimer {
       footer: cfg.footer ?? `продлить стрим: {price}₽ за минуту`
         .replaceAll('{price}', String(Math.max(1, Number(cfg.pricePerMinute ?? 30)))),
       accent: cfg.accent ?? '#ff5a4d',
+      objects: Array.isArray(cfg.objects) ? cfg.objects : [],
     };
+  }
+
+  /**
+   * Webhook доната (быстрый канал рядом с опросом 15с; опрос не отключается).
+   * source — ключ источника ('donatex' | 'da' | 'donatepay'), секрет берётся
+   * из настроек (donations[source].webhookSecret), в коде не хардкодится.
+   * Возвращает { ok, added } или { error }.
+   */
+  handleWebhook({ source = '', rawBody, signature } = {}) {
+    if (this.cfg().enabled !== true) return { error: 'timer disabled' };
+    const sc = this.srcCfg();
+    const secret = String(sc[source]?.webhookSecret || '');
+    if (!verifyWebhookSignature(rawBody, secret, signature)) return { error: 'bad signature' };
+    let j;
+    try { j = JSON.parse(rawBody); } catch { return { error: 'bad json' }; }
+    const list = Array.isArray(j)
+      ? j
+      : (j && j.donation ? [j.donation] : (Array.isArray(j?.donations) ? j.donations : [j ?? {}]));
+    let added = 0;
+    for (const d of list) {
+      const rub = Number(d?.amountInRub);
+      const id = String(d?.id ?? d?.donation_id ?? d?.txid ?? d?.transaction_id ?? '');
+      if (!id) continue;
+      const isNew = this.addDonation({
+        id: `wh-${source}-${id}`,
+        amount: rub || Number(d?.amount ?? d?.sum ?? 0),
+        currency: rub ? 'RUB' : (d?.currency || 'RUB'),
+        name: String(d?.username ?? d?.name ?? d?.user ?? d?.nickname ?? d?.vars?.name ?? ''),
+        message: String(d?.message ?? d?.comment ?? d?.msg ?? ''),
+      });
+      if (isNew) added++;
+    }
+    return { ok: true, added };
   }
 
   /** Пуш в оверлей (kind: 'donatimer'). */

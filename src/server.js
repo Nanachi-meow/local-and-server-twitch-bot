@@ -58,6 +58,18 @@ async function readJsonBody(req, limit = 100_000) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
+/** Сырое тело (для проверки подписи webhook: HMAC считается от байтов как есть). */
+async function readRawBody(req, limit = 100_000) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new Error('Тело запроса слишком большое');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 /** Локальный HTTP-сервер: раздаёт панель и JSON-API. Слушает только 127.0.0.1. */
 export function createHttpServer({ app }) {
   const server = http.createServer((req, res) => {
@@ -435,8 +447,23 @@ export function createHttpServer({ app }) {
       return;
     }
 
-    if (route === '/api/followage' && req.method === 'GET') {
-      const user = u.searchParams.get('user') || '';
+    // webhook донатов таймера: HMAC-SHA256 подпись проверяется в donatimer.js
+    // (секрет из настроек donations[source].webhookSecret; ?source=donatex|da|donatepay)
+    if (route === '/api/webhooks/donations' && req.method === 'POST') {
+      const source = String(u.searchParams.get('source') || 'donatex');
+      const signature = String(req.headers['x-hub-signature'] || req.headers['x-donatex-signature'] || req.headers['x-signature'] || '');
+      const raw = await readRawBody(req);
+      try {
+        const result = await app.donaTimer.handleWebhook({ source, rawBody: raw, signature });
+        const status = result?.error === 'bad signature' ? 401 : (result?.error === 'timer disabled' ? 403 : 200);
+        sendJson(res, status, result);
+      } catch (e) {
+        sendJson(res, 400, { error: app.humanizeError(e) });
+      }
+      return;
+    }
+
+    if (route === '/api/followage' && req.method === 'GET') {      const user = u.searchParams.get('user') || '';
       try {
         const result = await app.followage(user, u.searchParams.get('channel'));
         sendJson(res, 200, result);

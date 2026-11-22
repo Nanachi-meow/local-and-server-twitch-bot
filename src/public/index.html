@@ -534,14 +534,29 @@
             <label>цвет цифр <input type="color" id="dt-accent" style="width:46px" /></label>
             <div class="rp-row"><button class="act" id="dt-save">💾 Сохранить</button></div>
           </div>
+          <h3>🎨 Раскладка виджета</h3>
+          <div class="rp-row" style="margin-bottom:8px">
+            <button class="act ghost" id="dt-widget-add" title="своя картинка-декор">🖼 + картинка</button>
+            <button class="act" id="dt-save-layout">💾 Сохранить раскладку</button>
+            <button class="act ghost" id="dt-widget-reset" title="вернуть дефолтную раскладку">↺ Дефолт</button>
+          </div>
+          <input type="file" id="dt-image-file" class="hidden" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" />
+          <div id="dt-stage"></div>
+          <div class="evcard" style="margin-top:10px">
+            <div class="chips" id="dt-objects"></div>
+            <div id="dt-props"></div>
+          </div>
           <h3>💰 Источники донатов</h3>
           <div class="evcard">
             <label><input type="checkbox" id="dt-donatex-on" /> <b>DonateX</b> (donatex.gg — токен: кабинет → Настройки → API)</label>
             <input type="password" id="dt-donatex-token" class="wide" placeholder="external token" autocomplete="off" />
+            <input type="password" id="dt-donatex-wh" class="wide" placeholder="webhook secret (необязательно: быстрый приём, HMAC-SHA256)" autocomplete="off" />
             <label><input type="checkbox" id="dt-da-on" /> <b>DonationAlerts</b> (donationalerts.com — токен: кабинет → API)</label>
             <input type="password" id="dt-da-token" class="wide" placeholder="api token" autocomplete="off" />
+            <input type="password" id="dt-da-wh" class="wide" placeholder="webhook secret (необязательно)" autocomplete="off" />
             <label><input type="checkbox" id="dt-dpay-on" /> <b>DonatePay</b> (donatepay.ru — токен: кабинет → API)</label>
             <input type="password" id="dt-dpay-token" class="wide" placeholder="api token" autocomplete="off" />
+            <input type="password" id="dt-dpay-wh" class="wide" placeholder="webhook secret (необязательно)" autocomplete="off" />
             <div class="rp-row"><button class="act" id="dt-src-save">💾 Сохранить источники</button></div>
             <p class="hint">Токены хранятся только на твоём ПК (data/settings.json, в git не попадают никогда). Включай только те сервисы, которыми реально пользуешься.</p>
           </div>

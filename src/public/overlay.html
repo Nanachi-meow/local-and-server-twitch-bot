@@ -129,31 +129,17 @@
     box-shadow: 0 0 22px rgba(139, 92, 246, .35);
   }
   #sr-now .sr-icon { margin-right: 4px; }
-  /* виджет «таймер донатона»: часы по центру сверху, тикают локально */
-  #donatimer-widget {
-    position: fixed; top: 60px; left: 50%;
-    transform: translateX(-50%);
-    display: none; flex-direction: column; align-items: center; gap: 2px;
-    z-index: 40; pointer-events: none;
+  /* виджет «таймер донатона»: объектная раскладка, по центру сверху */
+  #dt-widget { position: fixed; display: none; pointer-events: none; z-index: 40; overflow: visible; }
+  #dt-widget.on { display: block; }
+  #dt-widget .dt-obj { position: absolute; box-sizing: border-box; }
+  #dt-widget .dt-obj-label, #dt-widget .dt-obj-clock, #dt-widget .dt-obj-footer {
+    text-align: center; color: #fff; font-weight: 700; white-space: pre-wrap;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, .85);
   }
-  #donatimer-widget.on { display: flex; }
-  #donatimer-widget .dt-label {
-    font-size: 17px; font-weight: 600; color: #fff;
-    letter-spacing: 2px; text-transform: uppercase;
-    text-shadow: 0 2px 6px rgba(0, 0, 0, .85);
-  }
-  #donatimer-widget .dt-clock {
-    font-family: Consolas, 'Courier New', monospace;
-    font-variant-numeric: tabular-nums;
-    font-size: 76px; font-weight: 800; line-height: 1.05;
-    text-shadow: 0 2px 12px rgba(0, 0, 0, .9), 0 0 2px rgba(0, 0, 0, .8);
-  }
-  #donatimer-widget .dt-clock .dt-colon { animation: dt-colon 1s ease-in-out infinite; }
-  @keyframes dt-colon { 50% { opacity: .5; } }
-  #donatimer-widget .dt-footer {
-    font-size: 15px; font-weight: 500; color: rgba(255, 255, 255, .88);
-    text-shadow: 0 1px 4px rgba(0, 0, 0, .9);
-  }
+  #dt-widget .dt-obj-clock { font-family: Consolas, 'Courier New', monospace; font-variant-numeric: tabular-nums; }
+  #dt-widget .dt-obj-backdrop { background-size: 100% 100%; background-position: center; }
+  #dt-widget .dt-obj-image { background-size: 100% 100%; background-position: center; }
 </style>
 </head>
 <body>
@@ -161,11 +147,7 @@
   <div id="sr-now" class="hidden"></div>
   <div id="events" hidden></div>
   <div id="mute-hint" class="hidden" title="включить звук видео">🔇 клик — включить звук видео</div>
-  <div id="donatimer-widget">
-    <div class="dt-label"></div>
-    <div class="dt-clock">00:00</div>
-    <div class="dt-footer"></div>
-  </div>
+  <div id="donatimer-widget"></div>
   <div id="conn">…</div>
 <script src="/sr-player.js"></script>
 <script>
@@ -439,6 +421,7 @@
       } else if (o.type === 'text') {
         div.style.color = o.color || '#ffffff';
         div.style.fontSize = `${o.fontSize * k}px`;
+        if (o.fontFamily) div.style.fontFamily = o.fontFamily;
         div.style.borderRadius = `${o.radius * k}px`;
         if (div.dataset.text !== (soEv?.text || '')) {
           div.textContent = soEv?.text || '';
@@ -497,16 +480,55 @@
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
-  // ---------- таймер донатона: часы сверху; между пушами SSE тикают локально ----------
+  // ---------- таймер донатона: объектная раскладка; часы тикают локально ----------
   const dtWidget = document.getElementById('donatimer-widget');
-  const dtLabelEl = dtWidget.querySelector('.dt-label');
-  const dtClockEl = dtWidget.querySelector('.dt-clock');
-  const dtFooterEl = dtWidget.querySelector('.dt-footer');
-  let dtShown = false;    // виджет на экране
-  let dtLastSec = 0;      // secondsLeft из последнего события
-  let dtTs = 0;           // метка времени события, мс
-  let dtRunning = false;  // серверный таймер тикает; false = пауза, секунды заморожены
-  let dtAccent = '#ff5a4d';
+  const dtNodes = new Map();
+  let dtCfg = { enabled: false, objects: [] };
+  let dtEv = { label: '', footer: '', accent: '#ff5a4d', running: false, secondsLeft: 0 };
+  let dtLastSec = 0, dtTs = 0, dtRunning = false;
+
+  function dtDefaultObjects() {
+    // карточка 480×170 по центру сверху: подложка + надпись + часы + нижняя строка
+    return [
+      { id: 'backdrop-0', type: 'backdrop', x: 0, y: 0, w: 480, h: 170, opacity: 80, z: 1, color: '#0c0a19', radius: 18, rotate: 0, image: '', borderColor: '', borderWidth: 0 },
+      { id: 'label-0', type: 'label', x: 20, y: 14, w: 440, h: 26, opacity: 85, z: 3, color: '#ffffff', text: 'стрим закончится через', fontSize: 16, radius: 0, rotate: 0, borderColor: '', borderWidth: 0 },
+      { id: 'clock-0', type: 'clock', x: 20, y: 42, w: 440, h: 76, opacity: 100, z: 4, color: '#ff5a4d', fontSize: 60, radius: 0, rotate: 0, borderColor: '', borderWidth: 0 },
+      { id: 'footer-0', type: 'footer', x: 20, y: 128, w: 440, h: 24, opacity: 80, z: 3, color: '#ffffff', text: 'продлить стрим: 30₽ за минуту', fontSize: 14, radius: 0, rotate: 0, borderColor: '', borderWidth: 0 },
+    ];
+  }
+
+  function dtHexA(color, alpha) {
+    const m = String(color || '').match(/^#?([0-9a-f]{6})$/i);
+    if (!m) return color;
+    const n = m[1];
+    return `rgba(${parseInt(n.slice(0, 2), 16)}, ${parseInt(n.slice(2, 4), 16)}, ${parseInt(n.slice(4, 6), 16)}, ${Math.max(0, Math.min(1, alpha))}`;
+  }
+
+  function dtNormalize(raw) {
+    const c = raw ?? {};
+    const objects = (Array.isArray(c.objects) && c.objects.length
+      ? c.objects.filter((o) => o && ['label', 'clock', 'footer', 'backdrop', 'image'].includes(o.type))
+      : dtDefaultObjects())
+      .map((o, i) => ({
+        id: o.id || `${o.type}-${i}`,
+        type: o.type,
+        x: Number(o.x) || 0, y: Number(o.y) || 0,
+        w: Math.max(20, Number(o.w) || 300), h: Math.max(20, Number(o.h) || 120),
+        opacity: Math.max(0, Math.min(100, Number(o.opacity ?? 100))),
+        z: Math.max(0, Math.min(30, Number(o.z ?? 1))),
+        image: String(o.image || ''),
+        color: String(o.color || ''),
+        text: String(o.text || ''),
+        radius: Math.max(0, Number(o.radius) || 0),
+        rotate: Math.max(-15, Math.min(15, Number(o.rotate) || 0)),
+        fontSize: Math.max(10, Number(o.fontSize) || 22),
+        fontFamily: String(o.fontFamily || ''),
+        visible: o.visible !== false,
+        borderColor: String(o.borderColor || ''),
+        borderWidth: Math.max(0, Number(o.borderWidth) || 0),
+      }));
+    return { enabled: Boolean(c.enabled), objects };
+  }
 
   function dtFormat(sec) {
     const s = Math.max(0, Math.floor(sec));
@@ -516,26 +538,91 @@
     return h > 0 ? `${h}:${m}:${ss}` : `${m}:${ss}`;
   }
 
-  function dtDraw() {
-    if (!dtShown) return;
+  function dtRenderScene() {
+    const k = (window.innerWidth || 1920) / 1920;
+    // карточка 480×170 по центру сверху
+    const WW = 480 * k;
+    const WH = 170 * k;
+    dtWidget.style.top = `${Math.round(60 * k)}px`;
+    dtWidget.style.left = '50%';
+    dtWidget.style.transform = 'translateX(-50%)';
+    dtWidget.style.width = `${WW}px`;
+    dtWidget.style.height = `${WH}px`;
+    dtWidget.style.overflow = 'visible';
+    const key = JSON.stringify(dtCfg.objects.map((o) => [o.id, o.type, o.image, o.z]));
+    const orphan = dtCfg.objects.some((o) => !dtNodes.get(o.id));
+    const show = Boolean(dtCfg.enabled);
+    if (dtRenderScene.key !== key || orphan) {
+      dtRenderScene.key = key;
+      dtWidget.innerHTML = '';
+      dtNodes.clear();
+      const sorted = [...dtCfg.objects].sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
+      for (const o of sorted) {
+        const div = document.createElement('div');
+        div.className = `dt-obj dt-obj-${o.type}`;
+        dtWidget.appendChild(div);
+        dtNodes.set(o.id, div);
+      }
+    }
     const left = dtRunning ? Math.max(0, dtLastSec - (Date.now() - dtTs) / 1000) : dtLastSec;
-    dtClockEl.innerHTML = escapeHtml(dtFormat(left)).replaceAll(':', '<span class="dt-colon">:</span>');
-    dtClockEl.style.color = left <= 0 ? '#ff2b2b' : dtAccent; // дошли до нуля — красный, accent не теряем
+    const clockTxt = dtFormat(left);
+    for (const o of dtCfg.objects) {
+      const div = dtNodes.get(o.id);
+      if (!div) continue;
+      div.style.display = (show && o.visible !== false) ? 'block' : 'none';
+      div.style.left = `${Math.round(o.x * k)}px`;
+      div.style.top = `${Math.round(o.y * k)}px`;
+      div.style.width = `${o.w * k}px`;
+      div.style.height = `${o.h * k}px`;
+      div.style.zIndex = String(o.z ?? 1);
+      div.style.opacity = String(o.opacity / 100);
+      div.style.transform = o.rotate ? `rotate(${o.rotate}deg)` : '';
+      if (o.borderWidth) div.style.border = `${o.borderWidth * k}px solid ${o.borderColor || '#8b5cf6'}`;
+      if (o.type === 'label') {
+        div.style.color = o.color || '#ffffff';
+        div.style.fontSize = `${o.fontSize * k}px`;
+        if (o.fontFamily) div.style.fontFamily = o.fontFamily;
+        const t = o.text || dtEv.label;
+        if (div.textContent !== t) div.textContent = t;
+      } else if (o.type === 'clock') {
+        div.style.color = left <= 0 ? '#ff2b2b' : (o.color || dtEv.accent); // ноль — красный
+        div.style.fontSize = `${o.fontSize * k}px`;
+        if (o.fontFamily) div.style.fontFamily = o.fontFamily;
+        if (div.textContent !== clockTxt) div.textContent = clockTxt;
+      } else if (o.type === 'footer') {
+        div.style.color = o.color || '#ffffff';
+        div.style.fontSize = `${o.fontSize * k}px`;
+        if (o.fontFamily) div.style.fontFamily = o.fontFamily;
+        const t = o.text || dtEv.footer;
+        if (div.textContent !== t) div.textContent = t;
+      } else if (o.type === 'backdrop') {
+        div.style.borderRadius = `${o.radius * k}px`;
+        if (o.image) {
+          div.style.backgroundImage = `url("/media/${encodeURIComponent(o.image)}")`;
+          div.style.backgroundColor = 'transparent';
+        } else {
+          div.style.backgroundImage = 'none';
+          div.style.backgroundColor = dtHexA(o.color || '#0c0a19', o.opacity / 100);
+        }
+      } else if (o.type === 'image' && o.image) {
+        div.style.borderRadius = `${o.radius * k}px`;
+        div.style.backgroundImage = `url("/media/${encodeURIComponent(o.image)}")`;
+      }
+    }
+    dtWidget.classList.toggle('on', show);
   }
 
   function dtOnEvent(ev) {
-    dtLastSec = Math.max(0, Number(ev.secondsLeft) || 0);
+    if (Array.isArray(ev.objects)) dtCfg = dtNormalize({ enabled: ev.enabled, objects: ev.objects });
+    dtCfg.enabled = ev.enabled !== false;
+    dtEv = { label: ev.label || '', footer: ev.footer || '', accent: ev.accent || '#ff5a4d', running: ev.running !== false, secondsLeft: Math.max(0, Number(ev.secondsLeft) || 0) };
+    dtLastSec = dtEv.secondsLeft;
     dtTs = Date.now();
-    dtRunning = ev.running !== false;
-    if (ev.accent) dtAccent = String(ev.accent);
-    if (dtLabelEl.textContent !== (ev.label || '')) dtLabelEl.textContent = ev.label || '';
-    if (dtFooterEl.textContent !== (ev.footer || '')) dtFooterEl.textContent = ev.footer || '';
-    dtShown = ev.enabled !== false;
-    dtWidget.classList.toggle('on', dtShown);
-    dtDraw(); // force=true и обычные пуши рисуются сразу, без ожидания тика
+    dtRunning = dtEv.running;
+    dtRenderScene(); // force=true и обычные пуши рисуются сразу, без ожидания тика
   }
 
-  setInterval(dtDraw, 1000); // локальный тик: интервал всегда жив, рисует только при включённом виджете
+  setInterval(dtRenderScene, 1000); // локальный тик: интервал всегда жив, рисует только при включённом виджете
 
   const es = new EventSource('/overlay/feed');
   es.onopen = () => { document.getElementById('conn').textContent = ''; };
@@ -602,6 +689,7 @@
     // текст победителя: свой шрифт (0 = авто от колеса), своё окно (перенос строк), цвет, прозрачность
     const tfs = (Number(whCfg.textFontSize) || 0) || Math.max(16, whCfg.size * 0.065);
     whWinner.style.fontSize = `${tfs * k}px`;
+    if (whCfg.textFontFamily) whWinner.style.fontFamily = whCfg.textFontFamily;
     whWinner.style.color = whCfg.textColor || '#fff';
     whWinner.style.opacity = String(Math.max(0, Math.min(1, (Number(whCfg.textOpacity ?? 100) ?? 100) / 100)));
     whWinner.style.width = `${Math.max(60, Number(whCfg.textW) || Math.round(whCfg.size * 1.1)) * k}px`;
@@ -807,6 +895,8 @@
         radius: Math.max(0, Number(o.radius) || 0),
         rotate: Math.max(-15, Math.min(15, Number(o.rotate) || 0)),
         fontSize: Math.max(10, Number(o.fontSize) || 22),
+        fontFamily: String(o.fontFamily || ''),
+        visible: o.visible !== false,
         borderColor: String(o.borderColor || ''),
         borderWidth: Math.max(0, Number(o.borderWidth) || 0),
       }));
@@ -855,7 +945,7 @@
     for (const o of wodCfg.objects) {
       const div = wodNodes.get(o.id);
       if (!div) continue;
-      div.style.display = show ? 'block' : 'none';
+      div.style.display = (show && o.visible !== false) ? 'block' : 'none';
       div.style.left = `${Math.round(o.x * k)}px`;
       div.style.top = `${Math.round(o.y * k)}px`;
       div.style.width = `${o.w * k}px`;
@@ -867,14 +957,17 @@
       if (o.type === 'caption') {
         div.style.color = o.color || '#ffffff';
         div.style.fontSize = `${o.fontSize * k}px`;
+        if (o.fontFamily) div.style.fontFamily = o.fontFamily;
         if (div.textContent !== (o.text || 'Слово дня:')) div.textContent = o.text || 'Слово дня:';
       } else if (o.type === 'word') {
         div.style.color = o.color || '#ffffff';
         div.style.fontSize = `${o.fontSize * k}px`;
+        if (o.fontFamily) div.style.fontFamily = o.fontFamily;
         if (div.textContent !== wodEv.word) div.textContent = wodEv.word;
       } else if (o.type === 'count') {
         div.style.color = o.color || '#ffffff';
         div.style.fontSize = `${o.fontSize * k}px`;
+        if (o.fontFamily) div.style.fontFamily = o.fontFamily;
         div.style.borderRadius = `${o.radius * k}px`;
         div.className = `wod-obj wod-obj-count${wodEv.count !== wodLastCount && wodLastCount > 0 ? ' bump' : ''}`;
         if (div.textContent !== `×${wodEv.count}`) div.textContent = `×${wodEv.count}`;
