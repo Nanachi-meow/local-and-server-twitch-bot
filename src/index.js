@@ -10,6 +10,8 @@ import { QuotesManager } from './bot/quotes.js';
 import { ObsClient } from './bot/obs.js';
 import { LiveTracker } from './bot/live.js';
 import { SongsManager } from './bot/songs.js';
+import { DonaTimer } from './bot/donatimer.js';
+import { loadJson, DONATIMER_FILE } from './store.js';
 import { RedemptionRouter } from './bot/redemptions.js';
 import { overlay } from './bot/alerts.js';
 import { createHttpServer } from './server.js';
@@ -101,6 +103,16 @@ modules.start(); // тик 'tick' каждые 20с + автоподхват п�
 
 const songs = new SongsManager({ logs, settings });
 commands.setSongs(songs);
+
+// ⏱ таймер донатона: старт/пауза автоматом по эфиру, донаты добавляют время
+const donaTimer = new DonaTimer({ logs, settings, live });
+donaTimer._load(loadJson(DONATIMER_FILE, null) ?? {});
+donaTimer.setStoreSave(() => saveJson(DONATIMER_FILE, donaTimer._store()));
+live.setWatcher((kind, entry) => {
+  if (kind === 'online') donaTimer.onStreamStart();
+  else if (kind === 'offline') donaTimer.onStreamEnd();
+});
+if (settings.donaTimer?.enabled && live.isLive(state.broadcasterId)) donaTimer.start();
 
 // награды канала Twitch: приходят по EventSub, роутер пишет их в ленту
 // и (для замапленных наград) кидает алерт в оверлей
@@ -432,6 +444,7 @@ const app = {
   redemptions,
   obs,
   songs,
+  donaTimer,
   socket,
   get broadcasterSocket() { return broadcasterSocket; }, // сокет наград (создаётся при входе стримера)
   logs,
@@ -483,6 +496,7 @@ const app = {
       },
       // автоопределение эфира: { [канал]: { live, startedAt, durationMs, title, game } }
       live: live.snapshot(),
+      donaTimer: donaTimer.state(),
       counters: state.counters,
     };
   },
@@ -673,6 +687,32 @@ const app = {
           }));
       }
       try { overlay.push({ kind: 'wordofday', ...processor.wodState(), objects: cur.objects ?? [] }); } catch {}
+    }
+    // ⏱ таймер донатона: настройки + токены источников (мульти)
+    if (patch.donaTimer !== undefined && patch.donaTimer !== null && typeof patch.donaTimer === 'object') {
+      const a = patch.donaTimer;
+      const cur = settings.donaTimer ??= {};
+      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (a.baseMinutes !== undefined) cur.baseMinutes = Math.max(0, Math.min(1440, Math.round(Number(a.baseMinutes) || 0)));
+      if (a.pricePerMinute !== undefined) cur.pricePerMinute = Math.max(1, Math.min(100_000, Math.round(Number(a.pricePerMinute) || 30)));
+      if (a.label !== undefined) cur.label = String(a.label).slice(0, 80);
+      if (a.footer !== undefined) cur.footer = String(a.footer).slice(0, 120);
+      if (a.accent !== undefined) cur.accent = String(a.accent).slice(0, 20);
+      try { donaTimer.push(true); } catch {}
+      if (cur.enabled && !donaTimer._tick) donaTimer.start();
+      if (!cur.enabled) donaTimer.stop();
+    }
+    if (patch.donations !== undefined && patch.donations !== null && typeof patch.donations === 'object') {
+      const a = patch.donations;
+      const cur = settings.donations ??= {};
+      for (const key of ['donatex', 'da', 'donatepay']) {
+        if (a[key] !== undefined && a[key] !== null && typeof a[key] === 'object') {
+          cur[key] ??= { enabled: false, token: '' };
+          if (a[key].enabled !== undefined) cur[key].enabled = Boolean(a[key].enabled);
+          if (a[key].token !== undefined) cur[key].token = String(a[key].token).trim().slice(0, 300);
+        }
+      }
+      if (Object.values(cur).some((x) => x?.enabled && x?.token)) donaTimer.startPolling();
     }
     // колесо: режим запуска + варианты + раскладка рулетки-оверлея
     if (patch.wheel !== undefined && patch.wheel !== null && typeof patch.wheel === 'object') {
@@ -1017,6 +1057,12 @@ const app = {
       }
       case 'wordofdayreset': {
         return processor.resetWordOfDay();
+      }
+      case 'donatimeradd': { // ±минуты вручную (body.min — можно отрицательные)
+        return app.donaTimer.addManualSec(Math.round((Number(body?.min ?? 0)) * 60));
+      }
+      case 'donatimerdonation': { // ручной донат (body.amount ₽) — время добавится по курсу
+        return app.donaTimer.addManualDonation({ amount: Number(body?.amount ?? 0), name: String(body?.name || 'вручную').slice(0, 40) });
       }
       case 'redemptiontest': {
         // тест алерта награды канала (карточка «👑 Награды канала»)

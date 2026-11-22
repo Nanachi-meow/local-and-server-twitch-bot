@@ -1385,6 +1385,70 @@ ok('obs: ошибка переключения подсказывает дост
   ok('диагностика: системный лог льётся в файл (санитизированным)', d3.includes('Возврат баллов не удался') && d3.includes('@***') && !d3.includes('krolik_nya'));
 }
 
+// ---------- таймер донатона ----------
+{
+  const { DonaTimer, toRub } = await import('../src/bot/donatimer.js');
+  const dtLogs = { events: { push: () => {} }, system: { push: () => {} } };
+  const dtSettings = { donaTimer: { enabled: true, baseMinutes: 100, pricePerMinute: 50 }, donations: {} };
+
+  ok('донатон: toRub 100 USD → 9200₽ (курс 92)', toRub(100, 'USD') === 9200 && toRub(100, 'USD') > 9000);
+  ok('донатон: toRub рубли не конвертирует', toRub(100, 'RUB') === 100 && toRub(100) === 100);
+  ok('донатон: toRub мусорная сумма → 0', toRub('мусор', 'RUB') === 0 && toRub(NaN, 'USD') === 0);
+
+  // на паузе secondsLeft() отдаёт замороженное значение из стора и не тикает
+  const dt = new DonaTimer({ logs: dtLogs, settings: dtSettings });
+  dt._load({});
+  ok('донатон: свежий экземпляр — running=false, секунды на нуле',
+    dt.state().running === false && dt.secondsLeft() === 0);
+  dt._load({ pausedAtSec: 100 * 60 }); // как после перезапуска бота во время паузы
+  await new Promise((r) => setTimeout(r, 30));
+  ok('донатон: таймер на паузе хранит свои 100×60 сек и не тикает',
+    dt.secondsLeft() === 100 * 60 && dt.secondsLeft() === dt.secondsLeft());
+
+  dt.onStreamStart();
+  ok('донатон: onStreamStart → running, время ≈ база (5990–6000)',
+    dt.state().running === true && dt.secondsLeft() >= 5990 && dt.secondsLeft() <= 6000);
+
+  const addFirst = dt.addDonation({ id: 'd1', amount: 100, currency: 'RUB' });
+  const addDup = dt.addDonation({ id: 'd1', amount: 100, currency: 'RUB' });
+  ok('донатон: донат засчитан, дубль по тому же id — нет',
+    addFirst === true && addDup === false && dt.state().totalRub === 100);
+
+  dt.onStreamStart(); // новый стрим: счётчики этого стрима обнуляются
+  dt.addDonation({ id: 'd2', amount: 100, currency: 'RUB' });
+  const sDonated = dt.secondsLeft();
+  ok('донатон: донат 100₽ при цене 50₽/мин добавляет ~120 сек',
+    sDonated > 6000 && sDonated - 6000 >= 100 && sDonated - 6000 <= 121);
+
+  const sBefore = dt.secondsLeft();
+  ok('донатон: addManualSec(-60) убавляет время', dt.addManualSec(-60).ok === true && dt.secondsLeft() < sBefore);
+  ok('донатон: addManualSec(0/мусор) → ошибка', dt.addManualSec(0).error && dt.addManualSec('мусор').error);
+
+  dt.onStreamEnd();
+  const sFrozen = dt.secondsLeft();
+  await new Promise((r) => setTimeout(r, 30));
+  ok('донатон: onStreamEnd → пауза, секунды заморожены',
+    dt.state().running === false && dt.secondsLeft() === sFrozen);
+
+  const enBefore = dt.state().enabled;
+  dtSettings.donaTimer.enabled = false;
+  ok('донатон: state().enabled следует за живой настройкой', enBefore === true && dt.state().enabled === false);
+
+  const rubBefore = dt.state().totalRub;
+  ok('донатон: addManualDonation с нулём/мусором → ошибка, сумма не растёт',
+    dt.addManualDonation({ amount: 0 }).error && dt.addManualDonation({ amount: 'мусор' }).error
+    && dt.state().totalRub === rubBefore);
+  ok('донатон: addManualDonation валидной суммой → true',
+    dt.addManualDonation({ amount: 100, name: 'тест' }) === true && dt.state().totalRub === rubBefore + 100);
+
+  const dtZero = new DonaTimer({ logs: dtLogs, settings: { donaTimer: { enabled: true, baseMinutes: 0, pricePerMinute: 50 }, donations: {} } });
+  dtZero.onStreamStart();
+  ok('донатон: нулевая база без донатов → почти ноль сразу', dtZero.secondsLeft() <= 1);
+
+  dt.stop();
+  dtZero.stop();
+}
+
 console.log(`\nВсе ${passed} тестов прошли ✅`);
 fs.rmSync(process.env.BOT_DATA_DIR, { recursive: true, force: true });
 process.exit(0);

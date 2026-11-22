@@ -129,6 +129,31 @@
     box-shadow: 0 0 22px rgba(139, 92, 246, .35);
   }
   #sr-now .sr-icon { margin-right: 4px; }
+  /* виджет «таймер донатона»: часы по центру сверху, тикают локально */
+  #donatimer-widget {
+    position: fixed; top: 60px; left: 50%;
+    transform: translateX(-50%);
+    display: none; flex-direction: column; align-items: center; gap: 2px;
+    z-index: 40; pointer-events: none;
+  }
+  #donatimer-widget.on { display: flex; }
+  #donatimer-widget .dt-label {
+    font-size: 17px; font-weight: 600; color: #fff;
+    letter-spacing: 2px; text-transform: uppercase;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, .85);
+  }
+  #donatimer-widget .dt-clock {
+    font-family: Consolas, 'Courier New', monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 76px; font-weight: 800; line-height: 1.05;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, .9), 0 0 2px rgba(0, 0, 0, .8);
+  }
+  #donatimer-widget .dt-clock .dt-colon { animation: dt-colon 1s ease-in-out infinite; }
+  @keyframes dt-colon { 50% { opacity: .5; } }
+  #donatimer-widget .dt-footer {
+    font-size: 15px; font-weight: 500; color: rgba(255, 255, 255, .88);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, .9);
+  }
 </style>
 </head>
 <body>
@@ -136,6 +161,11 @@
   <div id="sr-now" class="hidden"></div>
   <div id="events" hidden></div>
   <div id="mute-hint" class="hidden" title="включить звук видео">🔇 клик — включить звук видео</div>
+  <div id="donatimer-widget">
+    <div class="dt-label"></div>
+    <div class="dt-clock">00:00</div>
+    <div class="dt-footer"></div>
+  </div>
   <div id="conn">…</div>
 <script src="/sr-player.js"></script>
 <script>
@@ -467,6 +497,46 @@
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
+  // ---------- таймер донатона: часы сверху; между пушами SSE тикают локально ----------
+  const dtWidget = document.getElementById('donatimer-widget');
+  const dtLabelEl = dtWidget.querySelector('.dt-label');
+  const dtClockEl = dtWidget.querySelector('.dt-clock');
+  const dtFooterEl = dtWidget.querySelector('.dt-footer');
+  let dtShown = false;    // виджет на экране
+  let dtLastSec = 0;      // secondsLeft из последнего события
+  let dtTs = 0;           // метка времени события, мс
+  let dtRunning = false;  // серверный таймер тикает; false = пауза, секунды заморожены
+  let dtAccent = '#ff5a4d';
+
+  function dtFormat(sec) {
+    const s = Math.max(0, Math.floor(sec));
+    const h = Math.floor(s / 3600);
+    const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    return h > 0 ? `${h}:${m}:${ss}` : `${m}:${ss}`;
+  }
+
+  function dtDraw() {
+    if (!dtShown) return;
+    const left = dtRunning ? Math.max(0, dtLastSec - (Date.now() - dtTs) / 1000) : dtLastSec;
+    dtClockEl.innerHTML = escapeHtml(dtFormat(left)).replaceAll(':', '<span class="dt-colon">:</span>');
+    dtClockEl.style.color = left <= 0 ? '#ff2b2b' : dtAccent; // дошли до нуля — красный, accent не теряем
+  }
+
+  function dtOnEvent(ev) {
+    dtLastSec = Math.max(0, Number(ev.secondsLeft) || 0);
+    dtTs = Date.now();
+    dtRunning = ev.running !== false;
+    if (ev.accent) dtAccent = String(ev.accent);
+    if (dtLabelEl.textContent !== (ev.label || '')) dtLabelEl.textContent = ev.label || '';
+    if (dtFooterEl.textContent !== (ev.footer || '')) dtFooterEl.textContent = ev.footer || '';
+    dtShown = ev.enabled !== false;
+    dtWidget.classList.toggle('on', dtShown);
+    dtDraw(); // force=true и обычные пуши рисуются сразу, без ожидания тика
+  }
+
+  setInterval(dtDraw, 1000); // локальный тик: интервал всегда жив, рисует только при включённом виджете
+
   const es = new EventSource('/overlay/feed');
   es.onopen = () => { document.getElementById('conn').textContent = ''; };
   es.onerror = () => { document.getElementById('conn').textContent = 'нет связи с ботом…'; };
@@ -475,6 +545,7 @@
       const ev = JSON.parse(m.data);
       if (ev.kind === 'sr') { window.srPlayer?.onEvent?.(ev); return; }
       if (ev.kind === 'shoutout') { soShow(ev); return; }
+      if (ev.kind === 'donatimer') { dtOnEvent(ev); return; }
       if (ev.kind === 'wordofday') {
         if (Array.isArray(ev.objects)) wodCfg = wodNormalize({ enabled: ev.enabled, corner: ev.corner, objects: ev.objects });
         if (ev.corner) wodCfg.corner = ev.corner;
@@ -542,6 +613,17 @@
     whWinner.style.transform = 'translate(-50%, -50%)';
     // картинки-декор: как в редакторе — слой ≥6 над колесом (виджет z=45), ≤4 под ним
     whDecorRender();
+    // стрелка позиционируется по углу вокруг колеса (0=лево, 90=верх, 180=право, 270=низ)
+    const a = ((Number(whCfg.arrowAngle) || 0) * Math.PI) / 180;
+    const r = W / 2;
+    const ax = r + Math.cos(a + Math.PI) * (r + 10); // наружу от центра по углу
+    const ay = r + Math.sin(a + Math.PI) * (r + 10);
+    whArrow.style.left = `${Math.round(ax - 16)}px`; // минус половина ширины (border 16+16=32)
+    whArrow.style.top = `${Math.round(ay - 13)}px`;  // минус половина высоты (border 26)
+    // собственный поворот стрелки (arrowRotate, °) — настраивается в редакторе панели
+    const rot = ((Number(whCfg.arrowRotate) || 0) * Math.PI) / 180;
+    whArrow.style.transform = `rotate(${a + Math.PI / 2 + rot}rad)`; // носиком к центру
+    whArrow.style.position = 'absolute';
   }
 
   let whDecorEl = null;
@@ -562,18 +644,6 @@
       if (im.borderWidth) d.style.border = `${Number(im.borderWidth) * k}px solid ${im.borderColor || '#8b5cf6'}`;
       whDecorEl.appendChild(d);
     }
-  }
-    // стрелка позиционируется по углу вокруг колеса (0=лево, 90=верх, 180=право, 270=низ)
-    const a = ((Number(whCfg.arrowAngle) || 0) * Math.PI) / 180;
-    const r = W / 2;
-    const ax = r + Math.cos(a + Math.PI) * (r + 10); // наружу от центра по углу
-    const ay = r + Math.sin(a + Math.PI) * (r + 10);
-    whArrow.style.left = `${Math.round(ax - 16)}px`; // минус половина ширины (border 16+16=32)
-    whArrow.style.top = `${Math.round(ay - 13)}px`;  // минус половина высоты (border 26)
-    // собственный поворот стрелки (arrowRotate, °) — настраивается в редакторе панели
-    const rot = ((Number(whCfg.arrowRotate) || 0) * Math.PI) / 180;
-    whArrow.style.transform = `rotate(${a + Math.PI / 2 + rot}rad)`; // носиком к центру
-    whArrow.style.position = 'absolute';
   }
 
   function whDrawWheel(sectors, rotation) {

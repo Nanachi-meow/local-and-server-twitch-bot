@@ -1099,6 +1099,23 @@ export function loadSettings() {
       access: {}, // доступ встроенных: { [имя]: { level?, allow: [роли] } } — сильнее дефолтного level
       ...(stored.builtins ?? {}),
     },
+    // ⏱ таймер донатона: сколько стриму осталось (донаты добавляют время)
+    donaTimer: {
+      enabled: false,        // включается в панели (Оверлеи → Таймер донатона)
+      baseMinutes: 120,      // стартовое время, мин
+      pricePerMinute: 30,   // ₽ за минуту продления
+      label: 'стрим закончится через',
+      footer: 'продлить стрим: {price}₽ за минуту',
+      accent: '#ff5a4d',
+      ...(stored.donaTimer ?? {}),
+    },
+    // источники донатов (мульти): donatex / da (DonationAlerts) / donatepay
+    donations: {
+      donatex: { enabled: false, token: '' },
+      da: { enabled: false, token: '' },
+      donatepay: { enabled: false, token: '' },
+      ...(stored.donations ?? {}),
+    },
     songs: (() => {
       const s = {
         enabled: false, // включается в панели — из коробки музыка молчит

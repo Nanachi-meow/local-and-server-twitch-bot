@@ -221,6 +221,7 @@ setInterval(() => {
 
 function renderState(st) {
   const { auth: a, runtime: rt, configured } = st;
+  try { dtRender(st); } catch {}
   const chans = st.config?.channels ?? [];
   setChip('#chip-config',
     chans.length ? `каналы: ${chans.map((c) => '@' + c).join(' ')}` : 'каналы не заданы',
@@ -3209,6 +3210,86 @@ sendParentMessage({ Type: "WidgetLoaded", ID: "{ID}" });
   a.click();
   URL.revokeObjectURL(url);
   toast('OWE-шаблон скачан — совместим с Overlay Widget Editor');
+});
+
+// ---------- ⏱ таймер донатона: панель ----------
+// читается из /api/state (donaTimer: {enabled, running, secondsLeft, totalRub, label, footer, accent})
+
+function dtRender(st) {
+  const dt = st.donaTimer ?? {};
+  const cfg = window.__settings?.donaTimer ?? {};
+  $('#dt-enabled').checked = dt.enabled === true;
+  if (document.activeElement?.id !== 'dt-base') $('#dt-base').value = cfg.baseMinutes ?? 120;
+  if (document.activeElement?.id !== 'dt-price') $('#dt-price').value = cfg.pricePerMinute ?? 30;
+  if (document.activeElement?.id !== 'dt-label') $('#dt-label').value = cfg.label ?? 'стрим закончится через';
+  if (document.activeElement?.id !== 'dt-footer') $('#dt-footer').value = cfg.footer ?? 'продлить стрим: 30₽ за минуту';
+  if (document.activeElement?.id !== 'dt-accent') $('#dt-accent').value = cfg.accent ?? '#ff5a4d';
+  const h = Math.floor((dt.secondsLeft ?? 0) / 3600);
+  const m = Math.floor(((dt.secondsLeft ?? 0) % 3600) / 60);
+  const s = (dt.secondsLeft ?? 0) % 60;
+  $('#dt-status').textContent = dt.enabled
+    ? `${dt.running ? '▶ тикает' : '⏸ пауза'} · ${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')} · собрано ${dt.totalRub ?? 0}₽`
+    : 'выключен';
+}
+
+// сохранение настроек
+$('#dt-save').addEventListener('click', async () => {
+  try {
+    await putSettings({
+      donaTimer: {
+        enabled: $('#dt-enabled').checked,
+        baseMinutes: Number($('#dt-base').value) || 0,
+        pricePerMinute: Number($('#dt-price').value) || 30,
+        label: $('#dt-label').value.trim(),
+        footer: $('#dt-footer').value.trim(),
+        accent: $('#dt-accent').value,
+      },
+    });
+    toast('Таймер донатона сохранён ⏱');
+    poll();
+  } catch (e) { toast(e.message, true); }
+});
+$('#dt-enabled').addEventListener('change', async () => {
+  try {
+    await putSettings({ donaTimer: { enabled: $('#dt-enabled').checked } });
+    toast($('#dt-enabled').checked ? 'Таймер включён ⏱' : 'Таймер выключен');
+  } catch (e) { toast(e.message, true); }
+});
+
+// источники
+$('#dt-src-save').addEventListener('click', async () => {
+  try {
+    await putSettings({
+      donations: {
+        donatex: { enabled: $('#dt-donatex-on').checked, token: $('#dt-donatex-token').value.trim() },
+        da: { enabled: $('#dt-da-on').checked, token: $('#dt-da-token').value.trim() },
+        donatepay: { enabled: $('#dt-dpay-on').checked, token: $('#dt-dpay-token').value.trim() },
+      },
+    });
+    toast('Источники донатов сохранены 💰');
+  } catch (e) { toast(e.message, true); }
+});
+
+// вручную: ±минуты и донат
+$('#dt-add-btn').addEventListener('click', async () => {
+  const min = Number($('#dt-add-min').value) || 0;
+  if (!min) { toast('Введи минуты (можно с минусом)', true); return; }
+  try {
+    const r = await api('/api/actions/donatimeradd', { method: 'POST', body: JSON.stringify({ min }) });
+    if (r.error) { toast(r.error, true); return; }
+    toast(min > 0 ? `+${min} мин ⏱` : `${min} мин ⏱`);
+    poll();
+  } catch (e) { toast(e.message, true); }
+});
+$('#dt-donate-btn').addEventListener('click', async () => {
+  const amount = Number($('#dt-donate-amount').value) || 0;
+  if (!amount) { toast('Введи сумму ₽', true); return; }
+  try {
+    const r = await api('/api/actions/donatimerdonation', { method: 'POST', body: JSON.stringify({ amount }) });
+    if (r.error) { toast(r.error, true); return; }
+    toast(`Донат ${amount}₽ внесён 💰`);
+    poll();
+  } catch (e) { toast(e.message, true); }
 });
 
 // перерисовка при разворачивании секции (stage был нулевой ширины пока свёрнут)

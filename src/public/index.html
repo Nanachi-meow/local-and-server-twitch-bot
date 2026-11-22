@@ -522,6 +522,42 @@
         </div>
       </details>
       <details class="guide-box">
+        <summary><b>⏱ Таймер донатона: стрим живёт, пока его продлевают</b></summary>
+        <div class="guide-body">
+          <p class="hint">Включается со старом стрима и встаёт на паузу после конца. Донаты добавляют время: сумма делится на цену минуты. Источники донатов опрашиваются каждые 15 сек.</p>
+          <div class="evcard">
+            <label><input type="checkbox" id="dt-enabled" /> таймер включён</label>
+            <label>стартовое время, мин <input type="number" id="dt-base" min="0" max="1440" style="width:70px" /></label>
+            <label>₽ за минуту продления <input type="number" id="dt-price" min="1" max="100000" style="width:80px" /></label>
+            <label>надпись над часами <input type="text" id="dt-label" class="wide" maxlength="80" placeholder="стрим закончится через" /></label>
+            <label>строка под часами <input type="text" id="dt-footer" class="wide" maxlength="120" placeholder="продлить стрим: 30₽ за минуту" /></label>
+            <label>цвет цифр <input type="color" id="dt-accent" style="width:46px" /></label>
+            <div class="rp-row"><button class="act" id="dt-save">💾 Сохранить</button></div>
+          </div>
+          <h3>💰 Источники донатов</h3>
+          <div class="evcard">
+            <label><input type="checkbox" id="dt-donatex-on" /> <b>DonateX</b> (donatex.gg — токен: кабинет → Настройки → API)</label>
+            <input type="password" id="dt-donatex-token" class="wide" placeholder="external token" autocomplete="off" />
+            <label><input type="checkbox" id="dt-da-on" /> <b>DonationAlerts</b> (donationalerts.com — токен: кабинет → API)</label>
+            <input type="password" id="dt-da-token" class="wide" placeholder="api token" autocomplete="off" />
+            <label><input type="checkbox" id="dt-dpay-on" /> <b>DonatePay</b> (donatepay.ru — токен: кабинет → API)</label>
+            <input type="password" id="dt-dpay-token" class="wide" placeholder="api token" autocomplete="off" />
+            <div class="rp-row"><button class="act" id="dt-src-save">💾 Сохранить источники</button></div>
+            <p class="hint">Токены хранятся только на твоём ПК (data/settings.json, в git не попадают никогда). Включай только те сервисы, которыми реально пользуешься.</p>
+          </div>
+          <h3>🛠 Вручную</h3>
+          <div class="evcard">
+            <div class="am-sound-row">
+              <input type="number" id="dt-add-min" placeholder="минуты (±)" style="width:80px" />
+              <button class="act ghost" id="dt-add-btn" title="добавить/убавить время вручную">± мин</button>
+              <input type="number" id="dt-donate-amount" placeholder="₽" style="width:80px" />
+              <button class="act ghost" id="dt-donate-btn" title="внести донат вручную — время добавится по курсу">💰 донат</button>
+              <span class="hint" id="dt-status"></span>
+            </div>
+          </div>
+        </div>
+      </details>
+      <details class="guide-box">
         <summary><b>📖 Слово дня: выбирается само по чату (нажми — редактор раскладки)</b></summary>
         <div class="guide-body">
           <p class="hint">Слово выбирается <b>автоматически</b> — какое чаще всего пишут в чате за сегодня (команды и бот не считаются). Обгоняет другое — виджет переключится. Сейчас: <b id="wod-current">— пока пусто —</b> <span class="hint" id="wod-count"></span></p>
