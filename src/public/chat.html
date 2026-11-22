@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<!-- 💬 Чат-виджет: сообщения чата поверх стрима. Стиль — по StreamElements-образцу:
-     чип юзера с цветом роли, тёмный бабл со «сложенной бумагой», призрак у сабов, паутинки.
-     Отдельная страница для OBS: ш 1920, в 1080, фон прозрачный. -->
+<!-- 💬 Чат-виджет: сообщения чата поверх стрима. Отдельная страница для OBS:
+     ш 1920, в 1080, фон прозрачный. Дизайн настраивается темой (конструктор в панели,
+     формат файла и как собрать свою тему — docs/CHAT-THEME-SPEC.md).
+     Безопасность: текст сообщений — только через textContent, без innerHTML. -->
 <html lang="ru">
 <head>
 <meta charset="utf-8" />
@@ -14,47 +15,54 @@
     position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
     color: #fff; font-size: 14px; text-shadow: 0 1px 4px #000; opacity: .8;
   }
-  /* сообщения прижаты к низу сцены, колонкой */
+  /* колонка сообщений: позиция из темы (x — от левого края, y — от низа) */
   #chat-root {
-    position: fixed; left: 40px; bottom: 40px; right: 60px;
-    display: flex; flex-direction: column; justify-content: flex-end;
-    align-items: flex-start; gap: 24px;
-    pointer-events: none;
+    position: fixed; display: flex; flex-direction: column; justify-content: flex-end;
+    align-items: flex-start; pointer-events: none; max-width: var(--cw-maxw, 80vw);
   }
-  #scaler { display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; gap: 24px; transform-origin: bottom left; }
+  #scaler {
+    display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start;
+    gap: var(--cw-gap, 24px); transform-origin: bottom left;
+    width: 100%;
+  }
 
-  .cw-row { animation: cw-in .45s ease; max-width: 80%; }
-  .cw-row.cw-out { animation: cw-out .4s ease forwards; }
+  .cw-row { animation: cw-in-scale .45s ease; max-width: 100%; }
+  [data-anim="slide"] .cw-row { animation-name: cw-in-slide; }
+  [data-anim="fade"] .cw-row { animation-name: cw-in-fade; }
+  .cw-row.cw-out { animation: cw-out .4s ease forwards !important; }
 
   .cw-namebox { display: flex; align-items: center; position: relative; margin-left: 13px; }
-  /* ромб-декор слева от чипа */
   .cw-gem { position: absolute; left: -13px; width: 26px; height: 26px; }
   .cw-chip {
-    position: relative; overflow: hidden; border-radius: 20px;
-    padding: 6px 34px 6px 30px;
-    color: #f0e7e5; font-weight: 700; text-transform: uppercase;
+    position: relative; overflow: hidden;
+    border-radius: var(--chip-radius, 20px);
+    padding: 6px 32px 6px 28px;
+    color: var(--chip-color, #f0e7e5); font-weight: 700;
+    text-transform: var(--chip-case, uppercase);
     background: var(--chip, #a6a9d3); font-size: 1em; line-height: 1.2;
   }
-  /* звёздочка саба на чипе */
-  .cw-substar { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; }
+  .cw-chip.no-star { padding-right: 20px; }
+  .cw-substar { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; }
   .cw-pronoun { margin-left: 10px; color: #f0e7e5; font-size: .8em; opacity: .9; text-transform: uppercase; }
 
-  .cw-msgbox { position: relative; margin-top: 8px; margin-left: 50px; }
-  /* паутинка в углу бабла */
+  .cw-msgbox { position: relative; margin-top: 8px; margin-left: 50px; width: fit-content; max-width: 100%; }
   .cw-web { position: absolute; bottom: -8px; right: -10px; width: 46px; height: 46px; opacity: .9; }
   .cw-web.left { left: -10px; right: auto; }
   .cw-bubble {
-    position: relative; color: var(--msg-color, #a6a9d3);
+    position: relative;
+    color: var(--msg-color, #a6a9d3);
     background: var(--msg-bg, #141520);
-    padding: 14px 28px; border-radius: 15px;
-    border: 2px solid var(--msg-border, #6a6d98);
+    padding: 14px 26px;
+    border-radius: var(--msg-radius, 15px);
+    border: var(--msg-bw, 2px) solid var(--msg-border, #6a6d98);
     font-size: var(--msg-size, 16px); line-height: 1.45;
     overflow-wrap: anywhere; max-width: 100%;
   }
-  /* «сложенная бумага»: слой позади, повёрнутый на градус */
+  .cw-bubble.cw-nopaper::after { content: none; }
+  /* «сложенная бумага»: слой позади, повёрнутый на градус (тема: msgPaper) */
   .cw-bubble::after {
     content: ""; position: absolute; z-index: -1; top: 7px; bottom: 0; left: 3px;
-    width: 100%; height: 100%; border-radius: 15px;
+    width: 100%; height: 100%; border-radius: var(--msg-radius, 15px);
     background: var(--fold, rgba(5, 5, 11, 1));
     box-shadow: 7px 0 0 0 var(--fold, rgba(5, 5, 11, 1));
     transform: rotate(1deg);
@@ -63,16 +71,22 @@
   .cw-bubble .cw-action { font-style: italic; }
   .cw-bubble img.emote { height: 1.75em; vertical-align: middle; margin: -3px 1px; }
   .cw-bubble.cw-emote-only img.emote { height: 3.2em; }
+  .cw-bubble.cw-emote-only.cw-nopaper::after { content: none; }
+  .cw-bubble.cw-emote-only { border-radius: var(--msg-radius, 15px); }
 
-  /* призрак саба: парит над чипом */
   .cw-ghost { position: absolute; width: 40px; right: -12px; top: -34px; animation: cw-float 3s ease-in-out infinite; z-index: 2; }
   .cw-ghost .cw-eye { animation: cw-blink 5s ease-in-out infinite; }
 
-  @keyframes cw-in {
+  @keyframes cw-in-scale {
     0% { transform: scale(0); opacity: 0; }
     60% { transform: scale(1.1); opacity: 1; }
     100% { transform: scale(1); opacity: 1; }
   }
+  @keyframes cw-in-slide {
+    0% { transform: translateX(-46px); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes cw-in-fade { 0% { opacity: 0; } 100% { opacity: 1; } }
   @keyframes cw-out { to { transform: translateY(10px) scale(.8); opacity: 0; } }
   @keyframes cw-float { 0%, 100% { transform: translateY(0); } 60% { transform: translateY(-10px); } }
   @keyframes cw-blink { 0%, 100% { opacity: 1; } 48% { opacity: 1; } 50% { opacity: 0; } 52% { opacity: 1; } }
@@ -85,8 +99,8 @@
 <script>
 'use strict';
 
-// ---------- SVG-декорации (свои, без внешних картинок; цвет наследует настройки) ----------
-const GEM_SVG = (fill) => `<svg class="cw-gem" viewBox="0 0 32 32"><path fill="${fill}" d="M28.9 19.7 19.7 28.9a6.2 6.2 0 0 1-8.8 0L2.6 19.7a6.2 6.2 0 0 1 0-8.8l8.3-8.6a6.2 6.2 0 0 1 8.8 0l9.2 8.6a6.2 6.2 0 0 1 0 8.8Z" opacity=".85"/><circle cx="15.5" cy="42" r="2.5" fill="${fill}"/><circle cx="15.5" cy="55" r="3" fill="${fill}"/></svg>`;
+// ---------- SVG-декорации (свои, без внешних картинок; включаются темой) ----------
+const GEM_SVG = (fill) => `<svg class="cw-gem" viewBox="0 0 32 32"><path fill="${fill}" d="M28.9 19.7 19.7 28.9a6.2 6.2 0 0 1-8.8 0L2.6 19.7a6.2 6.2 0 0 1 0-8.8l8.3-8.6a6.2 6.2 0 0 1 8.8 0l9.2 8.6a6.2 6.2 0 0 1 0 8.8Z" opacity=".85"/></svg>`;
 const SUBSTAR_SVG = `<svg class="cw-substar" viewBox="0 0 24 24"><path fill="#fff" d="M12 1.6 14.9 8l7 .6-5.3 4.6 1.6 6.8L12 16.5l-6.2 3.5 1.6-6.8L2.1 8.6l7-.6Z"/></svg>`;
 const WEB_SVG = `<svg class="cw-web" viewBox="0 0 60 60" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.4">
   <path d="M0 0 L60 60 M0 0 L38 8 M0 0 L8 38 M0 0 L60 22 M0 0 L22 60 M0 0 L60 0 M0 0 L0 60"/>
@@ -100,40 +114,65 @@ const GHOST_SVG = `<svg class="cw-ghost" viewBox="0 0 40 46">
 </svg>`;
 
 const root = document.getElementById('scaler');
+const chatRoot = document.getElementById('chat-root');
 const conn = document.getElementById('conn');
 
-// ---------- настройки ----------
+// ---------- настройки (тема — см. docs/CHAT-THEME-SPEC.md) ----------
 const DEFAULTS = {
   enabled: false, limit: 15, hideAfter: 999, hideCommands: true, ignoredUsers: '',
-  roleColors: true, showSubDecor: true, showWebs: true, showPronouns: false,
-  scale: 100, fontSize: 16, fontFamily: '',
-  chipBg: '#a6a9d3', msgBg: '#141520', msgBorder: '#6a6d98', msgColor: '#a6a9d3',
-  colorBroadcaster: '#f1592a', colorModerator: '#edb872', colorVip: '#a672ed',
+  roleColors: true, showPronouns: false,
+  theme: {
+    name: 'чистая', x: 40, y: 40, maxWidth: 80, gap: 24, scale: 100,
+    fontFamily: '', fontSize: 16,
+    chipBg: '#a6a9d3', chipColor: '#f0e7e5', chipRadius: 20, chipCase: true, gem: false,
+    msgBg: '#141520', msgColor: '#a6a9d3', msgBorder: '#6a6d98', msgBorderWidth: 2, msgRadius: 15, msgPaper: false,
+    colorBroadcaster: '#f1592a', colorModerator: '#edb872', colorVip: '#a672ed',
+    ghost: false, webs: false, subStar: true, animIn: 'scale',
+  },
 };
-let cfg = { ...DEFAULTS };
-const ROLE_COLORS = () => ({
-  broadcaster: cfg.colorBroadcaster, moderator: cfg.colorModerator, vip: cfg.colorVip, sub: cfg.chipBg, all: cfg.chipBg,
-});
+let cfg = JSON.parse(JSON.stringify(DEFAULTS));
+let cfgReady = false;      // конфиг загружен (до этого — события в буфер)
+const pending = [];        // события, пришедшие раньше конфига
 
-function applyCfg(c = {}) {
-  cfg = { ...DEFAULTS, ...c };
-  document.body.style.setProperty('--chip', cfg.roleColors ? (ROLE_COLORS()[cfg.__lastRole] ?? cfg.chipBg) : cfg.chipBg);
-  root.style.transform = `scale(${cfg.scale / 100})`;
-  document.body.style.setProperty('--msg-size', `${cfg.fontSize}px`);
-  document.body.style.setProperty('--msg-bg', cfg.msgBg);
-  document.body.style.setProperty('--msg-border', cfg.msgBorder);
-  document.body.style.setProperty('--msg-color', cfg.msgColor);
-  if (cfg.fontFamily) root.style.fontFamily = cfg.fontFamily;
-  else root.style.fontFamily = '';
-}
-
-// hex → rgba (для «бумаги»: фон бабла затемняется)
+// hex → затемнённый rgb (для «бумаги»: слой позади бабла)
 function shade(hex, k = 0.55) {
   const m = String(hex || '').match(/^#?([0-9a-f]{6})$/i);
   if (!m) return 'rgba(5, 5, 11, 1)';
   const n = parseInt(m[1], 16);
-  const r = Math.round(((n >> 16) & 255) * k), g = Math.round(((n >> 8) & 255) * k), b = Math.round((n & 255) * k);
-  return `rgba(${r}, ${g}, ${b}, 1)`;
+  return `rgba(${Math.round(((n >> 16) & 255) * k)}, ${Math.round(((n >> 8) & 255) * k)}, ${Math.round((n & 255) * k)}, 1)`;
+}
+
+function applyCfg(c = {}) {
+  cfg = {
+    ...DEFAULTS,
+    ...c,
+    theme: { ...DEFAULTS.theme, ...(c.theme ?? {}) },
+  };
+  const t = cfg.theme;
+  const b = document.body;
+  b.style.setProperty('--cw-maxw', `${t.maxWidth}vw`);
+  b.style.setProperty('--cw-gap', `${t.gap}px`);
+  b.style.setProperty('--chip', cfg.roleColors ? (chipColorMap()[cfg.__lastRole] ?? t.chipBg) : t.chipBg);
+  b.style.setProperty('--chip-color', t.chipColor);
+  b.style.setProperty('--chip-radius', `${t.chipRadius}px`);
+  b.style.setProperty('--chip-case', t.chipCase ? 'uppercase' : 'none');
+  b.style.setProperty('--msg-bg', t.msgBg);
+  b.style.setProperty('--msg-color', t.msgColor);
+  b.style.setProperty('--msg-border', t.msgBorder);
+  b.style.setProperty('--msg-bw', `${t.msgBorderWidth}px`);
+  b.style.setProperty('--msg-radius', `${t.msgRadius}px`);
+  b.style.setProperty('--msg-size', `${t.fontSize}px`);
+  b.style.setProperty('--fold', shade(t.msgBg));
+  chatRoot.style.left = `${t.x}px`;
+  chatRoot.style.bottom = `${t.y}px`;
+  chatRoot.style.right = 'auto';
+  chatRoot.dataset.anim = t.animIn;
+  root.style.transform = `scale(${t.scale / 100})`;
+  root.style.fontFamily = t.fontFamily || '';
+}
+function chipColorMap() {
+  const t = cfg.theme;
+  return { broadcaster: t.colorBroadcaster, moderator: t.colorModerator, vip: t.colorVip, sub: t.chipBg, all: t.chipBg };
 }
 
 // ---------- местоимения (pronouns.alejo.io; выключено по умолчанию) ----------
@@ -143,7 +182,7 @@ async function pronounOf(name) {
   if (!cfg.showPronouns || !name) return null;
   const key = String(name).toLowerCase();
   if (pnCache.has(key)) return pnCache.get(key);
-  pnCache.set(key, null); // не ждём повторных запросов
+  pnCache.set(key, null);
   try {
     const r = await fetch(`https://pronouns.alejo.io/api/users/${encodeURIComponent(key)}`);
     const j = await r.json();
@@ -156,10 +195,11 @@ async function pronounOf(name) {
 
 // ---------- рендер сообщения ----------
 function chipColor(role) {
-  return cfg.roleColors ? (ROLE_COLORS()[role] ?? cfg.chipBg) : cfg.chipBg;
+  return cfg.roleColors ? (chipColorMap()[role] ?? cfg.theme.chipBg) : cfg.theme.chipBg;
 }
 
 function addMessage(ev) {
+  const t = cfg.theme;
   if (!cfg.enabled && !ev.test) return;
   const row = document.createElement('div');
   row.className = 'cw-row';
@@ -170,13 +210,13 @@ function addMessage(ev) {
   // чип юзера
   const namebox = document.createElement('div');
   namebox.className = 'cw-namebox';
-  namebox.innerHTML = GEM_SVG(color);
+  if (t.gem) namebox.innerHTML = GEM_SVG(color);
   const chip = document.createElement('div');
-  chip.className = 'cw-chip';
+  chip.className = 'cw-chip' + ((ev.sub && t.subStar) ? '' : ' no-star');
   chip.style.background = color;
   chip.textContent = ev.user || ev.login || 'зритель';
-  if (ev.sub && cfg.showSubDecor) {
-    chip.insertAdjacentHTML('beforeend', SUBSTAR_SVG);
+  if (ev.sub && t.subStar) chip.insertAdjacentHTML('beforeend', SUBSTAR_SVG);
+  if (ev.sub && t.ghost) {
     const ghost = document.createElement('div');
     ghost.innerHTML = GHOST_SVG;
     namebox.appendChild(ghost.firstChild);
@@ -191,15 +231,14 @@ function addMessage(ev) {
   // бабл сообщения
   const msgbox = document.createElement('div');
   msgbox.className = 'cw-msgbox';
-  if (cfg.showWebs) {
+  if (t.webs) {
     const web = document.createElement('div');
     web.innerHTML = WEB_SVG;
     web.firstChild.classList.add(Math.random() < 0.5 ? '' : 'left');
     msgbox.appendChild(web.firstChild);
   }
   const bubble = document.createElement('div');
-  bubble.className = 'cw-bubble' + (emoteOnly ? ' cw-emote-only' : '');
-  bubble.style.setProperty('--fold', shade(cfg.msgBg));
+  bubble.className = 'cw-bubble' + (t.msgPaper ? '' : ' cw-nopaper') + (emoteOnly ? ' cw-emote-only' : '');
   const p = document.createElement('p');
   if (ev.isAction) p.className = 'cw-action';
   for (const part of (ev.parts ?? [{ type: 'text', text: ev.text ?? '' }])) {
@@ -232,12 +271,21 @@ function addMessage(ev) {
   }
 }
 
+function onChatEvent(ev) {
+  if (!cfgReady) { pending.push(ev); return; } // конфиг ещё не приехал — буфер
+  addMessage(ev);
+}
+
 // ---------- SSE ----------
 async function loadCfg() {
   try {
     const r = await fetch('/api/settings');
     const st = await r.json();
     applyCfg(st.chatWidget ?? {});
+    if (!cfgReady) {
+      cfgReady = true;
+      for (const ev of pending.splice(0)) addMessage(ev); // Dolina bufer: события, пришедшие раньше конфига
+    }
   } catch {}
 }
 loadCfg();
@@ -249,8 +297,15 @@ es.onerror = () => { conn.textContent = 'нет связи с ботом…'; };
 es.onmessage = (m) => {
   try {
     const ev = JSON.parse(m.data);
-    if (ev.kind === 'chatcfg') { applyCfg(ev); return; }
-    if (ev.kind === 'chat') addMessage(ev);
+    if (ev.kind === 'chatcfg') {
+      applyCfg(ev);
+      if (!cfgReady) {
+        cfgReady = true;
+        for (const evp of pending.splice(0)) addMessage(evp);
+      }
+      return;
+    }
+    if (ev.kind === 'chat') onChatEvent(ev);
   } catch {}
 };
 </script>

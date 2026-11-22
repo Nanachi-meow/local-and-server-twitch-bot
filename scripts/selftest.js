@@ -1567,6 +1567,29 @@ ok('obs: ошибка переключения подсказывает дост
   ok('чат-виджет: тест при выключенном → error', Boolean(cw.test({ role: 'all' }).error));
   cwSettings.chatWidget.enabled = true;
   ok('чат-виджет: тест-сообщение из панели проходит', cw.test({ role: 'vip', user: 'Випа' }).ok === true);
+
+  // ---------- дизайн-тема: санитизация (формат docs/CHAT-THEME-SPEC.md) ----------
+  const { normalizeTheme, THEME_DEFAULTS } = await import('../src/bot/chatwidget.js');
+  const tn = normalizeTheme({
+    name: 'неон', x: -50, y: 99999, maxWidth: 500, gap: 'мусор', scale: 150,
+    fontSize: 22, chipBg: 'не цвет', chipColor: '#00f0ff', chipRadius: 4,
+    msgBg: '#0b0121', msgBorder: '#00f0ff', msgBorderWidth: 99, msgRadius: 6,
+    msgPaper: true, colorVip: '#b026ff', ghost: 'yes', webs: true, subStar: false,
+    animIn: 'нарочно кривое',
+  });
+  ok('тема: числа зажимаются в диапазон (x/y/maxWidth/borderWidth)', tn.x === 0 && tn.y === 1000 && tn.maxWidth === 100 && tn.msgBorderWidth === 12);
+  ok('тема: мусор вместо числа → дефолт (gap)', tn.gap === THEME_DEFAULTS.gap);
+  ok('тема: не-hex цвет → дефолт (chipBg), hex принят (chipColor)', tn.chipBg === THEME_DEFAULTS.chipBg && tn.chipColor === '#00f0ff');
+  ok('тема: декор включается только строго true (ghost="yes" → false, webs=true → true)', tn.ghost === false && tn.webs === true && tn.msgPaper === true);
+  ok('тема: subStar по умолчанию true, явный false уважается', tn.subStar === false);
+  ok('тема: кривая анимация → дефолт scale', tn.animIn === 'scale');
+  const wrap = normalizeTheme({ format: 'twitch-bot-chat-theme', version: 1, theme: { name: 'в обёртке', animIn: 'slide' } });
+  ok('тема: файл-обёртка {format, version, theme} распаковывается', wrap.name === 'в обёртке' && wrap.animIn === 'slide');
+  const bare = normalizeTheme({ animIn: 'fade' });
+  ok('тема: голый theme-объект тоже принимается', bare.animIn === 'fade' && bare.name === THEME_DEFAULTS.name);
+  const empty = normalizeTheme({});
+  ok('тема: пустой ввод → полный дефолт, декор выключен (чистая база)',
+    empty.gem === false && empty.ghost === false && empty.webs === false && empty.msgPaper === false && empty.chipCase === true);
 }
 
 console.log(`\nВсе ${passed} тестов прошли ✅`);

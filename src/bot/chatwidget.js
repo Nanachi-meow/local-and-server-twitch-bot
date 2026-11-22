@@ -99,3 +99,75 @@ export function buildParts(message = {}) {
   }
   return parts.length ? parts.slice(0, 100) : [{ type: 'text', text: String(message?.text ?? '').slice(0, 500) }];
 }
+
+/**
+ * Дизайн-тема чат-виджета: единая санитизация для сервера (патч настроек),
+ * панели (импорт файла) и тестов. Формат файла — см. docs/CHAT-THEME-SPEC.md.
+ * Декоративные приблуды (призраки/паутинки/бумага/ромб) по умолчанию ВЫКЛЮЧЕНЫ —
+ * база чистая; «хэллоуин» — просто одна из тем, собирается в конструкторе.
+ */
+export const THEME_DEFAULTS = {
+  name: 'чистая',
+  // компоновка (px сцены 1920×1080)
+  x: 40, y: 40,           // отступ слева / снизу
+  maxWidth: 80,           // макс. ширина колонки, %
+  gap: 24,                // промежуток между сообщениями, px
+  scale: 100,             // масштаб, %
+  // шрифт
+  fontFamily: '', fontSize: 16,
+  // чип юзера
+  chipBg: '#a6a9d3', chipColor: '#f0e7e5', chipRadius: 20,
+  chipCase: true,         // ВЕРХНИЙ РЕГИСТР ника
+  gem: false,             // ромб слева от чипа
+  // бабл сообщения
+  msgBg: '#141520', msgColor: '#a6a9d3',
+  msgBorder: '#6a6d98', msgBorderWidth: 2,
+  msgRadius: 15,
+  msgPaper: false,        // «сложенная бумага» позади бабла
+  // цвета ролей
+  colorBroadcaster: '#f1592a', colorModerator: '#edb872', colorVip: '#a672ed',
+  // декор
+  ghost: false,           // призрак у сабов
+  webs: false,            // паутинки
+  subStar: true,          // звёздочка саба на чипе
+  // анимация появления
+  animIn: 'scale',        // scale | slide | fade
+};
+
+/** Санитизация темы: принимает theme-объект или файл-обёртку {format, version, name, theme}. */
+export function normalizeTheme(raw = {}) {
+  const src = raw && typeof raw === 'object' && raw.theme && typeof raw.theme === 'object' ? raw.theme : raw ?? {};
+  const hex = (v, dflt) => (/^#[0-9a-f]{3,8}$/i.test(String(v)) ? String(v).slice(0, 9) : dflt);
+  const num = (v, min, max, dflt) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : dflt;
+  };
+  return {
+    name: String(src.name ?? '').slice(0, 40) || THEME_DEFAULTS.name,
+    x: num(src.x, 0, 1600, THEME_DEFAULTS.x),
+    y: num(src.y, 0, 1000, THEME_DEFAULTS.y),
+    maxWidth: num(src.maxWidth, 20, 100, THEME_DEFAULTS.maxWidth),
+    gap: num(src.gap, 0, 120, THEME_DEFAULTS.gap),
+    scale: num(src.scale, 25, 300, THEME_DEFAULTS.scale),
+    fontFamily: String(src.fontFamily ?? '').slice(0, 80),
+    fontSize: num(src.fontSize, 10, 60, THEME_DEFAULTS.fontSize),
+    chipBg: hex(src.chipBg, THEME_DEFAULTS.chipBg),
+    chipColor: hex(src.chipColor, THEME_DEFAULTS.chipColor),
+    chipRadius: num(src.chipRadius, 0, 60, THEME_DEFAULTS.chipRadius),
+    chipCase: src.chipCase !== false,
+    gem: src.gem === true,
+    msgBg: hex(src.msgBg, THEME_DEFAULTS.msgBg),
+    msgColor: hex(src.msgColor, THEME_DEFAULTS.msgColor),
+    msgBorder: hex(src.msgBorder, THEME_DEFAULTS.msgBorder),
+    msgBorderWidth: num(src.msgBorderWidth, 0, 12, THEME_DEFAULTS.msgBorderWidth),
+    msgRadius: num(src.msgRadius, 0, 60, THEME_DEFAULTS.msgRadius),
+    msgPaper: src.msgPaper === true,
+    colorBroadcaster: hex(src.colorBroadcaster, THEME_DEFAULTS.colorBroadcaster),
+    colorModerator: hex(src.colorModerator, THEME_DEFAULTS.colorModerator),
+    colorVip: hex(src.colorVip, THEME_DEFAULTS.colorVip),
+    ghost: src.ghost === true,
+    webs: src.webs === true,
+    subStar: src.subStar !== false,
+    animIn: ['scale', 'slide', 'fade'].includes(src.animIn) ? src.animIn : 'scale',
+  };
+}

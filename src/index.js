@@ -11,7 +11,7 @@ import { ObsClient } from './bot/obs.js';
 import { LiveTracker } from './bot/live.js';
 import { SongsManager } from './bot/songs.js';
 import { DonaTimer } from './bot/donatimer.js';
-import { ChatWidget } from './bot/chatwidget.js';
+import { ChatWidget, normalizeTheme } from './bot/chatwidget.js';
 import { loadJson, DONATIMER_FILE } from './store.js';
 import { RedemptionRouter } from './bot/redemptions.js';
 import { overlay } from './bot/alerts.js';
@@ -764,14 +764,9 @@ const app = {
       if (a.hideCommands !== undefined) cur.hideCommands = Boolean(a.hideCommands);
       if (a.ignoredUsers !== undefined) cur.ignoredUsers = String(a.ignoredUsers).slice(0, 500);
       if (a.roleColors !== undefined) cur.roleColors = Boolean(a.roleColors);
-      if (a.showSubDecor !== undefined) cur.showSubDecor = Boolean(a.showSubDecor);
-      if (a.showWebs !== undefined) cur.showWebs = Boolean(a.showWebs);
       if (a.showPronouns !== undefined) cur.showPronouns = Boolean(a.showPronouns);
-      if (a.scale !== undefined) cur.scale = Math.max(25, Math.min(300, Math.round(Number(a.scale) || 100)));
-      if (a.fontSize !== undefined) cur.fontSize = Math.max(10, Math.min(60, Math.round(Number(a.fontSize) || 16)));
-      if (a.fontFamily !== undefined) cur.fontFamily = String(a.fontFamily).slice(0, 80);
-      for (const k of ['chipBg', 'msgBg', 'msgBorder', 'msgColor', 'colorBroadcaster', 'colorModerator', 'colorVip']) {
-        if (a[k] !== undefined) cur[k] = String(a[k]).slice(0, 20);
+      if (a.theme !== undefined && a.theme !== null && typeof a.theme === 'object') {
+        cur.theme = normalizeTheme(a.theme); // санитизация: см. docs/CHAT-THEME-SPEC.md
       }
       try { chatWidget.pushCfg(); } catch {} // страница /chat применяет сразу
     }

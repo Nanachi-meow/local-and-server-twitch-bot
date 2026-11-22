@@ -3899,48 +3899,66 @@ function cwCurrent() {
     hideAfter: Math.max(3, Math.min(3600, Number($('#cw-hideafter').value) || 999)),
     hideCommands: $('#cw-hidecommands').checked,
     roleColors: $('#cw-rolecolors').checked,
-    showSubDecor: $('#cw-subdecor').checked,
-    showWebs: $('#cw-webs').checked,
     showPronouns: $('#cw-pronouns').checked,
     ignoredUsers: $('#cw-ignored').value.trim(),
-    scale: Math.max(25, Math.min(300, Number($('#cw-scale').value) || 100)),
-    fontSize: Math.max(10, Math.min(60, Number($('#cw-fontsize').value) || 16)),
-    fontFamily: $('#cw-font').value,
-    chipBg: $('#cw-chipbg').value,
-    msgBg: $('#cw-msgbg').value,
-    msgBorder: $('#cw-msgborder').value,
-    msgColor: $('#cw-msgcolor').value,
-    colorBroadcaster: $('#cw-cbroad').value,
-    colorModerator: $('#cw-cmod').value,
-    colorVip: $('#cw-cvip').value,
+    theme: {
+      name: $('#cw-name').value.trim() || 'чистая',
+      x: Math.max(0, Math.min(1600, Number($('#cw-x').value) || 40)),
+      y: Math.max(0, Math.min(1000, Number($('#cw-y').value) || 40)),
+      maxWidth: Math.max(20, Math.min(100, Number($('#cw-maxw').value) || 80)),
+      gap: Math.max(0, Math.min(120, Number($('#cw-gap').value) || 24)),
+      scale: Math.max(25, Math.min(300, Number($('#cw-scale').value) || 100)),
+      fontFamily: $('#cw-font').value,
+      fontSize: Math.max(10, Math.min(60, Number($('#cw-fontsize').value) || 16)),
+      chipBg: $('#cw-chipbg').value,
+      chipColor: $('#cw-chiptext').value,
+      chipRadius: Math.max(0, Math.min(60, Number($('#cw-chipradius').value) || 0)),
+      chipCase: $('#cw-case').checked,
+      gem: $('#cw-gem').checked,
+      msgBg: $('#cw-msgbg').value,
+      msgColor: $('#cw-msgcolor').value,
+      msgBorder: $('#cw-msgborder').value,
+      msgBorderWidth: Math.max(0, Math.min(12, Number($('#cw-msgbw').value) || 0)),
+      msgRadius: Math.max(0, Math.min(60, Number($('#cw-msgradius').value) || 0)),
+      msgPaper: $('#cw-paper').checked,
+      colorBroadcaster: $('#cw-cbroad').value,
+      colorModerator: $('#cw-cmod').value,
+      colorVip: $('#cw-cvip').value,
+      ghost: $('#cw-ghost').checked,
+      webs: $('#cw-webs').checked,
+      subStar: $('#cw-substar').checked,
+      animIn: $('#cw-anim').value,
+    },
   };
 }
 
 // живое превью: три мок-сообщения в стиле страницы /chat
 function cwPreview() {
   const c = cwCurrent();
+  const t = c.theme;
   const box = $('#cw-preview');
-  const colors = { broadcaster: c.colorBroadcaster, moderator: c.colorModerator, vip: c.colorVip, sub: c.chipBg, all: c.chipBg };
+  const colors = { broadcaster: t.colorBroadcaster, moderator: t.colorModerator, vip: t.colorVip, sub: t.chipBg, all: t.chipBg };
   const mock = [
     { role: 'broadcaster', sub: true, user: 'Стримерка', text: 'всем привет на стриме!' },
     { role: 'all', sub: false, user: 'зритель', text: 'классный стрим, огонь 🔥' },
     { role: 'vip', sub: true, user: 'Випушка', text: 'лови лучи добра ✨' },
   ];
-  box.innerHTML = `<div class="cw-p-wrap" style="transform:scale(${(c.scale / 100).toFixed(2)});font-family:${esc(c.fontFamily || `'Segoe UI', Arial, sans-serif`)}"></div>`;
+  box.innerHTML = `<div class="cw-p-wrap" style="transform:scale(${(t.scale / 100).toFixed(2)});font-family:${esc(t.fontFamily || `'Segoe UI', Arial, sans-serif`)}"></div>`;
   const wrap = box.firstChild;
   for (const m of mock) {
-    const chipColor = c.roleColors ? colors[m.role] : c.chipBg;
+    const chipColor = c.roleColors ? colors[m.role] : t.chipBg;
     const row = document.createElement('div');
     row.className = 'cw-p-row';
     row.innerHTML = `
-      <div class="cw-p-name">${CW_SVG_GEM(chipColor)}
-        <div class="cw-p-chip" style="background:${chipColor};font-size:${c.fontSize}px">${esc(m.user)}${m.sub && c.showSubDecor ? CW_SVG_STAR : ''}</div>
-        ${m.sub && c.showSubDecor ? CW_SVG_GHOST : ''}
+      <div class="cw-p-name">${t.gem ? CW_SVG_GEM(chipColor) : ''}
+        <div class="cw-p-chip" style="background:${chipColor};color:${t.chipColor};border-radius:${t.chipRadius}px;text-transform:${t.chipCase ? 'uppercase' : 'none'};font-size:${t.fontSize}px">${esc(m.user)}${m.sub && t.subStar ? CW_SVG_STAR : ''}</div>
+        ${m.sub && t.ghost ? CW_SVG_GHOST : ''}
       </div>
-      <div class="cw-p-msg" style="background:${c.msgBg};border-color:${c.msgBorder};color:${c.msgColor};font-size:${c.fontSize}px;position:relative">
-        ${c.showWebs ? CW_SVG_WEB : ''}<p style="display:inline">…</p>
+      <div class="cw-p-msg" style="background:${t.msgBg};border:${t.msgBorderWidth}px solid ${t.msgBorder};border-radius:${t.msgRadius}px;color:${t.msgColor};font-size:${t.fontSize}px;${t.msgPaper ? '' : '--cw-p-paper:none;'}">
+        ${t.webs ? CW_SVG_WEB : ''}<p style="display:inline">…</p>
       </div>`;
     row.querySelector('.cw-p-msg p').textContent = m.text; // текст — только textContent
+    if (!t.msgPaper) row.querySelector('.cw-p-msg').classList.add('cw-p-nopaper');
     wrap.appendChild(row);
   }
 }
@@ -3950,41 +3968,124 @@ async function cwLoad() {
   try {
     const st = await api('/api/settings');
     const c = st.chatWidget ?? {};
+    const t = c.theme ?? {};
     $('#cw-enabled').checked = c.enabled === true;
     $('#cw-limit').value = c.limit ?? 15;
     $('#cw-hideafter').value = c.hideAfter ?? 999;
     $('#cw-hidecommands').checked = c.hideCommands !== false;
     $('#cw-rolecolors').checked = c.roleColors !== false;
-    $('#cw-subdecor').checked = c.showSubDecor !== false;
-    $('#cw-webs').checked = c.showWebs !== false;
     $('#cw-pronouns').checked = c.showPronouns === true;
     $('#cw-ignored').value = c.ignoredUsers ?? '';
-    $('#cw-scale').value = c.scale ?? 100;
-    $('#cw-fontsize').value = c.fontSize ?? 16;
-    $('#cw-font').innerHTML = fontOptions(c.fontFamily ?? '');
-    $('#cw-chipbg').value = c.chipBg ?? '#a6a9d3';
-    $('#cw-msgbg').value = c.msgBg ?? '#141520';
-    $('#cw-msgborder').value = c.msgBorder ?? '#6a6d98';
-    $('#cw-msgcolor').value = c.msgColor ?? '#a6a9d3';
-    $('#cw-cbroad').value = c.colorBroadcaster ?? '#f1592a';
-    $('#cw-cmod').value = c.colorModerator ?? '#edb872';
-    $('#cw-cvip').value = c.colorVip ?? '#a672ed';
+    $('#cw-name').value = t.name ?? 'чистая';
+    $('#cw-x').value = t.x ?? 40;
+    $('#cw-y').value = t.y ?? 40;
+    $('#cw-maxw').value = t.maxWidth ?? 80;
+    $('#cw-gap').value = t.gap ?? 24;
+    $('#cw-scale').value = t.scale ?? 100;
+    $('#cw-fontsize').value = t.fontSize ?? 16;
+    $('#cw-font').innerHTML = fontOptions(t.fontFamily ?? '');
+    $('#cw-chipbg').value = t.chipBg ?? '#a6a9d3';
+    $('#cw-chiptext').value = t.chipColor ?? '#f0e7e5';
+    $('#cw-chipradius').value = t.chipRadius ?? 20;
+    $('#cw-case').checked = t.chipCase !== false;
+    $('#cw-gem').checked = t.gem === true;
+    $('#cw-msgbg').value = t.msgBg ?? '#141520';
+    $('#cw-msgcolor').value = t.msgColor ?? '#a6a9d3';
+    $('#cw-msgborder').value = t.msgBorder ?? '#6a6d98';
+    $('#cw-msgbw').value = t.msgBorderWidth ?? 2;
+    $('#cw-msgradius').value = t.msgRadius ?? 15;
+    $('#cw-paper').checked = t.msgPaper === true;
+    $('#cw-cbroad').value = t.colorBroadcaster ?? '#f1592a';
+    $('#cw-cmod').value = t.colorModerator ?? '#edb872';
+    $('#cw-cvip').value = t.colorVip ?? '#a672ed';
+    $('#cw-ghost').checked = t.ghost === true;
+    $('#cw-webs').checked = t.webs === true;
+    $('#cw-substar').checked = t.subStar !== false;
+    $('#cw-anim').value = ['scale', 'slide', 'fade'].includes(t.animIn) ? t.animIn : 'scale';
     cwPreview();
   } catch (e) { toast(e.message, true); }
 }
 cwLoad().catch(() => {});
 
 // любое поле меняется → превью перерисовывается мгновенно
-for (const id of ['#cw-enabled', '#cw-limit', '#cw-hideafter', '#cw-hidecommands', '#cw-rolecolors', '#cw-subdecor', '#cw-webs', '#cw-pronouns', '#cw-ignored', '#cw-scale', '#cw-fontsize', '#cw-font', '#cw-chipbg', '#cw-msgbg', '#cw-msgborder', '#cw-msgcolor', '#cw-cbroad', '#cw-cmod', '#cw-cvip']) {
+const CW_FIELDS = ['#cw-enabled', '#cw-limit', '#cw-hideafter', '#cw-hidecommands', '#cw-rolecolors', '#cw-pronouns', '#cw-ignored',
+  '#cw-name', '#cw-x', '#cw-y', '#cw-maxw', '#cw-gap', '#cw-scale', '#cw-fontsize', '#cw-font',
+  '#cw-chipbg', '#cw-chiptext', '#cw-chipradius', '#cw-case', '#cw-gem',
+  '#cw-msgbg', '#cw-msgcolor', '#cw-msgborder', '#cw-msgbw', '#cw-msgradius', '#cw-paper',
+  '#cw-cbroad', '#cw-cmod', '#cw-cvip', '#cw-ghost', '#cw-webs', '#cw-substar', '#cw-anim'];
+for (const id of CW_FIELDS) {
   $(id)?.addEventListener('input', cwPreview);
   $(id)?.addEventListener('change', cwPreview);
 }
+
+// галка «виджет включён» сохраняется сразу (как у таймера) — не надо жать «Сохранить»
+$('#cw-enabled').addEventListener('change', async () => {
+  try {
+    await putSettings({ chatWidget: { enabled: $('#cw-enabled').checked } });
+    toast($('#cw-enabled').checked ? 'Чат-виджет включён 💬' : 'Чат-виджет выключен');
+  } catch (e) { toast(e.message, true); }
+});
 
 $('#cw-save').addEventListener('click', async () => {
   try {
     await putSettings({ chatWidget: cwCurrent() });
     toast('Чат-виджет сохранён 💬');
   } catch (e) { toast(e.message, true); }
+});
+
+// экспорт темы: файл в формате docs/CHAT-THEME-SPEC.md (обратно импортируется)
+$('#cw-export').addEventListener('click', () => {
+  const data = { format: 'twitch-bot-chat-theme', version: 1, theme: cwCurrent().theme };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `chat-theme-${(data.theme.name || 'theme').replace(/[^\w\-а-яё]+/gi, '_')}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Тема скачана — файл совместим с импортом ⬇');
+});
+
+// импорт темы: файл → поля конструктора (Сохранить — отдельно, как обычно)
+$('#cw-import-btn').addEventListener('click', () => $('#cw-import-file').click());
+$('#cw-import-file').addEventListener('change', async () => {
+  const file = $('#cw-import-file')?.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const j = JSON.parse(text);
+    const theme = (j && j.theme && typeof j.theme === 'object') ? j.theme : j;
+    if (!theme || typeof theme !== 'object') throw new Error('в файле нет темы');
+    const t = { ...theme }; // сервер дорежет по лимитам при сохранении (normalizeTheme)
+    $('#cw-name').value = String(t.name ?? 'импортированная').slice(0, 40);
+    $('#cw-x').value = Number(t.x) || 40;
+    $('#cw-y').value = Number(t.y) || 40;
+    $('#cw-maxw').value = Number(t.maxWidth) || 80;
+    $('#cw-gap').value = Number(t.gap) ?? 24;
+    $('#cw-scale').value = Number(t.scale) || 100;
+    $('#cw-fontsize').value = Number(t.fontSize) || 16;
+    $('#cw-font').innerHTML = fontOptions(String(t.fontFamily ?? ''));
+    if (t.chipBg) $('#cw-chipbg').value = t.chipBg;
+    if (t.chipColor) $('#cw-chiptext').value = t.chipColor;
+    $('#cw-chipradius').value = Number(t.chipRadius) ?? 20;
+    $('#cw-case').checked = t.chipCase !== false;
+    $('#cw-gem').checked = t.gem === true;
+    if (t.msgBg) $('#cw-msgbg').value = t.msgBg;
+    if (t.msgColor) $('#cw-msgcolor').value = t.msgColor;
+    if (t.msgBorder) $('#cw-msgborder').value = t.msgBorder;
+    $('#cw-msgbw').value = Number(t.msgBorderWidth) ?? 2;
+    $('#cw-msgradius').value = Number(t.msgRadius) ?? 15;
+    $('#cw-paper').checked = t.msgPaper === true;
+    if (t.colorBroadcaster) $('#cw-cbroad').value = t.colorBroadcaster;
+    if (t.colorModerator) $('#cw-cmod').value = t.colorModerator;
+    if (t.colorVip) $('#cw-cvip').value = t.colorVip;
+    $('#cw-ghost').checked = t.ghost === true;
+    $('#cw-webs').checked = t.webs === true;
+    $('#cw-substar').checked = t.subStar !== false;
+    if (['scale', 'slide', 'fade'].includes(t.animIn)) $('#cw-anim').value = t.animIn;
+    cwPreview();
+    toast('Тема загружена в конструктор — жми «💾 Сохранить»');
+  } catch (e) { toast(`Не получилось прочитать тему: ${e.message}`, true); }
+  $('#cw-import-file').value = '';
 });
 
 // тест-сообщения: уезжают на открытую страницу /chat

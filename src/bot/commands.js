@@ -2,6 +2,7 @@ import { COMMANDS_FILE, SETTINGS_FILE, loadJson, saveJson } from '../store.js';
 import { renderTemplate, fmtDuration, humanizeSince } from './render.js';
 import { HelixError } from '../twitch/helix.js';
 import { overlay } from './alerts.js';
+import { THEME_DEFAULTS } from './chatwidget.js';
 
 export const LEVELS = { everyone: 0, sub: 1, vip: 2, mod: 3, broadcaster: 4 };
 
@@ -1125,19 +1126,8 @@ export function loadSettings() {
       hideCommands: true,  // не показывать команды (сообщения с !)
       ignoredUsers: '',    // ники-игнор через запятую
       roleColors: true,    // красить чип юзера по роли (стример/мод/vip)
-      showSubDecor: true,  // призрак у сабскрайберов
-      showWebs: true,      // паутинки на сообщениях
       showPronouns: false, // местоимения из pronouns.alejo.io (внешний API, по умолчанию выключено)
-      scale: 100,          // масштаб виджета, %
-      fontSize: 16,       // размер текста сообщения, px
-      fontFamily: '',       // шрифт (пусто = как в оверлее)
-      chipBg: '#a6a9d3',        // цвет чипа обычных юзеров
-      msgBg: '#141520',         // фон сообщения
-      msgBorder: '#6a6d98',     // рамка сообщения
-      msgColor: '#a6a9d3',      // текст сообщения
-      colorBroadcaster: '#f1592a',
-      colorModerator: '#edb872',
-      colorVip: '#a672ed',
+      theme: { ...THEME_DEFAULTS }, // дизайн (конструктор + импорт/экспорт; спека: docs/CHAT-THEME-SPEC.md)
       ...(stored.chatWidget ?? {}),
     },
     songs: (() => {

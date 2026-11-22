@@ -609,26 +609,51 @@
             <label>скрыть через, сек (999 = никогда) <input type="number" id="cw-hideafter" min="3" max="3600" style="width:70px" /></label>
             <label><input type="checkbox" id="cw-hidecommands" /> прятать команды (сообщения с !)</label>
             <label><input type="checkbox" id="cw-rolecolors" /> цвета ролей (стример/мод/vip)</label>
-            <label><input type="checkbox" id="cw-subdecor" /> призрак и звёздочка у сабскрайберов</label>
-            <label><input type="checkbox" id="cw-webs" /> паутинки на сообщениях</label>
             <label><input type="checkbox" id="cw-pronouns" /> местоимения (внешний API pronouns.alejo.io)</label>
             <label>игнор-лист (ники через запятую) <input type="text" id="cw-ignored" class="wide" placeholder="nightbot, streamelements" /></label>
           </div>
-          <h3>🎨 Стиль</h3>
+          <h3>🎨 Конструктор дизайна</h3>
           <div class="evcard">
-            <label>масштаб, % <input type="number" id="cw-scale" min="25" max="300" style="width:70px" /></label>
-            <label>шрифт сообщения
-              <input type="number" id="cw-fontsize" min="10" max="60" style="width:60px" />
-              <select id="cw-font" style="max-width:240px"></select>
-            </label>
-            <label>цвета: чип <input type="color" id="cw-chipbg" style="width:42px" />
-              стример <input type="color" id="cw-cbroad" style="width:42px" />
+            <label>название темы <input type="text" id="cw-name" class="wide" maxlength="40" placeholder="моя тема" /></label>
+            <label>позиция: слева <input type="number" id="cw-x" min="0" max="1600" style="width:64px" /> снизу <input type="number" id="cw-y" min="0" max="1000" style="width:64px" /> px</label>
+            <label>ширина колонки, % <input type="number" id="cw-maxw" min="20" max="100" style="width:64px" />
+              промежуток <input type="number" id="cw-gap" min="0" max="120" style="width:56px" />
+              масштаб <input type="number" id="cw-scale" min="25" max="300" style="width:56px" /> %</label>
+            <label>шрифт: размер <input type="number" id="cw-fontsize" min="10" max="60" style="width:56px" />
+              <select id="cw-font" style="max-width:220px"></select></label>
+            <label>чип: фон <input type="color" id="cw-chipbg" style="width:42px" />
+              текст <input type="color" id="cw-chiptext" style="width:42px" />
+              радиус <input type="number" id="cw-chipradius" min="0" max="60" style="width:52px" /></label>
+            <label><input type="checkbox" id="cw-case" /> ник в верхнем регистре</label>
+            <label><input type="checkbox" id="cw-gem" /> ромб слева от чипа</label>
+            <label>сообщение: фон <input type="color" id="cw-msgbg" style="width:42px" />
+              текст <input type="color" id="cw-msgcolor" style="width:42px" />
+              рамка <input type="color" id="cw-msgborder" style="width:42px" />
+              толщ <input type="number" id="cw-msgbw" min="0" max="12" style="width:48px" />
+              радиус <input type="number" id="cw-msgradius" min="0" max="60" style="width:52px" /></label>
+            <label><input type="checkbox" id="cw-paper" /> «сложенная бумага» позади сообщения</label>
+            <label>роли: стример <input type="color" id="cw-cbroad" style="width:42px" />
               мод <input type="color" id="cw-cmod" style="width:42px" />
               vip <input type="color" id="cw-cvip" style="width:42px" /></label>
-            <label>сообщение: фон <input type="color" id="cw-msgbg" style="width:42px" />
-              рамка <input type="color" id="cw-msgborder" style="width:42px" />
-              текст <input type="color" id="cw-msgcolor" style="width:42px" /></label>
-            <div class="rp-row"><button class="act" id="cw-save">💾 Сохранить</button></div>
+            <label>декор:
+              <label class="hint"><input type="checkbox" id="cw-ghost" /> призрак саба</label>
+              <label class="hint"><input type="checkbox" id="cw-webs" /> паутинки</label>
+              <label class="hint"><input type="checkbox" id="cw-substar" /> звёздочка саба</label>
+            </label>
+            <label>анимация появления
+              <select id="cw-anim">
+                <option value="scale">масштаб (пружина)</option>
+                <option value="slide">выезд слева</option>
+                <option value="fade">появление</option>
+              </select>
+            </label>
+            <div class="rp-row">
+              <button class="act" id="cw-save">💾 Сохранить</button>
+              <button class="act ghost" id="cw-export" title="скачать тему файлом — можно шарить и импортировать обратно">⬇ Экспорт</button>
+              <button class="act ghost" id="cw-import-btn" title="загрузить тему из файла (формат: docs/CHAT-THEME-SPEC.md)">⬆ Импорт</button>
+              <input type="file" id="cw-import-file" class="hidden" accept=".json,.txt" />
+            </div>
+            <p class="hint">Импорт принимает темы, собранные по спецификации <code>docs/CHAT-THEME-SPEC.md</code> (подходит для генерации ИИ и ручного редактирования).</p>
           </div>
           <h3>👁 Живое превью</h3>
           <div id="cw-preview"></div>
