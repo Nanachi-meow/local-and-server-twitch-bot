@@ -101,7 +101,7 @@ Remove-StaleByList (Join-Path $inner.FullName 'update-removed.txt') $botDir
 $newSrcFiles = Get-ChildItem (Join-Path $inner.FullName 'src') -Recurse -File -ErrorAction SilentlyContinue |
   ForEach-Object { $_.FullName.Substring($inner.FullName.Length + 1) }
 $srcDir = Join-Path $botDir 'src'
-if (Test-Path $srcDir -and $newSrcFiles) {
+if ((Test-Path $srcDir) -and $newSrcFiles) {
   Get-ChildItem $srcDir -Recurse -File | ForEach-Object {
     $rel = $_.FullName.Substring($botDir.Length + 1)
     if ($newSrcFiles -notcontains $rel) {
