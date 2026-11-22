@@ -525,6 +525,12 @@
         <summary><b>⏱ Таймер донатона</b></summary>
         <div class="guide-body">
           <p class="hint">Включается со старом стрима и встаёт на паузу после конца. Донаты добавляют время: сумма делится на цену минуты. Источники донатов опрашиваются каждые 15 сек.</p>
+          <div class="addrow">
+            <input id="dt-embed-url" class="wide" readonly />
+            <button class="act" id="dt-embed-copy">Скопировать</button>
+            <a class="act ghost" id="dt-embed-open" target="_blank">Открыть</a>
+          </div>
+          <p class="hint">Виджет таймера — часть общего оверлея: добавь этот адрес в OBS как <b>Браузер-источник</b> (ш: 1920, в: 1080), если ещё не добавил (та же ссылка — во вкладке «📺 Оверлей»).</p>
           <div class="evcard">
             <label><input type="checkbox" id="dt-enabled" /> таймер включён</label>
             <label>стартовое время, мин <input type="number" id="dt-base" min="0" max="1440" style="width:70px" /></label>

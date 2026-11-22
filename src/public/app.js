@@ -3763,6 +3763,14 @@ sendParentMessage({ Type: "WidgetLoaded", ID: "{ID}" });
 });
 
 // ---------- ⏱ таймер донатона: панель ----------
+
+// ссылка встраивания: таймер — часть общего оверлея /overlay
+$('#dt-embed-url').value = `${location.origin}/overlay`;
+$('#dt-embed-open').href = `${location.origin}/overlay`;
+$('#dt-embed-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('#dt-embed-url').value); toast('Скопировано ✅'); }
+  catch { $('#dt-embed-url').select(); toast('Выделила поле — Ctrl+C', true); }
+});
 // читается из /api/state (donaTimer: {enabled, running, secondsLeft, totalRub, label, footer, accent})
 
 function dtRender(st) {
