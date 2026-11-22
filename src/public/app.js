@@ -1839,7 +1839,7 @@ function wodRenderStage() {
     div.style.top = `${Math.round(OY + o.y * k)}px`;
     div.style.width = `${o.w * k}px`;
     div.style.height = `${o.h * k}px`;
-    div.style.opacity = String(o.opacity / 100);
+    div.style.opacity = String(o.visible === false ? (o.opacity / 100) * 0.25 : o.opacity / 100);
     div.style.borderRadius = `${o.radius * k}px`;
     div.style.transform = o.rotate ? `rotate(${o.rotate}deg)` : '';
     div.style.outline = o.visible === false ? '2px dashed #f59e0b' : '';
@@ -2399,7 +2399,7 @@ function dtRenderStage() {
     div.style.top = `${Math.round(DT_OY + o.y * dtK())}px`;
     div.style.width = `${o.w * dtK()}px`;
     div.style.height = `${o.h * dtK()}px`;
-    div.style.opacity = String(o.opacity / 100);
+    div.style.opacity = String(o.visible === false ? (o.opacity / 100) * 0.25 : o.opacity / 100);
     div.style.borderRadius = `${o.radius * dtK()}px`;
     div.style.transform = o.rotate ? `rotate(${o.rotate}deg)` : '';
     div.style.outline = o.visible === false ? '2px dashed #f59e0b' : '';
@@ -2483,7 +2483,7 @@ function dtRenderProps() {
   const props = $('#dt-props');
   if (!chips || !props) return;
   chips.innerHTML = dtEd.objects.map((o, i) =>
-    `<span class="chip${dtSel.has(i) ? ' sel' : ''}" data-i="${i}">${DT_TYPE_RU[o.type] ?? o.type}${(o.type === 'label' || o.type === 'footer') && o.text ? ` · ${esc(o.text.slice(0, 14))}` : ''}</span>`
+    `<span class="chip${dtSel.has(i) ? ' sel' : ''}" data-i="${i}">${o.visible === false ? '🚫 ' : ''}${DT_TYPE_RU[o.type] ?? o.type}${(o.type === 'label' || o.type === 'footer') && o.text ? ` · ${esc(o.text.slice(0, 14))}` : ''}</span>`
   ).join('');
   if (!dtSel.size) {
     props.innerHTML = '<p class="hint">Клик — выделить · shift+клик — несколько · рамка по пустому месту · ctrl+z/y/c/x/v. «Часы» тикают сами — тут только стиль.</p>';
