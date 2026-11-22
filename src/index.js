@@ -11,6 +11,7 @@ import { ObsClient } from './bot/obs.js';
 import { LiveTracker } from './bot/live.js';
 import { SongsManager } from './bot/songs.js';
 import { DonaTimer } from './bot/donatimer.js';
+import { ChatWidget } from './bot/chatwidget.js';
 import { loadJson, DONATIMER_FILE } from './store.js';
 import { RedemptionRouter } from './bot/redemptions.js';
 import { overlay } from './bot/alerts.js';
@@ -114,6 +115,9 @@ live.setWatcher((kind, entry) => {
 });
 if (settings.donaTimer?.enabled && live.isLive(state.broadcasterId)) donaTimer.start();
 
+// 💬 чат-виджет: сообщения чата на стриме (страница /chat, редактор в Оверлеях)
+const chatWidget = new ChatWidget({ settings });
+
 // награды канала Twitch: приходят по EventSub, роутер пишет их в ленту
 // и (для замапленных наград) кидает алерт в оверлей
 const redemptions = new RedemptionRouter({ logs, settings });
@@ -129,6 +133,7 @@ const onSubEvent = async (type, event) => {
   if (passed === false) return; // перехвачено модулем
   if (type === 'channel.chat.message') {
     timers.noteChat(event); // счётчик для таймеров
+    try { chatWidget.handleChat(event, event?.broadcaster_user_id); } catch {} // 💬 чат-виджет (/chat)
   }
   if (type === 'channel.channel_points_custom_reward_redemption.add') {
     const r = redemptions.handle(event); // награды канала: лента + оверлей
@@ -445,6 +450,7 @@ const app = {
   obs,
   songs,
   donaTimer,
+  chatWidget,
   socket,
   get broadcasterSocket() { return broadcasterSocket; }, // сокет наград (создаётся при входе стримера)
   logs,
@@ -747,6 +753,27 @@ const app = {
         }
       }
       if (Object.values(cur).some((x) => x?.enabled && x?.token)) donaTimer.startPolling();
+    }
+    // 💬 чат-виджет: настройки (Оверлеи → Чат-виджет; страница /chat)
+    if (patch.chatWidget !== undefined && patch.chatWidget !== null && typeof patch.chatWidget === 'object') {
+      const a = patch.chatWidget;
+      const cur = settings.chatWidget ??= {};
+      if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
+      if (a.limit !== undefined) cur.limit = Math.max(1, Math.min(50, Math.round(Number(a.limit) || 15)));
+      if (a.hideAfter !== undefined) cur.hideAfter = Math.max(3, Math.min(3600, Math.round(Number(a.hideAfter) || 999)));
+      if (a.hideCommands !== undefined) cur.hideCommands = Boolean(a.hideCommands);
+      if (a.ignoredUsers !== undefined) cur.ignoredUsers = String(a.ignoredUsers).slice(0, 500);
+      if (a.roleColors !== undefined) cur.roleColors = Boolean(a.roleColors);
+      if (a.showSubDecor !== undefined) cur.showSubDecor = Boolean(a.showSubDecor);
+      if (a.showWebs !== undefined) cur.showWebs = Boolean(a.showWebs);
+      if (a.showPronouns !== undefined) cur.showPronouns = Boolean(a.showPronouns);
+      if (a.scale !== undefined) cur.scale = Math.max(25, Math.min(300, Math.round(Number(a.scale) || 100)));
+      if (a.fontSize !== undefined) cur.fontSize = Math.max(10, Math.min(60, Math.round(Number(a.fontSize) || 16)));
+      if (a.fontFamily !== undefined) cur.fontFamily = String(a.fontFamily).slice(0, 80);
+      for (const k of ['chipBg', 'msgBg', 'msgBorder', 'msgColor', 'colorBroadcaster', 'colorModerator', 'colorVip']) {
+        if (a[k] !== undefined) cur[k] = String(a[k]).slice(0, 20);
+      }
+      try { chatWidget.pushCfg(); } catch {} // страница /chat применяет сразу
     }
     // колесо: режим запуска + варианты + раскладка рулетки-оверлея
     if (patch.wheel !== undefined && patch.wheel !== null && typeof patch.wheel === 'object') {
@@ -1099,6 +1126,13 @@ const app = {
       }
       case 'donatimerset': { // установить оставшееся время ровно body.sec сек (поля ч/мин/сек панели)
         return app.donaTimer.setRemainingSec(Number(body?.sec ?? 0));
+      }
+      case 'chattest': { // тест-сообщение чат-виджета (Оверлеи → Чат-виджет → «тест»)
+        return app.chatWidget.test({
+          role: String(body?.role || 'all'),
+          user: String(body?.user || 'Тест'),
+          text: String(body?.text || ''),
+        });
       }
       case 'donatimerdonation': { // ручной донат (body.amount ₽) — время добавится по курсу
         return app.donaTimer.addManualDonation({ amount: Number(body?.amount ?? 0), name: String(body?.name || 'вручную').slice(0, 40) });

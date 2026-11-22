@@ -1516,6 +1516,59 @@ ok('obs: ошибка переключения подсказывает дост
   dtZero.stop();
 }
 
+// ---------- 💬 чат-виджет (страница /chat) ----------
+{
+  const { ChatWidget, chatRole, buildParts } = await import('../src/bot/chatwidget.js');
+  const cwSettings = { chatWidget: {} };
+  const cw = new ChatWidget({ settings: cwSettings });
+
+  const mkMsg = (over = {}) => ({
+    chatter_user_id: '100',
+    chatter_user_login: 'user',
+    chatter_user_name: 'User',
+    broadcaster_user_id: '1',
+    message: { text: 'привет!', fragments: [{ type: 'text', text: 'привет!' }] },
+    badges: [],
+    ...over,
+  });
+
+  ok('чат-виджет: роль стримера по id', chatRole(mkMsg({ chatter_user_id: '1' }), '1') === 'broadcaster');
+  ok('чат-виджет: роль мода по бейджу', chatRole(mkMsg({ badges: [{ set_id: 'moderator' }] }), '1') === 'mod');
+  ok('чат-виджет: роль vip по бейджу', chatRole(mkMsg({ badges: [{ set_id: 'vip' }] }), '1') === 'vip');
+  ok('чат-виджет: founder считается сабом', chatRole(mkMsg({ badges: [{ set_id: 'founder' }] }), '1') === 'sub');
+  ok('чат-виджет: обычный зритель → all', chatRole(mkMsg(), '1') === 'all');
+
+  ok('чат-виджет: выключен — сообщение мимо', cw.handleChat(mkMsg(), '1') === false);
+  cwSettings.chatWidget.enabled = true;
+  ok('чат-виджет: включён — сообщение уехало в оверлей', cw.handleChat(mkMsg(), '1') === true);
+
+  cwSettings.chatWidget.ignoredUsers = 'bot, nightbot';
+  ok('чат-виджет: игнор-лист (регистр не важен)', cw.handleChat(mkMsg({ chatter_user_login: 'NightBot' }), '1') === false);
+  cwSettings.chatWidget.ignoredUsers = '';
+  cwSettings.chatWidget.hideCommands = true;
+  const cmdMsg = mkMsg({ message: { text: '!команда', fragments: [{ type: 'text', text: '!команда' }] } });
+  ok('чат-виджет: команды (!) скрыты', cw.handleChat(cmdMsg, '1') === false);
+  cwSettings.chatWidget.hideCommands = false;
+  ok('чат-виджет: hideCommands=false — команда проходит', cw.handleChat(cmdMsg, '1') === true);
+
+  const parts = buildParts({
+    text: 'эй Kappa привет',
+    fragments: [
+      { type: 'text', text: 'эй ' },
+      { type: 'emote', text: 'Kappa', emote: { id: '25' } },
+      { type: 'text', text: ' привет' },
+    ],
+  });
+  ok('чат-виджет: фрагменты → безопасные части (text + emote с id)',
+    parts.length === 3 && parts[0].type === 'text' && parts[1].type === 'emote' && parts[1].id === '25' && parts[2].text === ' привет');
+  ok('чат-виджет: без фрагментов — единый текст', buildParts({ text: 'просто текст' })[0].type === 'text');
+
+  cwSettings.chatWidget.enabled = false;
+  ok('чат-виджет: тест при выключенном → error', Boolean(cw.test({ role: 'all' }).error));
+  cwSettings.chatWidget.enabled = true;
+  ok('чат-виджет: тест-сообщение из панели проходит', cw.test({ role: 'vip', user: 'Випа' }).ok === true);
+}
+
 console.log(`\nВсе ${passed} тестов прошли ✅`);
 fs.rmSync(process.env.BOT_DATA_DIR, { recursive: true, force: true });
 process.exit(0);

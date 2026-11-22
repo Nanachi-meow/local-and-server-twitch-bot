@@ -594,6 +594,62 @@
         </div>
       </details>
       <details class="guide-box">
+        <summary><b>💬 Чат-виджет</b></summary>
+        <div class="guide-body">
+          <p class="hint">Сообщения чата поверх стрима в стиле StreamElements-виджета: чип юзера с цветом роли, бабл сообщения, призрак у сабскрайберов, паутинки. Фильтры: лимит сообщений, скрытие команд, игнор-лист, авто-скрытие по таймеру.</p>
+          <div class="addrow">
+            <input id="cw-embed-url" class="wide" readonly />
+            <button class="act" id="cw-embed-copy">Скопировать</button>
+            <a class="act ghost" id="cw-embed-open" target="_blank">Открыть</a>
+          </div>
+          <p class="hint">Отдельная страница <b>только с чатом</b> — добавь её в OBS как <b>Браузер-источник</b> (ш: 1920, в: 1080, фон прозрачный). Тексты сообщений не проходят через innerHTML — виджет безопасен.</p>
+          <div class="evcard">
+            <label><input type="checkbox" id="cw-enabled" /> виджет включён (сообщения идут на страницу)</label>
+            <label>сообщений на экране <input type="number" id="cw-limit" min="1" max="50" style="width:70px" /></label>
+            <label>скрыть через, сек (999 = никогда) <input type="number" id="cw-hideafter" min="3" max="3600" style="width:70px" /></label>
+            <label><input type="checkbox" id="cw-hidecommands" /> прятать команды (сообщения с !)</label>
+            <label><input type="checkbox" id="cw-rolecolors" /> цвета ролей (стример/мод/vip)</label>
+            <label><input type="checkbox" id="cw-subdecor" /> призрак и звёздочка у сабскрайберов</label>
+            <label><input type="checkbox" id="cw-webs" /> паутинки на сообщениях</label>
+            <label><input type="checkbox" id="cw-pronouns" /> местоимения (внешний API pronouns.alejo.io)</label>
+            <label>игнор-лист (ники через запятую) <input type="text" id="cw-ignored" class="wide" placeholder="nightbot, streamelements" /></label>
+          </div>
+          <h3>🎨 Стиль</h3>
+          <div class="evcard">
+            <label>масштаб, % <input type="number" id="cw-scale" min="25" max="300" style="width:70px" /></label>
+            <label>шрифт сообщения
+              <input type="number" id="cw-fontsize" min="10" max="60" style="width:60px" />
+              <select id="cw-font" style="max-width:240px"></select>
+            </label>
+            <label>цвета: чип <input type="color" id="cw-chipbg" style="width:42px" />
+              стример <input type="color" id="cw-cbroad" style="width:42px" />
+              мод <input type="color" id="cw-cmod" style="width:42px" />
+              vip <input type="color" id="cw-cvip" style="width:42px" /></label>
+            <label>сообщение: фон <input type="color" id="cw-msgbg" style="width:42px" />
+              рамка <input type="color" id="cw-msgborder" style="width:42px" />
+              текст <input type="color" id="cw-msgcolor" style="width:42px" /></label>
+            <div class="rp-row"><button class="act" id="cw-save">💾 Сохранить</button></div>
+          </div>
+          <h3>👁 Живое превью</h3>
+          <div id="cw-preview"></div>
+          <h3>🧪 Тест</h3>
+          <div class="evcard">
+            <div class="dt-manual-row">
+              <input type="text" id="cw-test-user" placeholder="ник" style="width:120px" />
+              <input type="text" id="cw-test-text" placeholder="текст сообщения" style="width:220px" />
+            </div>
+            <div class="dt-manual-row">
+              <button class="act ghost" id="cw-test-all">обычный</button>
+              <button class="act ghost" id="cw-test-sub">саб</button>
+              <button class="act ghost" id="cw-test-vip">vip</button>
+              <button class="act ghost" id="cw-test-mod">мод</button>
+              <button class="act ghost" id="cw-test-broad">стример</button>
+              <span class="hint">отправляется на открытую страницу /chat</span>
+            </div>
+          </div>
+        </div>
+      </details>
+      <details class="guide-box">
         <summary><b>📖 Слово дня</b></summary>
         <div class="guide-body">
           <p class="hint">Слово выбирается <b>автоматически</b> — какое чаще всего пишут в чате за сегодня (команды и бот не считаются). Обгоняет другое — виджет переключится. Сейчас: <b id="wod-current">— пока пусто —</b> <span class="hint" id="wod-count"></span></p>

@@ -1117,6 +1117,29 @@ export function loadSettings() {
       donatepay: { enabled: false, token: '', webhookSecret: '' },
       ...(stored.donations ?? {}),
     },
+    // 💬 чат-виджет: сообщения чата поверх стрима (страница /chat; редактор: Оверлеи → Чат-виджет)
+    chatWidget: {
+      enabled: false,       // из коробки выключен — включается в панели
+      limit: 15,           // сколько сообщений держать на экране
+      hideAfter: 999,      // скрыть сообщение через N сек (999 = никогда)
+      hideCommands: true,  // не показывать команды (сообщения с !)
+      ignoredUsers: '',    // ники-игнор через запятую
+      roleColors: true,    // красить чип юзера по роли (стример/мод/vip)
+      showSubDecor: true,  // призрак у сабскрайберов
+      showWebs: true,      // паутинки на сообщениях
+      showPronouns: false, // местоимения из pronouns.alejo.io (внешний API, по умолчанию выключено)
+      scale: 100,          // масштаб виджета, %
+      fontSize: 16,       // размер текста сообщения, px
+      fontFamily: '',       // шрифт (пусто = как в оверлее)
+      chipBg: '#a6a9d3',        // цвет чипа обычных юзеров
+      msgBg: '#141520',         // фон сообщения
+      msgBorder: '#6a6d98',     // рамка сообщения
+      msgColor: '#a6a9d3',      // текст сообщения
+      colorBroadcaster: '#f1592a',
+      colorModerator: '#edb872',
+      colorVip: '#a672ed',
+      ...(stored.chatWidget ?? {}),
+    },
     songs: (() => {
       const s = {
         enabled: false, // включается в панели — из коробки музыка молчит

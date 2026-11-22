@@ -11,6 +11,7 @@ const STATIC = {
   '/style.css': { file: 'style.css', type: 'text/css; charset=utf-8' },
   '/overlay': { file: 'overlay.html', type: 'text/html; charset=utf-8' },
   '/dtimer': { file: 'overlay.html', type: 'text/html; charset=utf-8' }, // отдельная страница «только таймер донатона»
+  '/chat': { file: 'chat.html', type: 'text/html; charset=utf-8' }, // отдельная страница «чат-виджет» (сообщения поверх стрима)
   '/sr-player.js': { file: 'sr-player.js', type: 'text/javascript; charset=utf-8' }, // надпись «сейчас играет» в оверлее
   '/editor-engine.js': { file: 'editor-engine.js', type: 'text/javascript; charset=utf-8' }, // движок редакторов раскладки (как у плеера музыки)
 };

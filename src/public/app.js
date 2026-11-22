@@ -3877,6 +3877,133 @@ $('#dt-donate-btn').addEventListener('click', async () => {
   } catch (e) { toast(e.message, true); }
 });
 
+// ---------- 💬 чат-виджет: панель (Оверлеи → Чат-виджет; страница /chat) ----------
+$('#cw-embed-url').value = `${location.origin}/chat`;
+$('#cw-embed-open').href = `${location.origin}/chat`;
+$('#cw-embed-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('#cw-embed-url').value); toast('Скопировано ✅'); }
+  catch { $('#cw-embed-url').select(); toast('Выделила поле — Ctrl+C', true); }
+});
+
+// те же SVG-декорации, что на странице /chat (без внешних картинок)
+const CW_SVG_GEM = (fill) => `<svg class="cw-p-gem" viewBox="0 0 32 32"><path fill="${fill}" d="M28.9 19.7 19.7 28.9a6.2 6.2 0 0 1-8.8 0L2.6 19.7a6.2 6.2 0 0 1 0-8.8l8.3-8.6a6.2 6.2 0 0 1 8.8 0l9.2 8.6a6.2 6.2 0 0 1 0 8.8Z" opacity=".85"/></svg>`;
+const CW_SVG_STAR = `<svg class="cw-p-star" viewBox="0 0 24 24"><path fill="#fff" d="M12 1.6 14.9 8l7 .6-5.3 4.6 1.6 6.8L12 16.5l-6.2 3.5 1.6-6.8L2.1 8.6l7-.6Z"/></svg>`;
+const CW_SVG_WEB = `<svg class="cw-p-web" viewBox="0 0 60 60" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.4"><path d="M0 0 L60 60 M0 0 L38 8 M0 0 L8 38 M0 0 L60 22 M0 0 L22 60 M0 0 L60 0 M0 0 L0 60"/><path d="M12 0 Q16 12 0 16 M24 0 Q30 24 0 30 M40 0 Q48 40 0 48" opacity=".8"/></svg>`;
+const CW_SVG_GHOST = `<svg class="cw-p-ghost" viewBox="0 0 40 46"><path fill="#f0f3ff" stroke="#a6a9d3" stroke-width="2" d="M20 3c-8 0-14 6-14 14v20c0 2 2 3 3.6 1.6l3-3.2 3 3.4c1 1.2 2.8 1.2 3.8 0l3-3.4 3 3.4c1 1.2 2.8 1.2 3.8 0l3-3.4 3 3.2C31.9 40 34 39 34 37V17c0-8-6-14-14-14Z"/><ellipse cx="14" cy="19" rx="2.6" ry="3.6" fill="#141520"/><ellipse cx="26" cy="19" rx="2.6" ry="3.6" fill="#141520"/><path d="M16 27q4 3 8 0" stroke="#141520" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`;
+
+// текущие значения полей → объект настроек (для превью и сохранения)
+function cwCurrent() {
+  return {
+    enabled: $('#cw-enabled').checked,
+    limit: Math.max(1, Math.min(50, Number($('#cw-limit').value) || 15)),
+    hideAfter: Math.max(3, Math.min(3600, Number($('#cw-hideafter').value) || 999)),
+    hideCommands: $('#cw-hidecommands').checked,
+    roleColors: $('#cw-rolecolors').checked,
+    showSubDecor: $('#cw-subdecor').checked,
+    showWebs: $('#cw-webs').checked,
+    showPronouns: $('#cw-pronouns').checked,
+    ignoredUsers: $('#cw-ignored').value.trim(),
+    scale: Math.max(25, Math.min(300, Number($('#cw-scale').value) || 100)),
+    fontSize: Math.max(10, Math.min(60, Number($('#cw-fontsize').value) || 16)),
+    fontFamily: $('#cw-font').value,
+    chipBg: $('#cw-chipbg').value,
+    msgBg: $('#cw-msgbg').value,
+    msgBorder: $('#cw-msgborder').value,
+    msgColor: $('#cw-msgcolor').value,
+    colorBroadcaster: $('#cw-cbroad').value,
+    colorModerator: $('#cw-cmod').value,
+    colorVip: $('#cw-cvip').value,
+  };
+}
+
+// живое превью: три мок-сообщения в стиле страницы /chat
+function cwPreview() {
+  const c = cwCurrent();
+  const box = $('#cw-preview');
+  const colors = { broadcaster: c.colorBroadcaster, moderator: c.colorModerator, vip: c.colorVip, sub: c.chipBg, all: c.chipBg };
+  const mock = [
+    { role: 'broadcaster', sub: true, user: 'Стримерка', text: 'всем привет на стриме!' },
+    { role: 'all', sub: false, user: 'зритель', text: 'классный стрим, огонь 🔥' },
+    { role: 'vip', sub: true, user: 'Випушка', text: 'лови лучи добра ✨' },
+  ];
+  box.innerHTML = `<div class="cw-p-wrap" style="transform:scale(${(c.scale / 100).toFixed(2)});font-family:${esc(c.fontFamily || `'Segoe UI', Arial, sans-serif`)}"></div>`;
+  const wrap = box.firstChild;
+  for (const m of mock) {
+    const chipColor = c.roleColors ? colors[m.role] : c.chipBg;
+    const row = document.createElement('div');
+    row.className = 'cw-p-row';
+    row.innerHTML = `
+      <div class="cw-p-name">${CW_SVG_GEM(chipColor)}
+        <div class="cw-p-chip" style="background:${chipColor};font-size:${c.fontSize}px">${esc(m.user)}${m.sub && c.showSubDecor ? CW_SVG_STAR : ''}</div>
+        ${m.sub && c.showSubDecor ? CW_SVG_GHOST : ''}
+      </div>
+      <div class="cw-p-msg" style="background:${c.msgBg};border-color:${c.msgBorder};color:${c.msgColor};font-size:${c.fontSize}px;position:relative">
+        ${c.showWebs ? CW_SVG_WEB : ''}<p style="display:inline">…</p>
+      </div>`;
+    row.querySelector('.cw-p-msg p').textContent = m.text; // текст — только textContent
+    wrap.appendChild(row);
+  }
+}
+
+// загрузка настроек в поля (при старте панели)
+async function cwLoad() {
+  try {
+    const st = await api('/api/settings');
+    const c = st.chatWidget ?? {};
+    $('#cw-enabled').checked = c.enabled === true;
+    $('#cw-limit').value = c.limit ?? 15;
+    $('#cw-hideafter').value = c.hideAfter ?? 999;
+    $('#cw-hidecommands').checked = c.hideCommands !== false;
+    $('#cw-rolecolors').checked = c.roleColors !== false;
+    $('#cw-subdecor').checked = c.showSubDecor !== false;
+    $('#cw-webs').checked = c.showWebs !== false;
+    $('#cw-pronouns').checked = c.showPronouns === true;
+    $('#cw-ignored').value = c.ignoredUsers ?? '';
+    $('#cw-scale').value = c.scale ?? 100;
+    $('#cw-fontsize').value = c.fontSize ?? 16;
+    $('#cw-font').innerHTML = fontOptions(c.fontFamily ?? '');
+    $('#cw-chipbg').value = c.chipBg ?? '#a6a9d3';
+    $('#cw-msgbg').value = c.msgBg ?? '#141520';
+    $('#cw-msgborder').value = c.msgBorder ?? '#6a6d98';
+    $('#cw-msgcolor').value = c.msgColor ?? '#a6a9d3';
+    $('#cw-cbroad').value = c.colorBroadcaster ?? '#f1592a';
+    $('#cw-cmod').value = c.colorModerator ?? '#edb872';
+    $('#cw-cvip').value = c.colorVip ?? '#a672ed';
+    cwPreview();
+  } catch (e) { toast(e.message, true); }
+}
+cwLoad().catch(() => {});
+
+// любое поле меняется → превью перерисовывается мгновенно
+for (const id of ['#cw-enabled', '#cw-limit', '#cw-hideafter', '#cw-hidecommands', '#cw-rolecolors', '#cw-subdecor', '#cw-webs', '#cw-pronouns', '#cw-ignored', '#cw-scale', '#cw-fontsize', '#cw-font', '#cw-chipbg', '#cw-msgbg', '#cw-msgborder', '#cw-msgcolor', '#cw-cbroad', '#cw-cmod', '#cw-cvip']) {
+  $(id)?.addEventListener('input', cwPreview);
+  $(id)?.addEventListener('change', cwPreview);
+}
+
+$('#cw-save').addEventListener('click', async () => {
+  try {
+    await putSettings({ chatWidget: cwCurrent() });
+    toast('Чат-виджет сохранён 💬');
+  } catch (e) { toast(e.message, true); }
+});
+
+// тест-сообщения: уезжают на открытую страницу /chat
+async function cwTest(role) {
+  try {
+    const r = await api('/api/actions/chattest', {
+      method: 'POST',
+      body: JSON.stringify({ role, user: $('#cw-test-user').value.trim() || 'Тест', text: $('#cw-test-text').value.trim() }),
+    });
+    if (r.error) { toast(r.error, true); return; }
+    toast('Тестовое сообщение отправлено — открой страницу /chat 📺');
+  } catch (e) { toast(e.message, true); }
+}
+$('#cw-test-all').addEventListener('click', () => cwTest('all'));
+$('#cw-test-sub').addEventListener('click', () => cwTest('sub'));
+$('#cw-test-vip').addEventListener('click', () => cwTest('vip'));
+$('#cw-test-mod').addEventListener('click', () => cwTest('mod'));
+$('#cw-test-broad').addEventListener('click', () => cwTest('broadcaster'));
+
 // перерисовка при разворачивании секции (stage был нулевой ширины пока свёрнут)
 (() => {
   const det = document.querySelector('details summary')?.closest('details');

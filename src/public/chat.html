@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<!-- 💬 Чат-виджет: сообщения чата поверх стрима. Стиль — по StreamElements-образцу:
+     чип юзера с цветом роли, тёмный бабл со «сложенной бумагой», призрак у сабов, паутинки.
+     Отдельная страница для OBS: ш 1920, в 1080, фон прозрачный. -->
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>Чат-виджет</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; }
+  #conn {
+    position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+    color: #fff; font-size: 14px; text-shadow: 0 1px 4px #000; opacity: .8;
+  }
+  /* сообщения прижаты к низу сцены, колонкой */
+  #chat-root {
+    position: fixed; left: 40px; bottom: 40px; right: 60px;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    align-items: flex-start; gap: 24px;
+    pointer-events: none;
+  }
+  #scaler { display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; gap: 24px; transform-origin: bottom left; }
+
+  .cw-row { animation: cw-in .45s ease; max-width: 80%; }
+  .cw-row.cw-out { animation: cw-out .4s ease forwards; }
+
+  .cw-namebox { display: flex; align-items: center; position: relative; margin-left: 13px; }
+  /* ромб-декор слева от чипа */
+  .cw-gem { position: absolute; left: -13px; width: 26px; height: 26px; }
+  .cw-chip {
+    position: relative; overflow: hidden; border-radius: 20px;
+    padding: 6px 34px 6px 30px;
+    color: #f0e7e5; font-weight: 700; text-transform: uppercase;
+    background: var(--chip, #a6a9d3); font-size: 1em; line-height: 1.2;
+  }
+  /* звёздочка саба на чипе */
+  .cw-substar { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; }
+  .cw-pronoun { margin-left: 10px; color: #f0e7e5; font-size: .8em; opacity: .9; text-transform: uppercase; }
+
+  .cw-msgbox { position: relative; margin-top: 8px; margin-left: 50px; }
+  /* паутинка в углу бабла */
+  .cw-web { position: absolute; bottom: -8px; right: -10px; width: 46px; height: 46px; opacity: .9; }
+  .cw-web.left { left: -10px; right: auto; }
+  .cw-bubble {
+    position: relative; color: var(--msg-color, #a6a9d3);
+    background: var(--msg-bg, #141520);
+    padding: 14px 28px; border-radius: 15px;
+    border: 2px solid var(--msg-border, #6a6d98);
+    font-size: var(--msg-size, 16px); line-height: 1.45;
+    overflow-wrap: anywhere; max-width: 100%;
+  }
+  /* «сложенная бумага»: слой позади, повёрнутый на градус */
+  .cw-bubble::after {
+    content: ""; position: absolute; z-index: -1; top: 7px; bottom: 0; left: 3px;
+    width: 100%; height: 100%; border-radius: 15px;
+    background: var(--fold, rgba(5, 5, 11, 1));
+    box-shadow: 7px 0 0 0 var(--fold, rgba(5, 5, 11, 1));
+    transform: rotate(1deg);
+  }
+  .cw-bubble p { display: inline; }
+  .cw-bubble .cw-action { font-style: italic; }
+  .cw-bubble img.emote { height: 1.75em; vertical-align: middle; margin: -3px 1px; }
+  .cw-bubble.cw-emote-only img.emote { height: 3.2em; }
+
+  /* призрак саба: парит над чипом */
+  .cw-ghost { position: absolute; width: 40px; right: -12px; top: -34px; animation: cw-float 3s ease-in-out infinite; z-index: 2; }
+  .cw-ghost .cw-eye { animation: cw-blink 5s ease-in-out infinite; }
+
+  @keyframes cw-in {
+    0% { transform: scale(0); opacity: 0; }
+    60% { transform: scale(1.1); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  @keyframes cw-out { to { transform: translateY(10px) scale(.8); opacity: 0; } }
+  @keyframes cw-float { 0%, 100% { transform: translateY(0); } 60% { transform: translateY(-10px); } }
+  @keyframes cw-blink { 0%, 100% { opacity: 1; } 48% { opacity: 1; } 50% { opacity: 0; } 52% { opacity: 1; } }
+</style>
+</head>
+<body>
+<div id="conn"></div>
+<div id="chat-root"><div id="scaler"></div></div>
+
+<script>
+'use strict';
+
+// ---------- SVG-декорации (свои, без внешних картинок; цвет наследует настройки) ----------
+const GEM_SVG = (fill) => `<svg class="cw-gem" viewBox="0 0 32 32"><path fill="${fill}" d="M28.9 19.7 19.7 28.9a6.2 6.2 0 0 1-8.8 0L2.6 19.7a6.2 6.2 0 0 1 0-8.8l8.3-8.6a6.2 6.2 0 0 1 8.8 0l9.2 8.6a6.2 6.2 0 0 1 0 8.8Z" opacity=".85"/><circle cx="15.5" cy="42" r="2.5" fill="${fill}"/><circle cx="15.5" cy="55" r="3" fill="${fill}"/></svg>`;
+const SUBSTAR_SVG = `<svg class="cw-substar" viewBox="0 0 24 24"><path fill="#fff" d="M12 1.6 14.9 8l7 .6-5.3 4.6 1.6 6.8L12 16.5l-6.2 3.5 1.6-6.8L2.1 8.6l7-.6Z"/></svg>`;
+const WEB_SVG = `<svg class="cw-web" viewBox="0 0 60 60" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.4">
+  <path d="M0 0 L60 60 M0 0 L38 8 M0 0 L8 38 M0 0 L60 22 M0 0 L22 60 M0 0 L60 0 M0 0 L0 60"/>
+  <path d="M12 0 Q16 12 0 16 M24 0 Q30 24 0 30 M40 0 Q48 40 0 48" opacity=".8"/>
+</svg>`;
+const GHOST_SVG = `<svg class="cw-ghost" viewBox="0 0 40 46">
+  <path fill="#f0f3ff" stroke="#a6a9d3" stroke-width="2"
+    d="M20 3c-8 0-14 6-14 14v20c0 2 2 3 3.6 1.6l3-3.2 3 3.4c1 1.2 2.8 1.2 3.8 0l3-3.4 3 3.4c1 1.2 2.8 1.2 3.8 0l3-3.4 3 3.2C31.9 40 34 39 34 37V17c0-8-6-14-14-14Z"/>
+  <g class="cw-eye"><ellipse cx="14" cy="19" rx="2.6" ry="3.6" fill="#141520"/><ellipse cx="26" cy="19" rx="2.6" ry="3.6" fill="#141520"/></g>
+  <path d="M16 27q4 3 8 0" stroke="#141520" stroke-width="2" fill="none" stroke-linecap="round"/>
+</svg>`;
+
+const root = document.getElementById('scaler');
+const conn = document.getElementById('conn');
+
+// ---------- настройки ----------
+const DEFAULTS = {
+  enabled: false, limit: 15, hideAfter: 999, hideCommands: true, ignoredUsers: '',
+  roleColors: true, showSubDecor: true, showWebs: true, showPronouns: false,
+  scale: 100, fontSize: 16, fontFamily: '',
+  chipBg: '#a6a9d3', msgBg: '#141520', msgBorder: '#6a6d98', msgColor: '#a6a9d3',
+  colorBroadcaster: '#f1592a', colorModerator: '#edb872', colorVip: '#a672ed',
+};
+let cfg = { ...DEFAULTS };
+const ROLE_COLORS = () => ({
+  broadcaster: cfg.colorBroadcaster, moderator: cfg.colorModerator, vip: cfg.colorVip, sub: cfg.chipBg, all: cfg.chipBg,
+});
+
+function applyCfg(c = {}) {
+  cfg = { ...DEFAULTS, ...c };
+  document.body.style.setProperty('--chip', cfg.roleColors ? (ROLE_COLORS()[cfg.__lastRole] ?? cfg.chipBg) : cfg.chipBg);
+  root.style.transform = `scale(${cfg.scale / 100})`;
+  document.body.style.setProperty('--msg-size', `${cfg.fontSize}px`);
+  document.body.style.setProperty('--msg-bg', cfg.msgBg);
+  document.body.style.setProperty('--msg-border', cfg.msgBorder);
+  document.body.style.setProperty('--msg-color', cfg.msgColor);
+  if (cfg.fontFamily) root.style.fontFamily = cfg.fontFamily;
+  else root.style.fontFamily = '';
+}
+
+// hex → rgba (для «бумаги»: фон бабла затемняется)
+function shade(hex, k = 0.55) {
+  const m = String(hex || '').match(/^#?([0-9a-f]{6})$/i);
+  if (!m) return 'rgba(5, 5, 11, 1)';
+  const n = parseInt(m[1], 16);
+  const r = Math.round(((n >> 16) & 255) * k), g = Math.round(((n >> 8) & 255) * k), b = Math.round((n & 255) * k);
+  return `rgba(${r}, ${g}, ${b}, 1)`;
+}
+
+// ---------- местоимения (pronouns.alejo.io; выключено по умолчанию) ----------
+const PN_NAMES = { aeaer: 'ae/aer', eem: 'e/em', faefaer: 'fae/faer', hehim: 'he/him', heshe: 'he/she', hethem: 'he/they', itits: 'it/its', perper: 'per/per', sheher: 'she/her', shethem: 'she/they', theythem: 'they/them', vever: 've/ver', xexem: 'xe/xem', ziehir: 'zie/hir' };
+const pnCache = new Map();
+async function pronounOf(name) {
+  if (!cfg.showPronouns || !name) return null;
+  const key = String(name).toLowerCase();
+  if (pnCache.has(key)) return pnCache.get(key);
+  pnCache.set(key, null); // не ждём повторных запросов
+  try {
+    const r = await fetch(`https://pronouns.alejo.io/api/users/${encodeURIComponent(key)}`);
+    const j = await r.json();
+    const pn = PN_NAMES[j?.[0]?.pronoun_id] ?? null;
+    pnCache.set(key, pn);
+    if (pn) document.querySelectorAll(`[data-cw-pn="${key}"]`).forEach((el) => { el.textContent = pn; el.hidden = false; });
+  } catch { /* внешний API молчит — просто без местоимений */ }
+  return null;
+}
+
+// ---------- рендер сообщения ----------
+function chipColor(role) {
+  return cfg.roleColors ? (ROLE_COLORS()[role] ?? cfg.chipBg) : cfg.chipBg;
+}
+
+function addMessage(ev) {
+  if (!cfg.enabled && !ev.test) return;
+  const row = document.createElement('div');
+  row.className = 'cw-row';
+  const emotes = (ev.parts ?? []).filter((p) => p?.type === 'emote');
+  const emoteOnly = emotes.length && (ev.parts ?? []).every((p) => p?.type !== 'text' || !String(p.text).trim());
+  const color = chipColor(ev.role);
+
+  // чип юзера
+  const namebox = document.createElement('div');
+  namebox.className = 'cw-namebox';
+  namebox.innerHTML = GEM_SVG(color);
+  const chip = document.createElement('div');
+  chip.className = 'cw-chip';
+  chip.style.background = color;
+  chip.textContent = ev.user || ev.login || 'зритель';
+  if (ev.sub && cfg.showSubDecor) {
+    chip.insertAdjacentHTML('beforeend', SUBSTAR_SVG);
+    const ghost = document.createElement('div');
+    ghost.innerHTML = GHOST_SVG;
+    namebox.appendChild(ghost.firstChild);
+  }
+  const pn = document.createElement('span');
+  pn.className = 'cw-pronoun';
+  pn.dataset.cwPn = String(ev.login || '').toLowerCase();
+  pn.hidden = true;
+  namebox.append(chip, pn);
+  if (cfg.showPronouns) void pronounOf(ev.user || ev.login);
+
+  // бабл сообщения
+  const msgbox = document.createElement('div');
+  msgbox.className = 'cw-msgbox';
+  if (cfg.showWebs) {
+    const web = document.createElement('div');
+    web.innerHTML = WEB_SVG;
+    web.firstChild.classList.add(Math.random() < 0.5 ? '' : 'left');
+    msgbox.appendChild(web.firstChild);
+  }
+  const bubble = document.createElement('div');
+  bubble.className = 'cw-bubble' + (emoteOnly ? ' cw-emote-only' : '');
+  bubble.style.setProperty('--fold', shade(cfg.msgBg));
+  const p = document.createElement('p');
+  if (ev.isAction) p.className = 'cw-action';
+  for (const part of (ev.parts ?? [{ type: 'text', text: ev.text ?? '' }])) {
+    if (part?.type === 'emote' && part.id) {
+      const img = document.createElement('img');
+      img.className = 'emote';
+      img.alt = part.name || 'emote';
+      img.title = part.name || '';
+      img.src = `https://static-cdn.jtvnw.net/emoticons/v2/${encodeURIComponent(part.id)}/default/dark/2.0`;
+      p.appendChild(img);
+    } else {
+      p.appendChild(document.createTextNode(String(part?.text ?? '')));
+    }
+  }
+  bubble.appendChild(p);
+  msgbox.appendChild(bubble);
+  row.append(namebox, msgbox);
+  root.appendChild(row);
+
+  // лимит: старые сообщения улетают
+  while (root.children.length > cfg.limit) root.firstChild.remove();
+
+  // авто-скрытие
+  const secs = Math.max(3, Number(cfg.hideAfter) || 999);
+  if (secs < 999) {
+    setTimeout(() => {
+      row.classList.add('cw-out');
+      setTimeout(() => row.remove(), 450);
+    }, secs * 1000);
+  }
+}
+
+// ---------- SSE ----------
+async function loadCfg() {
+  try {
+    const r = await fetch('/api/settings');
+    const st = await r.json();
+    applyCfg(st.chatWidget ?? {});
+  } catch {}
+}
+loadCfg();
+setInterval(loadCfg, 30_000);
+
+const es = new EventSource('/overlay/feed');
+es.onopen = () => { conn.textContent = ''; };
+es.onerror = () => { conn.textContent = 'нет связи с ботом…'; };
+es.onmessage = (m) => {
+  try {
+    const ev = JSON.parse(m.data);
+    if (ev.kind === 'chatcfg') { applyCfg(ev); return; }
+    if (ev.kind === 'chat') addMessage(ev);
+  } catch {}
+};
+</script>
+</body>
+</html>
