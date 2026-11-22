@@ -73,7 +73,7 @@ export class DonaTimer {
 
   /** Полное оставшееся время, сек (без вычета прошедшего, если на паузе). */
   secondsLeft() {
-    const base = Math.max(0, Number(this.cfg().baseMinutes ?? 0)) * 60;
+    const base = Math.max(0, Number(this.cfg().baseMinutes ?? 0)) * 60 + Math.max(0, Number(this.cfg().baseSeconds ?? 0));
     const perMin = Math.max(1, Number(this.cfg().pricePerMinute ?? 30));
     const donatedSec = Math.floor((this._state.totalRub / perMin) * 60);
     const total = base + donatedSec + this._state.manualSec;
@@ -153,6 +153,22 @@ export class DonaTimer {
     this.saveNow();
     this.push(true);
     if (n > 0 && this.secondsLeft() > 0 && !this._tick) this.start();
+    return { ok: true };
+  }
+
+  /**
+   * Установить оставшееся время РОВНО n сек (для панели: поля ч/мин/сек).
+   * Тикающий таймер — сдвигом manualSec (донаты не откатываются), пауза — напрямую в pausedAtSec.
+   */
+  setRemainingSec(sec) {
+    const n = Math.max(0, Math.round(Number(sec) || 0));
+    const delta = n - this.secondsLeft();
+    if (!delta) return { ok: true };
+    if (this._state.running && this._state.startedAt) this._state.manualSec += delta;
+    else this._state.pausedAtSec = n;
+    this.saveNow();
+    this.push(true);
+    if (this._state.running && n > 0 && !this._tick) this.start();
     return { ok: true };
   }
 

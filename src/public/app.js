@@ -3777,7 +3777,10 @@ function dtRender(st) {
   const dt = st.donaTimer ?? {};
   const cfg = window.__settings?.donaTimer ?? {};
   $('#dt-enabled').checked = dt.enabled === true;
-  if (document.activeElement?.id !== 'dt-base') $('#dt-base').value = cfg.baseMinutes ?? 120;
+  const baseTotal = (Number(cfg.baseMinutes) || 0) * 60 + (Number(cfg.baseSeconds) || 0);
+  if (document.activeElement?.id !== 'dt-base-h') $('#dt-base-h').value = Math.floor(baseTotal / 3600);
+  if (document.activeElement?.id !== 'dt-base-m') $('#dt-base-m').value = Math.floor((baseTotal % 3600) / 60);
+  if (document.activeElement?.id !== 'dt-base-s') $('#dt-base-s').value = baseTotal % 60;
   if (document.activeElement?.id !== 'dt-price') $('#dt-price').value = cfg.pricePerMinute ?? 30;
   if (document.activeElement?.id !== 'dt-label') $('#dt-label').value = cfg.label ?? 'стрим закончится через';
   if (document.activeElement?.id !== 'dt-footer') $('#dt-footer').value = cfg.footer ?? 'продлить стрим: 30₽ за минуту';
@@ -3793,6 +3796,10 @@ function dtRender(st) {
   const h = Math.floor((dt.secondsLeft ?? 0) / 3600);
   const m = Math.floor(((dt.secondsLeft ?? 0) % 3600) / 60);
   const s = (dt.secondsLeft ?? 0) % 60;
+  // поля «сейчас»: живой актуальный остаток; не перезаписываем то, что юзер печатает
+  if (document.activeElement?.id !== 'dt-set-h') $('#dt-set-h').value = h;
+  if (document.activeElement?.id !== 'dt-set-m') $('#dt-set-m').value = m;
+  if (document.activeElement?.id !== 'dt-set-s') $('#dt-set-s').value = s;
   $('#dt-status').textContent = dt.enabled
     ? `${dt.running ? '▶ тикает' : '⏸ пауза'} · ${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')} · собрано ${dt.totalRub ?? 0}₽`
     : 'выключен';
@@ -3804,7 +3811,8 @@ $('#dt-save').addEventListener('click', async () => {
     await putSettings({
       donaTimer: {
         enabled: $('#dt-enabled').checked,
-        baseMinutes: Number($('#dt-base').value) || 0,
+        baseMinutes: Math.max(0, Number($('#dt-base-h').value) || 0) * 60 + Math.max(0, Number($('#dt-base-m').value) || 0),
+        baseSeconds: Math.max(0, Number($('#dt-base-s').value) || 0),
         pricePerMinute: Number($('#dt-price').value) || 30,
         label: $('#dt-label').value.trim(),
         footer: $('#dt-footer').value.trim(),
@@ -3837,6 +3845,17 @@ $('#dt-src-save').addEventListener('click', async () => {
 });
 
 // вручную: ±минуты и донат
+$('#dt-set-btn').addEventListener('click', async () => {
+  const sec = (Math.max(0, Number($('#dt-set-h').value) || 0)) * 3600
+    + (Math.max(0, Number($('#dt-set-m').value) || 0)) * 60
+    + Math.max(0, Number($('#dt-set-s').value) || 0);
+  try {
+    const r = await api('/api/actions/donatimerset', { method: 'POST', body: JSON.stringify({ sec }) });
+    if (r.error) { toast(r.error, true); return; }
+    toast(sec > 0 ? `Установлено: ${$('#dt-set-h').value || 0}ч ${$('#dt-set-m').value || 0}м ${$('#dt-set-s').value || 0}с ⏱` : 'Таймер на нуле ⏱');
+    poll();
+  } catch (e) { toast(e.message, true); }
+});
 $('#dt-add-btn').addEventListener('click', async () => {
   const min = Number($('#dt-add-min').value) || 0;
   if (!min) { toast('Введи минуты (можно с минусом)', true); return; }

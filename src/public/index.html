@@ -533,7 +533,11 @@
           <p class="hint">Отдельная страница <b>только с таймером</b> (без алертов) — добавь её в OBS как <b>Браузер-источник</b>: ш: 1920, в: 1080, фон прозрачный. Таймер остаётся и в общем оверлее алертов (вкладка «📺 Оверлей») — если источник уже добавлен там, ничего делать не надо.</p>
           <div class="evcard">
             <label><input type="checkbox" id="dt-enabled" /> таймер включён</label>
-            <label>стартовое время, мин <input type="number" id="dt-base" min="0" max="1440" style="width:70px" /></label>
+            <label>стартовое время
+              <input type="number" id="dt-base-h" min="0" max="23" placeholder="ч" style="width:52px" title="часы" />
+              <input type="number" id="dt-base-m" min="0" max="59" placeholder="мин" style="width:52px" title="минуты" />
+              <input type="number" id="dt-base-s" min="0" max="59" placeholder="сек" style="width:52px" title="секунды" />
+            </label>
             <label>₽ за минуту продления <input type="number" id="dt-price" min="1" max="100000" style="width:80px" /></label>
             <label>надпись над часами <input type="text" id="dt-label" class="wide" maxlength="80" placeholder="стрим закончится через" /></label>
             <label>строка под часами <input type="text" id="dt-footer" class="wide" maxlength="120" placeholder="продлить стрим: 30₽ за минуту" /></label>
@@ -569,7 +573,14 @@
           <h3>🛠 Вручную</h3>
           <div class="evcard">
             <div class="dt-manual-row">
-              <span class="hint">время</span>
+              <span class="hint">сейчас</span>
+              <input type="number" id="dt-set-h" min="0" max="99" placeholder="ч" style="width:52px" title="часы" />
+              <input type="number" id="dt-set-m" min="0" max="59" placeholder="мин" style="width:52px" title="минуты" />
+              <input type="number" id="dt-set-s" min="0" max="59" placeholder="сек" style="width:52px" title="секунды" />
+              <button class="act ghost" id="dt-set-btn" title="установить оставшееся время ровно таким — поля сами показывают актуальный остаток">⏱ установить</button>
+            </div>
+            <div class="dt-manual-row">
+              <span class="hint">± мин</span>
               <input type="number" id="dt-add-min" placeholder="минуты (±)" style="width:90px" />
               <button class="act ghost" id="dt-add-btn" title="добавить/убавить время вручную">± мин</button>
             </div>

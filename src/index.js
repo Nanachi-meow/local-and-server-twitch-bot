@@ -697,6 +697,7 @@ const app = {
       const cur = settings.donaTimer ??= {};
       if (a.enabled !== undefined) cur.enabled = Boolean(a.enabled);
       if (a.baseMinutes !== undefined) cur.baseMinutes = Math.max(0, Math.min(1440, Math.round(Number(a.baseMinutes) || 0)));
+      if (a.baseSeconds !== undefined) cur.baseSeconds = Math.max(0, Math.min(59, Math.round(Number(a.baseSeconds) || 0)));
       if (a.pricePerMinute !== undefined) cur.pricePerMinute = Math.max(1, Math.min(100_000, Math.round(Number(a.pricePerMinute) || 30)));
       if (a.label !== undefined) cur.label = String(a.label).slice(0, 80);
       if (a.footer !== undefined) cur.footer = String(a.footer).slice(0, 120);
@@ -1095,6 +1096,9 @@ const app = {
       }
       case 'donatimeradd': { // ±минуты вручную (body.min — можно отрицательные)
         return app.donaTimer.addManualSec(Math.round((Number(body?.min ?? 0)) * 60));
+      }
+      case 'donatimerset': { // установить оставшееся время ровно body.sec сек (поля ч/мин/сек панели)
+        return app.donaTimer.setRemainingSec(Number(body?.sec ?? 0));
       }
       case 'donatimerdonation': { // ручной донат (body.amount ₽) — время добавится по курсу
         return app.donaTimer.addManualDonation({ amount: Number(body?.amount ?? 0), name: String(body?.name || 'вручную').slice(0, 40) });

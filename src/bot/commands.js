@@ -1103,6 +1103,7 @@ export function loadSettings() {
     donaTimer: {
       enabled: false,        // включается в панели (Оверлеи → Таймер донатона)
       baseMinutes: 120,      // стартовое время, мин
+      baseSeconds: 0,       // стартовое время, сек (сверх минут: 1ч 30м 30с = 90 мин + 30 сек)
       pricePerMinute: 30,   // ₽ за минуту продления
       label: 'стрим закончится через',
       footer: 'продлить стрим: {price}₽ за минуту',

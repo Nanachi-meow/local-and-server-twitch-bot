@@ -1445,6 +1445,33 @@ ok('obs: ошибка переключения подсказывает дост
   dtZero.onStreamStart();
   ok('донатон: нулевая база без донатов → почти ноль сразу', dtZero.secondsLeft() <= 1);
 
+  // ---------- установить время ровно (поля ч/мин/сек панели) ----------
+  const dtSet = new DonaTimer({ logs: dtLogs, settings: { donaTimer: { enabled: true, baseMinutes: 10, pricePerMinute: 50 }, donations: {} } });
+  dtSet.onStreamStart();
+  dtSet.setRemainingSec(90);
+  await new Promise((r) => setTimeout(r, 30));
+  ok('донатон: setRemainingSec на тикающем → осталось ~90 сек (донаты не откатились)',
+    dtSet.state().running === true && Math.abs(dtSet.secondsLeft() - 90) <= 2);
+  dtSet.setRemainingSec(0);
+  ok('донатон: setRemainingSec(0) на тикающем → ноль', dtSet.secondsLeft() <= 1);
+  dtSet.setRemainingSec(90); // обратно — delta считается от факта
+  ok('донатон: повторный set с нуля работает (delta от текущего)',
+    Math.abs(dtSet.secondsLeft() - 90) <= 2);
+  const dtPaused = new DonaTimer({ logs: dtLogs, settings: { donaTimer: { enabled: true, baseMinutes: 10, pricePerMinute: 50 }, donations: {} } });
+  dtPaused._load({ pausedAtSec: 600 });
+  dtPaused.setRemainingSec(3725); // 1ч 2м 5с
+  ok('донатон: setRemainingSec на паузе → pausedAtSec ровно 3725',
+    dtPaused.secondsLeft() === 3725 && dtPaused.state().running === false);
+  dtSet.stop();
+
+  // ---------- baseSeconds: стартовое время с секундами ----------
+  const dtSec = new DonaTimer({ logs: dtLogs, settings: { donaTimer: { enabled: true, baseMinutes: 0, baseSeconds: 30, pricePerMinute: 50 }, donations: {} } });
+  dtSec.onStreamStart();
+  const secLeft = dtSec.secondsLeft();
+  ok('донатон: baseSeconds учитывается (0 мин + 30 сек → ~30, не 0 и не 1800)',
+    secLeft <= 30 && secLeft >= 25);
+  dtSec.stop();
+
   // ---------- webhook: HMAC-SHA256 подпись ----------
   const { verifyWebhookSignature } = await import('../src/bot/donatimer.js');
   const { createHmac } = await import('node:crypto');
@@ -1468,8 +1495,11 @@ ok('obs: ошибка переключения подсказывает дост
     wh2.ok === true && wh2.added === 0 && wh.state().totalRub === 250);
   const whBad = wh.handleWebhook({ source: 'donatex', rawBody: body, signature: 'b'.repeat(64) });
   ok('донатон-webhook: плохая подпись → error, сумма не растёт', whBad.error === 'bad signature' && wh.state().totalRub === 250);
-  const whJson = wh.handleWebhook({ source: 'donatex', rawBody: 'не json', signature: goodHex });
-  ok('донатон-webhook: не-JSON тело → error', whJson.error === 'bad json');
+  // подпись считается от СЫРОГО тела — для «не-JSON» тела нужна своя валидная подпись
+  const badJsonBody = 'не json';
+  const badJsonSig = createHmac('sha256', SECRET).update(badJsonBody).digest('hex');
+  const whJson = wh.handleWebhook({ source: 'donatex', rawBody: badJsonBody, signature: badJsonSig });
+  ok('донатон-webhook: валидно подписанный мусор (не-JSON) → error', whJson.error === 'bad json');
   const whOff = new DonaTimer({ logs: dtLogs, settings: { donaTimer: { enabled: false }, donations: { donatex: { webhookSecret: SECRET } } } });
   ok('донатон-webhook: выключенный таймер отклоняет донат', whOff.handleWebhook({ source: 'donatex', rawBody: body, signature: goodHex }).error === 'timer disabled');
   wh.stop();
