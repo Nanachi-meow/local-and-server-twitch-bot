@@ -170,6 +170,8 @@
   const TTS_OFF = params.get('tts') === '0';
   // ?events=1 — включить список событий на этой странице (иначе — настройка alerts.eventList)
   const EVENTS_URL = params.get('events') === '1';
+  // /dtimer — отдельная страница «только таймер донатона»: все события, кроме donatimer, игнорируются
+  const SOLO_TIMER = location.pathname === '/dtimer';
 
   async function loadCfg() {
     try {
@@ -624,12 +626,18 @@
 
   setInterval(dtRenderScene, 1000); // локальный тик: интервал всегда жив, рисует только при включённом виджете
 
+  // стартовое состояние таймера: рисуем сразу при открытии страницы (не ждём первого пуша)
+  fetch('/api/state').then((r) => r.json()).then((st) => {
+    if (st?.donaTimer) dtOnEvent({ kind: 'donatimer', ...st.donaTimer });
+  }).catch(() => {});
+
   const es = new EventSource('/overlay/feed');
   es.onopen = () => { document.getElementById('conn').textContent = ''; };
   es.onerror = () => { document.getElementById('conn').textContent = 'нет связи с ботом…'; };
   es.onmessage = (m) => {
     try {
       const ev = JSON.parse(m.data);
+      if (SOLO_TIMER && ev.kind !== 'donatimer') return; // страница «только таймер»: остальное мимо
       if (ev.kind === 'sr') { window.srPlayer?.onEvent?.(ev); return; }
       if (ev.kind === 'shoutout') { soShow(ev); return; }
       if (ev.kind === 'donatimer') { dtOnEvent(ev); return; }

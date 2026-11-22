@@ -3764,9 +3764,9 @@ sendParentMessage({ Type: "WidgetLoaded", ID: "{ID}" });
 
 // ---------- ⏱ таймер донатона: панель ----------
 
-// ссылка встраивания: таймер — часть общего оверлея /overlay
-$('#dt-embed-url').value = `${location.origin}/overlay`;
-$('#dt-embed-open').href = `${location.origin}/overlay`;
+// ссылка встраивания: отдельная страница «только таймер» (без алертов) — для OBS-сцены
+$('#dt-embed-url').value = `${location.origin}/dtimer`;
+$('#dt-embed-open').href = `${location.origin}/dtimer`;
 $('#dt-embed-copy').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText($('#dt-embed-url').value); toast('Скопировано ✅'); }
   catch { $('#dt-embed-url').select(); toast('Выделила поле — Ctrl+C', true); }
