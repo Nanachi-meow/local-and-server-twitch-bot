@@ -27,6 +27,31 @@ if (-not $Force -and $remoteVersion -and $remoteVersion -eq $localVersion) {
   exit 0
 }
 
+# ---------- чистка устаревших файлов ----------
+# Никогда не трогаем личное: сессии, токены, настройки, медиа, свои модули, плеер.
+$protectedDirs = @('data', 'overlay-media', 'modules', 'player', 'node_modules', '.git')
+$protectedFiles = @('config.json')
+
+function Test-Protected([string]$rel) {
+  $top = ($rel -split '[\\/]')[0]
+  return ($protectedDirs -contains $top) -or ($protectedFiles -contains $rel)
+}
+
+# Удаляет хлам по манифесту update-removed.txt (если путь существует).
+function Remove-StaleByList([string]$listPath, [string]$root) {
+  if (-not (Test-Path $listPath)) { return }
+  Get-Content $listPath -Encoding UTF8 | ForEach-Object {
+    $rel = $_.Trim()
+    if (-not $rel -or $rel.StartsWith('#')) { return }
+    if (Test-Protected $rel) { return }
+    $target = Join-Path $root $rel
+    if (Test-Path $target) {
+      Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
+      Write-Host "  Удалил устаревшее: $rel" -ForegroundColor DarkGray
+    }
+  }
+}
+
 # ---------- останавливаем бота, если он запущен из этой папки ----------
 $running = @()
 try {
@@ -47,6 +72,7 @@ if (Test-Path (Join-Path $botDir '.git')) {
   if ($LASTEXITCODE -ne 0) {
     Write-Host 'git pull не прошёл — скачаю zip поверх (данные не тронутся).' -ForegroundColor Yellow
   } else {
+    Remove-StaleByList (Join-Path $botDir 'update-removed.txt') $botDir
     Write-Host 'Готово ✅ (данные в data/ и config.json не затронуты — они под gitignore)' -ForegroundColor Green
     if ($running) { Start-Process node -ArgumentList 'src\index.js' -WorkingDirectory $botDir -WindowStyle Hidden; Write-Host 'Бот запущен обратно (скрыто, без окна).' }
     exit 0
@@ -66,6 +92,28 @@ if (-not $inner) { throw 'В архиве не нашёл папку с бото
 
 Write-Host 'Накладываю файлы поверх текущей установки…'
 Copy-Item -Path (Join-Path $inner.FullName '*') -Destination $botDir -Recurse -Force
+
+# ---------- чистка лишнего (которого больше нет в поставке) ----------
+Remove-StaleByList (Join-Path $inner.FullName 'update-removed.txt') $botDir
+
+# src/ — код бота: если файл там не из новой поставки (переименован/выпилен) — удаляем.
+# Свои файлы юзера там быть не должны: модули — modules/, данные — data/.
+$newSrcFiles = Get-ChildItem (Join-Path $inner.FullName 'src') -Recurse -File -ErrorAction SilentlyContinue |
+  ForEach-Object { $_.FullName.Substring($inner.FullName.Length + 1) }
+$srcDir = Join-Path $botDir 'src'
+if (Test-Path $srcDir -and $newSrcFiles) {
+  Get-ChildItem $srcDir -Recurse -File | ForEach-Object {
+    $rel = $_.FullName.Substring($botDir.Length + 1)
+    if ($newSrcFiles -notcontains $rel) {
+      Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+      Write-Host "  Удалил устаревшее: $rel" -ForegroundColor DarkGray
+    }
+  }
+  Get-ChildItem $srcDir -Recurse -Directory | Sort-Object { $_.FullName.Length } -Descending |
+    Where-Object { -not (Get-ChildItem $_.FullName -Recurse -File) } |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+}
+
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 
 $newVersion = '?'
