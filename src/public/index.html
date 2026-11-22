@@ -568,13 +568,17 @@
           </div>
           <h3>🛠 Вручную</h3>
           <div class="evcard">
-            <div class="am-sound-row">
-              <input type="number" id="dt-add-min" placeholder="минуты (±)" style="width:80px" />
+            <div class="dt-manual-row">
+              <span class="hint">время</span>
+              <input type="number" id="dt-add-min" placeholder="минуты (±)" style="width:90px" />
               <button class="act ghost" id="dt-add-btn" title="добавить/убавить время вручную">± мин</button>
-              <input type="number" id="dt-donate-amount" placeholder="₽" style="width:80px" />
-              <button class="act ghost" id="dt-donate-btn" title="внести донат вручную — время добавится по курсу">💰 донат</button>
-              <span class="hint" id="dt-status"></span>
             </div>
+            <div class="dt-manual-row">
+              <span class="hint">донат</span>
+              <input type="number" id="dt-donate-amount" placeholder="₽" style="width:90px" />
+              <button class="act ghost" id="dt-donate-btn" title="внести донат вручную — время добавится по курсу">💰 внести</button>
+            </div>
+            <p class="hint" id="dt-status" style="margin:10px 0 0"></p>
           </div>
         </div>
       </details>

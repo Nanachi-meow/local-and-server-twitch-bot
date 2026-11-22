@@ -643,3 +643,6 @@ code, .copy {
 .evcard input[type="text"] { width: 100%; }
 .evcard .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .evcard .act { margin-top: 10px; }
+/* инлайн-строки «вручную» таймера: кнопки вровень с инпутами (без margin-top от .evcard .act) */
+.dt-manual-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.dt-manual-row .act { margin-top: 0; }
