@@ -1609,6 +1609,123 @@ ok('obs: ошибка переключения подсказывает дост
     empty.gem === false && empty.ghost === false && empty.webs === false && empty.msgPaper === false && empty.chipCase === true);
 }
 
+// ---------- 🔌 прокси-ядра: sing-box / Xray-core + юрл-подписки ----------
+{
+  const { parseProxyLink, parseSubscription, genSingboxConfig, genXrayConfig, CoreRunner } = await import('../src/bot/proxy-cores.js');
+  const { resolveRoute, httpRequest, setCoreAddress } = await import('../src/bot/proxy.js');
+  const netm = await import('node:net');
+  const httpm = await import('node:http');
+
+  // парсеры ссылок
+  const vmessLink = 'vmess://' + Buffer.from(JSON.stringify({
+    v: '2', ps: 'тест-узел', add: '1.2.3.4', port: '443', id: 'aaaa-bbbb-cccc',
+    aid: '0', scy: 'auto', net: 'ws', host: 'ex.com', path: '/ws', tls: 'tls', sni: 'ex.com',
+  }), 'utf8').toString('base64');
+  const vmess = parseProxyLink(vmessLink);
+  ok('прокси: vmess:// парсится (ws+tls)', vmess?.proto === 'vmess' && vmess.server === '1.2.3.4' && vmess.transport === 'ws' && vmess.tls === true);
+  const vless = parseProxyLink('vless://uuid-123@5.6.7.8:8443?encryption=none&security=reality&sni=ex.com&pbk=PUBKEY&sid=abcd&fp=chrome&type=tcp#имя');
+  ok('прокси: vless+reality парсится', vless?.proto === 'vless' && vless.reality?.publicKey === 'PUBKEY' && vless.tls === true);
+  const trojan = parseProxyLink('trojan://pass123@7.7.7.7:443?security=tls&sni=e.com#троян');
+  ok('прокси: trojan:// парсится', trojan?.proto === 'trojan' && trojan.password === 'pass123');
+  const ssLink = 'ss://' + Buffer.from('aes-256-gcm:secretpass', 'utf8').toString('base64') + '@9.9.9.9:8388#шэд';
+  const ss = parseProxyLink(ssLink);
+  ok('прокси: ss:// (base64-креды) парсится', ss?.proto === 'ss' && ss.method === 'aes-256-gcm' && ss.server === '9.9.9.9' && ss.password === 'secretpass');
+  ok('прокси: мусорная/пустая ссылка → null', parseProxyLink('https://example.com') === null && parseProxyLink('') === null);
+
+  // подписки: base64-тело списка + мусор
+  const subBody = Buffer.from(`${vmessLink}\n${ssLink}`, 'utf8').toString('base64');
+  const nodes = parseSubscription(subBody);
+  ok('прокси: base64-подписка → узлы с исходной ссылкой (raw)', nodes.length === 2 && nodes[0].raw === vmessLink);
+  ok('прокси: мусорное тело подписки → пусто', parseSubscription('').length === 0 && parseSubscription('мусор\nне ссылки').length === 0);
+
+  // генераторы конфигов: вход только 127.0.0.1 (влияет только на бота)
+  const sb = genSingboxConfig(vmess, 10808);
+  const xr = genXrayConfig(vmess, 10808);
+  ok('прокси: sing-box — socks-вход на 127.0.0.1:порт, vmess-выход',
+    sb.inbounds[0].type === 'socks' && sb.inbounds[0].listen === '127.0.0.1' && sb.inbounds[0].listen_port === 10808
+    && sb.outbounds[0].type === 'vmess' && sb.outbounds[0].transport.type === 'ws');
+  ok('прокси: xray — socks-вход на 127.0.0.1:порт, vmess+ws-выход',
+    xr.inbounds[0].protocol === 'socks' && xr.inbounds[0].listen === '127.0.0.1'
+    && xr.outbounds[0].protocol === 'vmess' && xr.outbounds[0].streamSettings.network === 'ws');
+  const sbR = genSingboxConfig(vless, 1234);
+  const xrR = genXrayConfig(vless, 1234);
+  ok('прокси: reality доезжает до sing-box (tls.reality)', sbR.outbounds[0].tls?.reality?.enabled === true && sbR.outbounds[0].tls.reality.public_key === 'PUBKEY');
+  ok('прокси: reality доезжает до xray (streamSettings.realitySettings)', xrR.outbounds[0].streamSettings.security === 'reality' && xrR.outbounds[0].streamSettings.realitySettings.publicKey === 'PUBKEY');
+
+  // маршрутизация по типам (влияет только на запросы бота, ядром — через локальный socks)
+  ok('прокси: выключен → напрямую', resolveRoute({ enabled: false, url: 'http://x' }) === null);
+  ok('прокси: http по url', resolveRoute({ enabled: true, type: 'http', url: 'http://127.0.0.1:8080' })?.kind === 'http');
+  ok('прокси: socks5 маршрут', resolveRoute({ enabled: true, type: 'socks5', socksEnabled: true, socksHost: '127.0.0.1', socksPort: 1080 })?.kind === 'socks5');
+  ok('прокси: socks5 без хоста → напрямую', resolveRoute({ enabled: true, type: 'socks5', socksEnabled: true }) === null);
+  ok('прокси: ядро не поднято → напрямую', resolveRoute({ enabled: true, type: 'xray' }) === null);
+  setCoreAddress({ host: '127.0.0.1', port: 12345 });
+  const viaCore = resolveRoute({ enabled: true, type: 'singbox' });
+  ok('прокси: ядро поднято → бот идёт в 127.0.0.1:порт', viaCore?.kind === 'socks5' && viaCore.port === 12345);
+  setCoreAddress(null);
+
+  // CoreRunner: внятные ошибки, никакого спавна
+  const cr = new CoreRunner({ logs: { system: { push: () => {} } } });
+  const badBin = await cr.start({ kind: 'singbox', binaryPath: 'Z:\\нет-такого-файла.exe', link: vmessLink }).catch((e) => e);
+  ok('прокси-ядро: битый бинарник → ошибка «не найден файл ядра»', badBin instanceof Error && /не найден файл ядра/.test(badBin.message));
+  const badKind = await cr.start({ kind: 'tor', binaryPath: 'x', link: vmessLink }).catch((e) => e);
+  ok('прокси-ядро: неизвестное ядро → ошибка', badKind instanceof Error && /неизвестное ядро/.test(badKind.message));
+
+  // SOCKS5-клиент: сквозной запрос через фейковый socks-сервер (с авторизацией)
+  const httpTarget = httpm.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('socks-ok'); });
+  await new Promise((r) => httpTarget.listen(0, '127.0.0.1', r));
+  const targetPort = httpTarget.address().port;
+
+  const CONNECT_OK_TAIL = Buffer.from([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+  const makeFakeSocks = (requireAuth) => new Promise((resolve) => {
+    const srv = netm.createServer((sock) => {
+      // stage 0 — приветствие; no-auth → сразу CONNECT (2); с авторизацией → RFC1929 (1) → CONNECT (2)
+      let stage = 0;
+      sock.on('data', (buf) => {
+        if (stage === 0) {
+          sock.write(Buffer.from(requireAuth ? [0x05, 0x02] : [0x05, 0x00]));
+          stage = requireAuth ? 1 : 2;
+          return;
+        }
+        if (stage === 1) { // RFC1929: 01ulen user plen pass → успех, дальше CONNECT
+          const ulen = buf[1] ?? 0;
+          const user = buf.slice(2, 2 + ulen).toString();
+          sock.write(Buffer.from([0x01, 0x00]));
+          stage = 2;
+          sock.__user = user;
+          return;
+        }
+        if (stage === 2 && !sock.__proxied) { // CONNECT → тянем к цели
+          sock.__proxied = true;
+          sock.write(CONNECT_OK_TAIL);
+          const up = netm.connect(targetPort, '127.0.0.1', () => { sock.pipe(up); up.pipe(sock); });
+          up.on('error', () => sock.destroy());
+          return;
+        }
+      });
+    });
+    srv.listen(0, '127.0.0.1', () => resolve(srv));
+  });
+  const fakeNoAuth = await makeFakeSocks(false);
+  const r1 = await httpRequest(`http://127.0.0.1:${targetPort}/x`, {
+    proxy: { enabled: true, type: 'socks5', socksEnabled: true, socksHost: '127.0.0.1', socksPort: fakeNoAuth.address().port },
+    timeoutMs: 5000,
+  });
+  ok('прокси: SOCKS5-туннель довозит HTTP-запрос (без авторизации)', r1.status === 200 && r1.body === 'socks-ok');
+  const fakeAuth = await makeFakeSocks(true);
+  const r2 = await httpRequest(`http://127.0.0.1:${targetPort}/x`, {
+    proxy: { enabled: true, type: 'socks5', socksEnabled: true, socksHost: '127.0.0.1', socksPort: fakeAuth.address().port, socksUser: 'bot', socksPass: 'secret' },
+    timeoutMs: 5000,
+  });
+  ok('прокси: SOCKS5 с логином/паролем проходит RFC1929', r2.status === 200 && r2.body === 'socks-ok');
+  const badAuth = await httpRequest(`http://127.0.0.1:${targetPort}/x`, {
+    proxy: { enabled: true, type: 'socks5', socksEnabled: true, socksHost: '127.0.0.1', socksPort: fakeNoAuth.address().port + 1 }, // порт мимо
+    timeoutMs: 3000,
+  }).then(() => 'no-error').catch(() => 'error');
+  ok('прокси: мёртвый socks-порт → ошибка, не тишина', badAuth === 'error');
+  [fakeNoAuth, fakeAuth].forEach((s) => s.close());
+  httpTarget.close();
+}
+
 console.log(`\nВсе ${passed} тестов прошли ✅`);
 fs.rmSync(process.env.BOT_DATA_DIR, { recursive: true, force: true });
 process.exit(0);

@@ -5739,7 +5739,113 @@ async function loadProxySettings() {
   const p = (await api('/api/settings')).proxy ?? {};
   $('#proxy-enabled').checked = Boolean(p.enabled);
   $('#proxy-url').value = p.url ?? '';
+  // под-вкладка «🌐 Прокси»
+  const c = p.core ?? {};
+  $('#px-enabled').checked = Boolean(p.enabled) && p.type !== 'socks5' && !['singbox', 'xray'].includes(p.type);
+  $('#px-url').value = p.url ?? '';
+  $('#px-socks-enabled').checked = Boolean(p.enabled) && p.type === 'socks5';
+  $('#px-socks-host').value = p.socksHost ?? '';
+  $('#px-socks-port').value = p.socksPort ?? 1080;
+  $('#px-socks-user').value = p.socksUser ?? '';
+  $('#px-socks-pass').value = p.socksPass ?? '';
+  $('#px-core-enabled').checked = Boolean(p.enabled) && ['singbox', 'xray'].includes(p.type);
+  $('#px-core-kind').value = p.type === 'xray' ? 'xray' : 'singbox';
+  $('#px-core-binary').value = c.binaryPath ?? '';
+  $('#px-core-sub').value = c.subUrl ?? '';
+  $('#px-core-status').textContent = c.subName
+    ? `узел: ${c.subName} (${p.enabled && ['singbox', 'xray'].includes(p.type) ? 'активен' : 'сохранён, ядро выключено'})`
+    : 'узел ещё не выбран — обновь подписку';
+  $('#px-mtproto-enabled').checked = Boolean(p.mtprotoEnabled);
+  $('#px-mtproto-host').value = p.mtprotoHost ?? '';
+  $('#px-mtproto-port').value = p.mtprotoPort ?? 443;
+  $('#px-mtproto-secret').value = p.mtprotoSecret ?? '';
+  $('#px-result').textContent = p.enabled ? '' : 'прокси выключен — бот ходит напрямую';
 }
+
+// HTTP-прокси (главный способ)
+$('#px-save').addEventListener('click', async () => {
+  try {
+    await putSettings({ proxy: { enabled: $('#px-enabled').checked, type: 'http', url: $('#px-url').value.trim() } });
+    toast('Прокси сохранён ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+// SOCKS5-прокси
+$('#px-socks-save').addEventListener('click', async () => {
+  try {
+    await putSettings({
+      proxy: {
+        enabled: $('#px-socks-enabled').checked,
+        type: 'socks5',
+        socksEnabled: $('#px-socks-enabled').checked,
+        socksHost: $('#px-socks-host').value.trim(),
+        socksPort: Number($('#px-socks-port').value) || 1080,
+        socksUser: $('#px-socks-user').value.trim(),
+        socksPass: $('#px-socks-pass').value,
+      },
+    });
+    toast('SOCKS5 сохранён ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+// 🔌 локальное ядро sing-box / Xray-core
+$('#px-core-save').addEventListener('click', async () => {
+  try {
+    await putSettings({
+      proxy: {
+        enabled: $('#px-core-enabled').checked,
+        type: $('#px-core-kind').value,
+        core: {
+          binaryPath: $('#px-core-binary').value.trim(),
+          subUrl: $('#px-core-sub').value.trim(),
+        },
+      },
+    });
+    toast('Ядро сохранено ✅');
+  } catch (e) { toast(e.message, true); }
+});
+
+$('#px-core-fetch').addEventListener('click', async () => {
+  // сохранять не обязательно: подписка качается по сохранённому юрл
+  toast('Качаю подписку…');
+  try {
+    const r = await api('/api/actions/proxysubupdate', { method: 'POST', body: '{}' });
+    if (r.error) { toast(r.error, true); return; }
+    toast(`Подписка: ${r.count} узлов, выбран «${r.picked}» (${r.kind}) ✅`);
+    loadProxySettings().catch(() => {});
+  } catch (e) { toast(e.message, true); }
+});
+
+// «Проверить связь» — в обоих местах вкладки (верх и ядро)
+for (const id of ['#px-test', '#px-test2']) {
+  document.querySelector(id)?.addEventListener('click', async () => {
+    document.querySelector(id).textContent = 'Проверяю связь…';
+    try {
+      const r = await api('/api/actions/proxytest', { method: 'POST', body: '{}' });
+      document.querySelector(id).textContent = 'Проверить связь';
+      document.querySelector('#px-result').textContent = `${r.via} — «${r.sample}»`;
+      toast(`✅ ${r.via} — YouTube доступен («${r.sample}»)`);
+    } catch (e) {
+      document.querySelector(id).textContent = 'Проверить связь';
+      toast(`❌ ${e.message}`, true);
+    }
+  });
+}
+
+// MTProto (поля хранятся; конвертация — в планах)
+$('#px-mtproto-save').addEventListener('click', async () => {
+  try {
+    await putSettings({
+      proxy: {
+        mtprotoEnabled: $('#px-mtproto-enabled').checked,
+        mtprotoHost: $('#px-mtproto-host').value.trim(),
+        mtprotoPort: Number($('#px-mtproto-port').value) || 443,
+        mtprotoSecret: $('#px-mtproto-secret').value.trim(),
+      },
+    });
+    toast('MTProto-поля сохранены ✅');
+  } catch (e) { toast(e.message, true); }
+});
 
 $('#proxy-save').addEventListener('click', async () => {
   try {

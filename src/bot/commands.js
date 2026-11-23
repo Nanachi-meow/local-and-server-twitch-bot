@@ -1162,10 +1162,16 @@ export function loadSettings() {
       delete s.userMaxLengthSec; // миграция: лимит «суммарной длины» заменён на perUser (штук подряд)
       return s;
     })(),
-    proxy: {
-      enabled: false, // не настроен — все запросы напрямую
-      url: '',        // http://127.0.0.1:8080 (только http-прокси)
-      ...(stored.proxy ?? {}),
-    },
+    proxy: (() => {
+      const p = {
+        enabled: false, // не настроен — все запросы напрямую
+        url: '',        // http://127.0.0.1:8080 (только http-прокси)
+        type: 'http',   // способ: http | socks5 | singbox | xray
+        core: { binaryPath: '', subUrl: '', subLink: '', subName: '' }, // локальные ядра + юрл-подписка
+        ...(stored.proxy ?? {}),
+      };
+      p.core = { binaryPath: '', subUrl: '', subLink: '', subName: '', ...(stored.proxy?.core ?? {}) };
+      return p;
+    })(),
   };
 }

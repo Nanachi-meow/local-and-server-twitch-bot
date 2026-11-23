@@ -12,6 +12,8 @@ import { LiveTracker } from './bot/live.js';
 import { SongsManager } from './bot/songs.js';
 import { DonaTimer } from './bot/donatimer.js';
 import { ChatWidget, normalizeTheme } from './bot/chatwidget.js';
+import { CoreRunner, parseSubscription, parseProxyLink } from './bot/proxy-cores.js';
+import { setCoreAddress, httpRequest } from './bot/proxy.js';
 import { loadJson, DONATIMER_FILE } from './store.js';
 import { RedemptionRouter } from './bot/redemptions.js';
 import { overlay } from './bot/alerts.js';
@@ -115,8 +117,31 @@ live.setWatcher((kind, entry) => {
 });
 if (settings.donaTimer?.enabled && live.isLive(state.broadcasterId)) donaTimer.start();
 
+// 🔌 локальное ядро прокси (sing-box/Xray), если настроено: трафик — только бота
+syncProxyCore().catch(() => {});
+process.on('exit', () => { try { coreRunner.proc?.kill(); } catch {} }); // дети Windows не умирают с родителем
+
 // 💬 чат-виджет: сообщения чата на стриме (страница /chat, редактор в Оверлеях)
 const chatWidget = new ChatWidget({ settings });
+
+// 🔌 локальные ядра прокси (sing-box / Xray): поднимаются по настройкам, трафик — только бота
+const coreRunner = new CoreRunner({ logs });
+/** (Пере)поднять ядро по текущим настройкам; выключенный/ненастроенный тип — погасить. */
+async function syncProxyCore() {
+  const p = settings.proxy ?? {};
+  const c = p.core ?? {};
+  if (p.enabled === true && ['singbox', 'xray'].includes(p.type) && c.binaryPath && c.subLink) {
+    try {
+      await coreRunner.start({ kind: p.type, binaryPath: c.binaryPath, link: c.subLink });
+      setCoreAddress(coreRunner.address());
+      return;
+    } catch (e) {
+      logSystem(`Ядро прокси не поднялось: ${e.message} — запросы идут напрямую`, 'warn');
+    }
+  }
+  await coreRunner.stop();
+  setCoreAddress(null);
+}
 
 // награды канала Twitch: приходят по EventSub, роутер пишет их в ленту
 // и (для замапленных наград) кидает алерт в оверлей
@@ -963,11 +988,25 @@ const app = {
       if (a.socksPort !== undefined) cur.socksPort = Math.max(1, Math.min(65535, Math.round(Number(a.socksPort) || 1080)));
       if (a.socksUser !== undefined) cur.socksUser = String(a.socksUser).slice(0, 100);
       if (a.socksPass !== undefined) cur.socksPass = String(a.socksPass).slice(0, 100);
+      // способ подключения: http | socks5 | singbox | xray (пусто/устаревшее = по url)
+      if (a.type !== undefined) cur.type = ['http', 'socks5', 'singbox', 'xray'].includes(a.type) ? a.type : 'http';
+      // локальные ядра: sing-box / Xray-core (+ юрл-подписка)
+      if (a.core !== undefined && a.core !== null && typeof a.core === 'object') {
+        const cc = cur.core ??= {};
+        if (a.core.binaryPath !== undefined) cc.binaryPath = String(a.core.binaryPath).trim().slice(0, 300);
+        if (a.core.subUrl !== undefined) cc.subUrl = String(a.core.subUrl).trim().slice(0, 500);
+        if (a.core.subLink !== undefined) cc.subLink = String(a.core.subLink).trim().slice(0, 2000);
+        if (a.core.subName !== undefined) cc.subName = String(a.core.subName).slice(0, 80);
+      }
       // MTProto (Telegram-прокси)
       if (a.mtprotoEnabled !== undefined) cur.mtprotoEnabled = Boolean(a.mtprotoEnabled);
       if (a.mtprotoHost !== undefined) cur.mtprotoHost = String(a.mtprotoHost).trim().slice(0, 100);
       if (a.mtprotoPort !== undefined) cur.mtprotoPort = Math.max(1, Math.min(65535, Math.round(Number(a.mtprotoPort) || 443)));
       if (a.mtprotoSecret !== undefined) cur.mtprotoSecret = String(a.mtprotoSecret).trim().slice(0, 200);
+      // настройки подключения поменялись — (пере)поднять локальное ядро сразу
+      if (a.enabled !== undefined || a.type !== undefined || a.core !== undefined) {
+        syncProxyCore().catch(() => {});
+      }
     }
     saveJson(SETTINGS_FILE, settings);
     if (warnings.length) logSystem(`Часть настроек не принята: ${warnings.join('; ')}`, 'warn');
@@ -1203,6 +1242,27 @@ const app = {
         const { proxyCheck } = await import('./bot/proxy.js');
         const r = await proxyCheck(settings.proxy);
         return { ok: true, via: settings.proxy.enabled ? 'через прокси' : 'напрямую', sample: r.title };
+      }
+      case 'proxysubupdate': { // обновить юрл-подписку: скачать (напрямую), распарсить, выбрать узел
+        const subUrl = String(settings.proxy?.core?.subUrl ?? '').trim();
+        if (!subUrl) return { error: 'укажи URL подписки' };
+        let r;
+        try { r = await httpRequest(subUrl, { proxy: null, timeoutMs: 20_000 }); }
+        catch (e) { return { error: `подписка не скачалась: ${e.message}` }; }
+        const nodes = parseSubscription(r.body);
+        if (!nodes.length) return { error: `в подписке не найдено узлов (HTTP ${r.status})` };
+        const picked = nodes[0];
+        await app.saveSettings({
+          proxy: { core: { subLink: picked.raw, subName: picked.node.name || picked.node.server } },
+        });
+        await syncProxyCore();
+        return {
+          ok: true,
+          count: nodes.length,
+          picked: picked.node.name || picked.node.server,
+          kind: picked.node.proto,
+          list: nodes.slice(0, 10).map((n) => `${n.node.proto} · ${n.node.name || n.node.server}`),
+        };
       }
       default:
         throw new Error(`Неизвестное действие: ${action}`);

@@ -782,6 +782,29 @@
           </div>
         </details>
         <details class="guide-box">
+          <summary><b>🔌 sing-box / Xray-core (локальное ядро + юрл-подписка)</b></summary>
+          <div class="guide-body">
+            <p class="hint">Бот сам запускает ядро с локальным SOCKS-входом на 127.0.0.1 и ходит через него — <b>влияет только на трафик бота</b> (музыка/YouTube, внешние API модулей), ни система, ни другие программы не затрагиваются. Ядро упало → бот временно ходит напрямую, стрим не страдает. Подписка: вставь юрл — бот скачает узлы (vmess://, vless://, trojan://, ss://) и возьмёт первый. Бинарники — официальные релизы: <code>github.com/SagerNet/sing-box/releases</code> (sing-box-…windows-amd64.exe) и <code>github.com/XTLS/Xray-core/releases</code> (xray-windows-…zip), распакуй и укажи путь к .exe.</p>
+            <div class="evcard">
+              <label><input type="checkbox" id="px-core-enabled" /> использовать это ядро</label>
+              <label>ядро
+                <select id="px-core-kind">
+                  <option value="singbox">sing-box</option>
+                  <option value="xray">Xray-core</option>
+                </select>
+              </label>
+              <label>путь к бинарнику <input type="text" id="px-core-binary" class="wide" maxlength="300" placeholder="C:\tools\sing-box.exe" /></label>
+              <label>URL подписки <input type="text" id="px-core-sub" class="wide" maxlength="500" placeholder="https://example.com/sub?token=…" /></label>
+              <div class="row">
+                <button class="act" id="px-core-save">💾 Сохранить</button>
+                <button class="act ghost" id="px-core-fetch" title="скачать подписку и выбрать узел живьём">⟳ Обновить подписку</button>
+                <button class="act ghost" id="px-test2">Проверить связь</button>
+              </div>
+              <p class="hint" id="px-core-status"></p>
+            </div>
+          </div>
+        </details>
+        <details class="guide-box">
           <summary><b>🔵 MTProto прокси (Telegram)</b></summary>
           <div class="guide-body">
             <p class="hint">MTProto-прокси — протокол Telegram. Если у тебя есть MTProto-прокси (t.me/proxy?server=...), укажи параметры — бот настроит конвертацию для туннелирования HTTP.</p>
