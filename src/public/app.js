@@ -1280,6 +1280,12 @@ function currentAsoUsers() {
 
 async function putSettings(patch) {
   const st = await api('/api/settings', { method: 'PUT', body: JSON.stringify(patch) });
+  // сервер мог молча не принять часть значений (занятое имя и т.п.) — говорим об этом,
+  // иначе юзер видит «сохранено ✅», а после F5 — «сброс»
+  if (Array.isArray(st?.warnings)) {
+    for (const w of st.warnings) toast(w, true);
+    delete st.warnings;
+  }
   window.__settings = st;
   renderAso();
   renderAutoPin();
@@ -4395,21 +4401,25 @@ async function loadSongsTab() {
   $('#music-url').textContent = `${location.origin}/music`;
   $('#music-url-field').value = `${location.origin}/music`;
   $('#music-open').href = `${location.origin}/music`;
-  $('#sg-enabled').checked = Boolean(s.enabled);
+  // все поля — под focus-гардами: очередь/чс дергают эту загрузку прямо во время
+  // редактирования правил, нельзя затирать то, что юзер печатает прямо сейчас
+  const val = (id, v) => { if (document.activeElement?.id !== id) $(id).value = v; };
+  const chk = (id, v) => { if (document.activeElement?.id !== id) $(id).checked = v; };
+  chk('sg-enabled', Boolean(s.enabled));
   // длина — в минутах в панели, в секундах на сервере
-  $('#sg-maxlen-min').value = Math.round((s.maxLenSec ?? 600) / 60);
-  $('#sg-minviews').value = s.minViews ?? 0;
-  $('#sg-template').value = s.nowTemplate ?? '♪ {title} — заказал {by}';
+  val('sg-maxlen-min', Math.round((s.maxLenSec ?? 600) / 60));
+  val('sg-minviews', s.minViews ?? 0);
+  val('sg-template', s.nowTemplate ?? '♪ {title} — заказал {by}');
   // правила заказов
-  $('#sg-mode').value = s.requestMode ?? 'command';
-  $('#sg-reward-name').value = s.rewardName ?? '';
-  $('#sg-cmdname').value = s.commandName ?? 'ср';
-  $('#sg-refund-reject').checked = s.refundOnReject !== false;
-  $('#sg-refund-limit').checked = s.refundOnLimit !== false;
-  $('#sg-cd').value = Math.round((s.commandCooldown ?? 0) / 60);
-  $('#sg-peruser').value = s.perUser ?? 2;
-  $('#sg-allowusers').value = (s.allowUsers ?? []).join(', ');
-  document.querySelectorAll('.sg-role').forEach((cb) => { cb.checked = (s.allow ?? []).includes(cb.value); });
+  val('sg-mode', s.requestMode ?? 'command');
+  val('sg-reward-name', s.rewardName ?? '');
+  val('sg-cmdname', s.commandName ?? 'ср');
+  chk('sg-refund-reject', s.refundOnReject !== false);
+  chk('sg-refund-limit', s.refundOnLimit !== false);
+  val('sg-cd', Math.round((s.commandCooldown ?? 0) / 60));
+  val('sg-peruser', s.perUser ?? 2);
+  val('sg-allowusers', (s.allowUsers ?? []).join(', '));
+  document.querySelectorAll('.sg-role').forEach((cb) => { if (document.activeElement !== cb) cb.checked = (s.allow ?? []).includes(cb.value); });
   sgSyncModeRows();
   renderBlacklist(s.blacklist ?? []);
   plpLoad(s.playerCfg, st);
@@ -4479,18 +4489,36 @@ $('#sg-enabled').addEventListener('change', async () => {
 
 $('#sg-save').addEventListener('click', async () => {
   try {
-    await putSettings({
-      songs: {
-        enabled: $('#sg-enabled').checked,
-        maxLenSec: Math.round((Number($('#sg-maxlen-min').value) || 10) * 60),
-        minViews: Math.max(0, Number($('#sg-minviews').value) || 0),
-        volume: Number($('#sg-volume').value) || 0,
-        nowTemplate: $('#sg-template').value,
-      },
+    await putSongsDiff({
+      enabled: $('#sg-enabled').checked,
+      maxLenSec: Math.round((Number($('#sg-maxlen-min').value) || 10) * 60),
+      minViews: Math.max(0, Number($('#sg-minviews').value) || 0),
+      volume: Number($('#sg-volume').value) || 0,
+      nowTemplate: $('#sg-template').value,
     });
     toast('Настройки музыки сохранены ✅');
   } catch (e) { toast(e.message, true); }
 });
+
+/**
+ * Сохранение настроек музыки с диффом: сначала сверяем каждое поле со свежим
+ * сервером и отправляем ТОЛЬКО реально изменённое. Убивает «сбросы»: мёртвая
+ * гидратация или забытая вторая вкладка панели физически не может откатить
+ * чужие поля — их значения совпадают с сервером и в патч не попадают.
+ */
+async function putSongsDiff(patch) {
+  const fresh = (await api('/api/settings')).songs ?? {};
+  const out = {};
+  for (const [k, v] of Object.entries(patch)) {
+    const cur = fresh[k];
+    const same = Array.isArray(v)
+      ? (Array.isArray(cur) && JSON.stringify([...v].sort()) === JSON.stringify([...cur].sort()))
+      : cur === v;
+    if (!same) out[k] = v;
+  }
+  if (!Object.keys(out).length) { toast('Изменений нет — ничего не трогаю'); return; }
+  await putSettings({ songs: out });
+}
 
 // правила заказов: способ, кулдаун, лимиты, доступ
 $('#sg-order-save').addEventListener('click', async () => {
@@ -4498,18 +4526,16 @@ $('#sg-order-save').addEventListener('click', async () => {
   if (allow.includes('everyone')) allow.length = 0; // «все» = пустой список
   const allowUsers = $('#sg-allowusers').value.split(',').map((s) => s.trim()).filter(Boolean);
   try {
-    await putSettings({
-      songs: {
-        requestMode: $('#sg-mode').value,
-        rewardName: $('#sg-reward-name').value.trim(),
-        commandName: $('#sg-cmdname').value.trim(),
-        refundOnReject: $('#sg-refund-reject').checked,
-        refundOnLimit: $('#sg-refund-limit').checked,
-        commandCooldown: Math.round((Number($('#sg-cd').value) || 0) * 60),
-        perUser: Math.max(1, Number($('#sg-peruser').value) || 2),
-        allow,
-        allowUsers,
-      },
+    await putSongsDiff({
+      requestMode: $('#sg-mode').value,
+      rewardName: $('#sg-reward-name').value.trim(),
+      commandName: $('#sg-cmdname').value.trim(),
+      refundOnReject: $('#sg-refund-reject').checked,
+      refundOnLimit: $('#sg-refund-limit').checked,
+      commandCooldown: Math.round((Number($('#sg-cd').value) || 0) * 60),
+      perUser: Math.max(1, Number($('#sg-peruser').value) || 2),
+      allow,
+      allowUsers,
     });
     toast('Правила заказов сохранены ✅');
   } catch (e) { toast(e.message, true); }
@@ -5887,7 +5913,8 @@ loadCommands().catch(() => {});
 loadSettings().catch(() => {});
 loadModules().catch(() => {});
 loadOverlaySettings().catch(() => {});
-loadSongsTab().catch(() => {});
+// ошибка гидратации не глотается молча: мёртвая форма = «сбросы» при следующем сохранении
+loadSongsTab().catch(() => toast('Не удалось загрузить настройки музыки — обнови страницу (F5)', true));
 loadProxySettings().catch(() => {});
 loadQuotes().catch(() => {});
 poll();

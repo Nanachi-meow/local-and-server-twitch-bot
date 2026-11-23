@@ -300,8 +300,9 @@ export function createHttpServer({ app }) {
 
     if (route === '/api/settings' && req.method === 'PUT') {
       const body = await readJsonBody(req);
-      app.saveSettings(body);
-      sendJson(res, 200, app.settings);
+      const r = app.saveSettings(body);
+      // warnings (что не применилось) едут рядом с настройками — панель покажет тостом
+      sendJson(res, 200, { ...app.settings, ...((r?.warnings?.length ?? 0) ? { warnings: r.warnings } : {}) });
       return;
     }
 

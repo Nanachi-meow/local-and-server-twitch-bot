@@ -340,6 +340,23 @@ const fakeFollowHelix = { getFollower: async () => ({ followed_at: new Date().to
 const gateFollower = await songsRequestAllowed({ allow: ['follower'] }, { level: 'everyone', login: 'x', userId: '9', broadcasterId: '100', helix: fakeFollowHelix });
 ok('музыка: доступ — фолловер пускается', gateFollower.ok === true && gateFollower.via === 'follower');
 
+// заказ НАГРАДОЙ: у редемпции нет бейджей и ролей — стример сверяется по id
+// (баг: allow без everyone блокировал самого стримера — канал не может фолловить сам себя)
+const gateStreamerReward = await songsRequestAllowed({ allow: ['sub', 'vip', 'mod'] }, { level: 'everyone', login: 'krolik', userId: '902', broadcasterId: '902', helix: fakeFollowHelix });
+ok('музыка: награда — стример (userId === broadcasterId) проходит без бейджей', gateStreamerReward.ok === true);
+const gateOtherReward = await songsRequestAllowed({ allow: ['sub'] }, { level: 'everyone', login: 'x', userId: '9', broadcasterId: '902', helix: { getFollower: async () => null } });
+ok('музыка: награда — посторонний при allow без everyone не проходит', gateOtherReward.ok === false);
+
+// имя заказа «музыка»: заказ затеняет встроенную команду управления,
+// управление плеером переезжает на !плеер
+settings.songs = { commandName: 'музыка' };
+const beforeMusic = sent.length;
+await engine.handleChatMessage({ userId: '60', login: 'renamergirl', displayName: 'RenamerGirl', text: '!музыка это-не-ссылка', badges: [] });
+ok('музыка: commandName «музыка» — заказ работает (встроенное имя затенено)', sent.length > beforeMusic && sent.at(-1).includes('не похоже'));
+await engine.handleChatMessage({ userId: '60', login: 'renamergirl', displayName: 'RenamerGirl', text: '!плеер пауза', badges: [] });
+ok('музыка: управление живо через запасное !плеер (подсказка про модов)', sent.at(-1).includes('моды'));
+delete settings.songs;
+
 // награда канала = заказ музыки: по режиму «reward» ИЛИ по song-маппингу
 // (баг: покупки награды молча пропадали, если в музыке стоял способ «командой»)
 const { songRewardSource } = await import('../src/bot/songs.js');

@@ -760,7 +760,7 @@ export class CommandEngine {
           if (!engine.songs) { await engine.say(session, 'Плеер не настроен'); return; }
           const sub = String(args[0] || '').toLowerCase();
           if (!['пауза', 'прод', 'стоп'].includes(sub)) {
-            await engine.say(session, 'Управление: !ср <ссылка> — заказ · !очередь · !скип / !музыка пауза|прод|стоп (мод+)');
+            await engine.say(session, 'Управление: !ср <ссылка> — заказ · !очередь · !скип / !музыка (или !плеер) пауза|прод|стоп (мод+)');
             return;
           }
           if (levelValue(session.level || 'everyone') < LEVELS.mod) { await engine.say(session, 'Управлять музыкой могут только моды 🛡'); return; }
@@ -768,6 +768,12 @@ export class CommandEngine {
           if (r.error) { await engine.say(session, r.error); return; }
           await engine.say(session, sub === 'пауза' ? '⏸ Музыка на паузе' : sub === 'прод' ? '▶️ Продолжаем' : '⏹ Музыка остановлена, очередь очищена');
         },
+      },
+      // запасное имя управления: если настройкой songs.commandName забрали «музыка» у заказа,
+      // управление плеером остаётся доступным через !плеер
+      плеер: {
+        level: 'everyone', label: 'управление: !плеер пауза|прод|стоп (мод+)', desc: 'то же, что !музыка',
+        async run(session, args) { return engine.builtins['музыка'].run(session, args); },
       },
 
       // ---------- цитаты канала ----------

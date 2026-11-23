@@ -508,6 +508,7 @@ const app = {
   },
 
   saveSettings(patch = {}) {
+    const warnings = []; // что не применилось — панель покажет тостом (ответ PUT /api/settings)
     // встроенные команды: вкл/выкл (панель шлёт полный список выключенных имён)
     if (patch.builtins && typeof patch.builtins === 'object') {
       const known = new Set(Object.keys(commands.builtins));
@@ -878,14 +879,16 @@ const app = {
       // способ заказов + ограничения + доступ
       if (a.requestMode !== undefined) cur.requestMode = a.requestMode === 'reward' ? 'reward' : 'command';
       if (a.rewardName !== undefined) cur.rewardName = String(a.rewardName).trim().slice(0, 100);
-      // имя команды заказа: буквы/цифры/_/-, без конфликтов с другими встроенными и кастомными
+      // имя команды заказа: буквы/цифры/_/-, без конфликтов с другими встроенными и кастомными.
+      // «музыка» — исключение: заказу разрешено закрыть это имя тенью (матчер ремапит
+      // commandName на «ср»), а управление плеером остаётся доступным через !плеер.
       if (a.commandName !== undefined) {
         const n = String(a.commandName || '').toLowerCase().replace(/^!/, '').trim();
         const ok = /^[A-Za-zА-Яа-яЁё0-9_\-]{1,32}$/.test(n);
         const conflict = [...Object.keys(commands.builtins), ...commands.list().map((c) => c.name)]
-          .some((x) => x !== 'ср' && x === n);
+          .some((x) => x !== 'ср' && x !== 'музыка' && x === n);
         if (ok && !conflict) cur.commandName = n;
-        else logSystem(`Имя команды музыки «${n}» не принято: некорректное или занято`, 'warn');
+        else warnings.push(`Имя команды музыки «${n}» не принято: некорректное или занято`);
       }
       if (a.commandCooldown !== undefined) cur.commandCooldown = Math.max(0, Math.min(86_400, Math.round(Number(a.commandCooldown) || 0)));
       // возврат баллов: отдельно для «не подошёл трек» и для «лимит юзера»
@@ -967,6 +970,8 @@ const app = {
       if (a.mtprotoSecret !== undefined) cur.mtprotoSecret = String(a.mtprotoSecret).trim().slice(0, 200);
     }
     saveJson(SETTINGS_FILE, settings);
+    if (warnings.length) logSystem(`Часть настроек не принята: ${warnings.join('; ')}`, 'warn');
+    return { warnings }; // PUT /api/settings отдаёт их панели — юзер видит отказ, а не «тихий сброс»
   },
 
   /** Выход стримера: сброс токена + пересборка подписок (награды канала отпадают). */

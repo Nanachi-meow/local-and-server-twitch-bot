@@ -356,6 +356,9 @@ export async function requestAllowed(cfg = {}, { level = 'everyone', login, user
   const allow = Array.isArray(cfg.allow) ? cfg.allow.filter(Boolean) : [];
   const allowUsers = (Array.isArray(cfg.allowUsers) ? cfg.allowUsers : []).map((u) => String(u).toLowerCase());
   const who = String(login || '').toLowerCase();
+  // стример может всегда: в чат-пути это даёт userLevel, а у заказа наградой бейджей нет —
+  // сверяем id напрямую (иначе allow без everyone блокировал бы самого стримера)
+  if (userId && broadcasterId && String(userId) === String(broadcasterId)) return { ok: true };
   if (level === 'broadcaster') return { ok: true };
   if (who && allowUsers.includes(who)) return { ok: true, via: 'list' };
   if (!allow.length || allow.includes('everyone')) return { ok: true };
