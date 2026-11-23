@@ -6019,8 +6019,20 @@ loadCommands().catch(() => {});
 loadSettings().catch(() => {});
 loadModules().catch(() => {});
 loadOverlaySettings().catch(() => {});
-// ошибка гидратации не глотается молча: мёртвая форма = «сбросы» при следующем сохранении
-loadSongsTab().catch(() => toast('Не удалось загрузить настройки музыки — обнови страницу (F5)', true));
+// загрузка вкладки музыки на старте панели: бот может быть в рестарте (секунды между
+// «убит» и «поднят») — не требуем F5, дожимаем в фоне с ретраями
+let sgBootTries = 0;
+const bootSongsTab = async () => {
+  try {
+    await loadSongsTab();
+  } catch (e) {
+    sgBootTries++;
+    console.error('loadSongsTab:', e); // стек — и единственный след, если это не сеть
+    if (sgBootTries === 1) toast('Бот не отвечает — настройки музыки догрузятся сами, когда он поднимется', true);
+    if (sgBootTries < 30) setTimeout(bootSongsTab, 5000);
+  }
+};
+bootSongsTab();
 loadProxySettings().catch(() => {});
 loadQuotes().catch(() => {});
 poll();
