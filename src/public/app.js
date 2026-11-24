@@ -4398,13 +4398,17 @@ function sgPlayTest(ev) {
 async function loadSongsTab() {
   const st = await api('/api/songs');
   const s = (await api('/api/settings')).songs ?? {};
-  $('#music-url').textContent = `${location.origin}/music`;
-  $('#music-url-field').value = `${location.origin}/music`;
-  $('#music-open').href = `${location.origin}/music`;
+  // прямые присваивания — тоже нул-гарды: одно отсутствующее поле не роняет вкладку
+  const el = (id) => $(id);
+  const set = (id, prop, v) => { const e = el(id); if (e) e[prop] = v; };
+  set('music-url', 'textContent', `${location.origin}/music`);
+  set('music-url-field', 'value', `${location.origin}/music`);
+  set('music-open', 'href', `${location.origin}/music`);
   // все поля — под focus-гардами: очередь/чс дергают эту загрузку прямо во время
-  // редактирования правил, нельзя затирать то, что юзер печатает прямо сейчас
-  const val = (id, v) => { if (document.activeElement?.id !== id) $(id).value = v; };
-  const chk = (id, v) => { if (document.activeElement?.id !== id) $(id).checked = v; };
+  // редактирования правил, нельзя затирать то, что юзер печатает прямо сейчас.
+  // null-guard: отсутствующее поле (кеш-микс старого HTML) не должно ронять всю вкладку
+  const val = (id, v) => { const el = $(id); if (el && document.activeElement?.id !== id) el.value = v; };
+  const chk = (id, v) => { const el = $(id); if (el && document.activeElement?.id !== id) el.checked = v; };
   chk('sg-enabled', Boolean(s.enabled));
   // длина — в минутах в панели, в секундах на сервере
   val('sg-maxlen-min', Math.round((s.maxLenSec ?? 600) / 60));
