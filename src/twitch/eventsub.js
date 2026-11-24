@@ -171,6 +171,7 @@ export class EventSocket {
       }
     }
     for (const d of wanted.values()) {
+      const key = d.key ?? d.type;
       try {
         await this.helix.createSubscription({
           type: d.type,
@@ -178,15 +179,53 @@ export class EventSocket {
           condition: d.condition,
           sessionId: this.sessionId,
         });
-        this.subStatus[d.key ?? d.type] = 'ok';
+        this.subStatus[key] = 'ok';
       } catch (e) {
-        this.subStatus[d.key ?? d.type] = `ошибка: ${e.message}`;
-        this.onLog?.(`Подписка не создана [${d.key ?? d.type}]: ${e.message}`, 'error');
+        // «already exists»: подписка прошлой сессии ещё числится у Twitch (после резкого
+        // рестарта списки обновляются не мгновенно) — зачищаем именно её и пробуем снова
+        if (/already exists/i.test(String(e.message))) {
+          const m = String(e.message).match(/id=([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/i);
+          if (m) { try { await this.helix.deleteSubscription(m[1]); } catch {} }
+          await new Promise((r) => setTimeout(r, 1500));
+          try {
+            await this.helix.createSubscription({
+              type: d.type,
+              version: d.version,
+              condition: d.condition,
+              sessionId: this.sessionId,
+            });
+            this.subStatus[key] = 'ok';
+            this.onLog?.(`Подписка [${key}] создана со второй попытки (убрали дубль прошлой сессии)`, 'info');
+            continue;
+          } catch {
+            // Twitch упрямится — подписка старой сессии доживает свои ~10 минут сама
+            this.subStatus[key] = 'повтор через минуту';
+            this.onLog?.(`Подписка [${key}] ещё числится у Twitch (дубль прошлой сессии) — повторю синхронизацию через минуту`, 'warn');
+            this._retrySyncLater();
+            continue;
+          }
+        }
+        this.subStatus[key] = `ошибка: ${e.message}`;
+        this.onLog?.(`Подписка не создана [${key}]: ${e.message}`, 'error');
       }
     }
     if (this.desired.length && this.desired.length === Object.values(this.subStatus).filter((s) => s === 'ok').length) {
       this.onLog?.(`Все подписки активны (${this.desired.length})`, 'info');
+      this._syncRetries = 0; // полный успех — счётчик отложенных повторов обнуляем
     }
+  }
+
+  /** Отложенный повтор синхронизации: Twitch держит подписки мёртвой сессии до ~10 минут;
+   *  пробуем раз в минуту, без параллельных таймеров. */
+  _retrySyncLater() {
+    if (this._syncRetryTimer) return;
+    this._syncRetries = (this._syncRetries ?? 0) + 1;
+    if (this._syncRetries > 10) return;
+    this._syncRetryTimer = setTimeout(() => {
+      this._syncRetryTimer = null;
+      if (!this.connected) return;
+      this._syncSubscriptions().catch(() => {});
+    }, 60_000);
   }
 
   _fingerprint(item) {
