@@ -4432,6 +4432,7 @@ async function loadSongsTab() {
   renderBlacklist(s.blacklist ?? []);
   plpLoad(s.playerCfg, st);
   __sgApplyState(st);
+  sgHydrated = true; // форма заполнена с сервера — сейвы разрешены
 }
 
 /** видимость полей зависит от способа заказов: награда — имя, команда — кулдаун */
@@ -4496,6 +4497,7 @@ $('#sg-enabled').addEventListener('change', async () => {
 });
 
 $('#sg-save').addEventListener('click', async () => {
+  if (!(await ensureSgHydrated())) { toast('Форма ещё не загрузилась с сервера — секунду', true); return; }
   try {
     await putSongsDiff({
       enabled: $('#sg-enabled').checked,
@@ -4514,6 +4516,11 @@ $('#sg-save').addEventListener('click', async () => {
  * гидратация или забытая вторая вкладка панели физически не может откатить
  * чужие поля — их значения совпадают с сервером и в патч не попадают.
  */
+let sgHydrated = false; // форма заполнена с сервера (нельзя сейвить пустую форму)
+async function ensureSgHydrated() {
+  if (sgHydrated) return true;
+  try { await loadSongsTab(); return sgHydrated; } catch { return false; }
+}
 async function putSongsDiff(patch) {
   const fresh = (await api('/api/settings')).songs ?? {};
   const out = {};
@@ -4530,6 +4537,7 @@ async function putSongsDiff(patch) {
 
 // правила заказов: способ, кулдаун, лимиты, доступ
 $('#sg-order-save').addEventListener('click', async () => {
+  if (!(await ensureSgHydrated())) { toast('Форма ещё не загрузилась с сервера — секунду', true); return; }
   const allow = [...document.querySelectorAll('.sg-role:checked')].map((cb) => cb.value);
   if (allow.includes('everyone')) allow.length = 0; // «все» = пустой список
   const allowUsers = $('#sg-allowusers').value.split(',').map((s) => s.trim()).filter(Boolean);
