@@ -18,6 +18,7 @@ export const SONGS_FILE = path.join(DATA_DIR, 'songs.json');
 export const QUOTES_FILE = path.join(DATA_DIR, 'quotes.json');
 export const WORDOFDAY_FILE = path.join(DATA_DIR, 'wordofday.json');
 export const DONATIMER_FILE = path.join(DATA_DIR, 'donatimer.json');
+export const POINTS_FILE = path.join(DATA_DIR, 'points.json');
 
 export function ensureDataDir() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -46,4 +47,14 @@ export function saveJson(file, data) {
 
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Баллы внутренней points-системы (data/points.json, { login: { points, name, watchedMin } }).
+ *  Хранилище осталось от прежней балльной системы; строки у логина нет — 0. */
+export function botPointsBalance(login) {
+  const key = String(login ?? '').toLowerCase().replace(/^@/, '');
+  if (!key) return 0;
+  const row = loadJson(POINTS_FILE, {})?.[key];
+  const n = Number(row?.points);
+  return Number.isFinite(n) ? Math.max(0, Math.min(1_000_000_000, Math.round(n))) : 0;
 }

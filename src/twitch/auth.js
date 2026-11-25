@@ -4,12 +4,14 @@ import { TOKENS_FILE, loadJson, saveJson } from '../store.js';
 
 /** Скоупы, которые просим у бота при входе.
  *  user:read/write:chat — читать и писать чат через официальный Chat Bot API.
+ *  user:manage:chat_color — смена цвета ника бота (PUT /chat/color; старые токены не содержат скоуп — нужен перелогин).
  *  moderator:* — фоллоу-ивенты, шатауты, анонсы, закрепы (бот должен быть модератором канала).
  *  channel:*:vips — чтение/снятие VIP (модули: api.helix.get('/channels/vips') и т.п.).
  */
 export const SCOPES = [
   'user:read:chat',
   'user:write:chat',
+  'user:manage:chat_color',
   'moderator:read:followers',
   'moderator:manage:shoutouts',
   'moderator:manage:announcements',

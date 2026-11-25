@@ -41,6 +41,19 @@ export function friendlyNetworkError(e, url) {
   return null;
 }
 
+/** Именованные цвета ника, которые принимает Twitch (помимо #RRGGBB). */
+const NAMED_CHAT_COLORS = [
+  'Coral', 'DodgerBlue', 'GoldenRod', 'HotPink', 'OrangeRed', 'SeaGreen', 'SpringGreen', 'YellowGreen',
+];
+
+/** Санитизация цвета ника для /chat/color: #RRGGBB или именованный из списка Twitch.
+ *  Возвращает готовое к отправке значение либо null, если цвет не принят. */
+export function sanitizeChatColor(value) {
+  const raw = String(value ?? '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(raw)) return raw;
+  return NAMED_CHAT_COLORS.find((c) => c.toLowerCase() === raw.toLowerCase()) ?? null;
+}
+
 /**
  * Тонкий клиент Helix API. Токен берёт из AuthManager (авто-refresh),
  * при 401 — одна попытка обновить токен и повторить запрос.
@@ -204,6 +217,12 @@ export class Helix {
       query: { broadcaster_id: broadcasterId, moderator_id: moderatorId },
     });
     return json?.data?.[0] ?? null;
+  }
+
+  /** Смена цвета ника пользователя в чате (для бота — скоуп user:manage:chat_color).
+   *  color — уже санитизированное значение: #RRGGBB или именованный (см. sanitizeChatColor). */
+  updateUserChatColor({ userId, color }) {
+    return this.call('PUT', '/chat/color', { query: { user_id: userId, color } });
   }
 
   // ---------- followers ----------

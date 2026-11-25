@@ -1,6 +1,6 @@
 import { AuthManager, SCOPES } from './twitch/auth.js';
 import { BroadcasterAuth, BROADCASTER_SCOPES } from './twitch/broadcaster-auth.js';
-import { Helix, HelixError } from './twitch/helix.js';
+import { Helix, HelixError, sanitizeChatColor } from './twitch/helix.js';
 import { EventSocket } from './twitch/eventsub.js';
 import { CommandEngine, LEVELS, loadSettings, mergeTts, mergeEventList } from './bot/commands.js';
 import { EventProcessor } from './bot/events.js';
@@ -14,7 +14,7 @@ import { DonaTimer } from './bot/donatimer.js';
 import { ChatWidget, normalizeTheme } from './bot/chatwidget.js';
 import { CoreRunner, parseSubscription, parseProxyLink } from './bot/proxy-cores.js';
 import { setCoreAddress, httpRequest } from './bot/proxy.js';
-import { loadJson, DONATIMER_FILE } from './store.js';
+import { loadJson, DONATIMER_FILE, botPointsBalance } from './store.js';
 import { RedemptionRouter } from './bot/redemptions.js';
 import { overlay } from './bot/alerts.js';
 import { createHttpServer } from './server.js';
@@ -529,6 +529,8 @@ const app = {
       live: live.snapshot(),
       donaTimer: donaTimer.state(),
       counters: state.counters,
+      // внутренние баллы бота (points-система), НЕ Twitch Channel Points — тех API не отдаёт
+      botPoints: botPointsBalance(auth.tokens?.login),
     };
   },
 
@@ -1172,6 +1174,13 @@ const app = {
           user: String(body?.user || 'Тест'),
           text: String(body?.text || ''),
         });
+      }
+      case 'botcolor': { // смена цвета ника бота (карточка «Аккаунт бота» в панели)
+        const color = sanitizeChatColor(body?.color);
+        if (!color) throw new Error('Цвет не принят: нужен #RRGGBB или именованный из списка Twitch');
+        if (!auth.tokens?.userId) throw new Error('Бот не авторизован — войдите через панель');
+        await helix.updateUserChatColor({ userId: auth.tokens.userId, color });
+        return { applied: color };
       }
       case 'donatimerdonation': { // ручной донат (body.amount ₽) — время добавится по курсу
         return app.donaTimer.addManualDonation({ amount: Number(body?.amount ?? 0), name: String(body?.name || 'вручную').slice(0, 40) });

@@ -1263,6 +1263,34 @@ ok('баллы: секции points/bets исчезли из настроек', 
   && loadSettings().songs.price === undefined);
 
 
+// ---------- цвет ника бота: скоуп + санитизация ----------
+const { SCOPES } = await import('../src/twitch/auth.js');
+const { sanitizeChatColor } = await import('../src/twitch/helix.js');
+ok('цвет: скоуп user:manage:chat_color запрашивается при входе бота', SCOPES.includes('user:manage:chat_color'));
+ok('цвет: #RRGGBB принимается', ['#12abEF', '#000000', '#FFFFFF'].every((c) => sanitizeChatColor(c) === c));
+ok('цвет: именованные из списка Twitch принимаются (без учёта регистра)',
+  ['Coral', 'DodgerBlue', 'GoldenRod', 'HotPink', 'OrangeRed', 'SeaGreen', 'SpringGreen', 'YellowGreen']
+    .every((c) => sanitizeChatColor(c) === c && sanitizeChatColor(c.toUpperCase()) === c));
+ok('цвет: мусор и имена вне списка отклоняются',
+  ['#12345', '123456', '#gggggg', '#12abEFf', 'красный', 'Red', 'Blue', 'gold', 'Golden', '']
+    .every((c) => sanitizeChatColor(c) === null));
+
+// ---------- баллы бота: геттер внутренней points-системы ----------
+const { botPointsBalance } = await import('../src/store.js');
+ok('баллы: файла нет — 0 (и без логина тоже)', botPointsBalance('nanachi_nya_bot') === 0 && botPointsBalance(null) === 0);
+// ключи в файле — логины в нижнем регистре (как писала прежняя points-система)
+const botPointsFile = path.join(process.env.BOT_DATA_DIR, 'points.json');
+fs.writeFileSync(botPointsFile, JSON.stringify({
+  somebot: { points: 5, name: 'SomeBot', watchedMin: 0 },
+  guy: { points: 13 },
+}), 'utf8');
+ok('баллы: строка есть — значение из файла (регистр входа и @ не важны, чужие логины — 0)',
+  botPointsBalance('somebot') === 5 && botPointsBalance('@SomeBot') === 5 && botPointsBalance('SOMEBOT') === 5
+  && botPointsBalance('guy') === 13 && botPointsBalance('missing') === 0);
+fs.rmSync(botPointsFile, { force: true });
+ok('баллы: после удаления файла снова 0', botPointsBalance('somebot') === 0);
+
+
 // ---------- OBS-клиент (obs-websocket 5): чистые функции протокола ----------
 const {
   ObsClient, buildIdentifyAuth, buildIdentify, parseMessage, parseRequestResponse,

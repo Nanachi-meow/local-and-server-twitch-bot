@@ -308,6 +308,10 @@ function renderState(st) {
     ? `Вход выполнен: <b>${esc(a.login)}</b>${a.expiresAt ? ` · токен истекает ${new Date(a.expiresAt).toLocaleString('ru-RU')}` : ''}`
     : '';
 
+  // строка «баллы бота: N» (внутренняя points-система; строки нет у логина — сервер отдаёт 0)
+  const botPointsEl = $('#bot-points');
+  if (botPointsEl) botPointsEl.innerHTML = `баллы бота: <b>${Number(st.botPoints ?? 0)}</b>`;
+
   // «👑 Награды канала»: статус второго входа (стримером)
   const bc = st.broadcaster ?? {};
   $('#broadcaster-login').classList.toggle('hidden', Boolean(bc.login));
@@ -5962,6 +5966,19 @@ $('#auth-logout').addEventListener('click', async () => {
     toast('Токен сброшен');
     poll();
   } catch (e) { toast(e.message, true); }
+});
+
+// цвет ника бота: разовая операция по кнопке, в чат ничего не пишет
+$('#bot-color-apply').addEventListener('click', async () => {
+  const color = $('#bot-color').value;
+  try {
+    const r = await api('/api/actions/botcolor', { method: 'POST', body: JSON.stringify({ color }) });
+    $('#bot-color-result').textContent = `Цвет применён: ${r.applied}`;
+    toast('Цвет ника применён ✅');
+  } catch (e) {
+    $('#bot-color-result').textContent = `${e.message} — при ошибке скоупа нужен повторный вход бота`;
+    toast(e.message, true);
+  }
 });
 
 // ---------------- быстрые действия ----------------
