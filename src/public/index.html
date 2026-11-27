@@ -948,18 +948,6 @@
         </div>
       </div>
       <div class="card">
-        <h2>🌐 Прокси (для музыки и метаданных)</h2>
-        <p class="hint">Сервер бота ходит за названием/длиной треков на YouTube напрямую. Если YouTube у тебя без прокси не открывается — пропиши сюда http-прокси (например <code>http://127.0.0.1:8080</code>). Само <b>проигрывание</b> идёт в браузере OBS через прокси системы/OBS — на это настройка не влияет.</p>
-        <div class="evcard">
-          <label><input type="checkbox" id="proxy-enabled" /> ходить через прокси</label>
-          <label>адрес прокси <input type="text" id="proxy-url" class="wide" placeholder="http://127.0.0.1:8080" /></label>
-          <div class="row">
-            <button class="act" id="proxy-save">Сохранить</button>
-            <button class="act ghost" id="proxy-test">Проверить связь</button>
-          </div>
-        </div>
-      </div>
-      <div class="card">
         <h2>🎬 OBS (obs-websocket 5)</h2>
         <p class="hint">Управление OBS из чата: <code>!сцена &lt;имя&gt;</code> и <code>!сцены</code> (мод+). Сначала включи WebSocket-сервер в самом OBS: <b>Инструменты → Настройки WebSocket-сервера</b> — галочка «Включить», там же пароль (порт по умолчанию 4455). Пароль хранится локально, как Client Secret. Смена адреса применяется на ходу.</p>
         <div class="form">

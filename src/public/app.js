@@ -5753,8 +5753,6 @@ $('#sg-body').addEventListener('click', async (e) => {
 
 async function loadProxySettings() {
   const p = (await api('/api/settings')).proxy ?? {};
-  $('#proxy-enabled').checked = Boolean(p.enabled);
-  $('#proxy-url').value = p.url ?? '';
   // под-вкладка «🌐 Прокси»
   const c = p.core ?? {};
   $('#px-enabled').checked = Boolean(p.enabled) && p.type !== 'socks5' && !['singbox', 'xray'].includes(p.type);
@@ -5861,23 +5859,6 @@ $('#px-mtproto-save').addEventListener('click', async () => {
     });
     toast('MTProto-поля сохранены ✅');
   } catch (e) { toast(e.message, true); }
-});
-
-$('#proxy-save').addEventListener('click', async () => {
-  try {
-    await putSettings({
-      proxy: { enabled: $('#proxy-enabled').checked, url: $('#proxy-url').value.trim() },
-    });
-    toast('Прокси сохранён ✅');
-  } catch (e) { toast(e.message, true); }
-});
-
-$('#proxy-test').addEventListener('click', async () => {
-  toast('Проверяю связь…');
-  try {
-    const r = await api('/api/actions/proxytest', { method: 'POST', body: '{}' });
-    toast(`✅ ${r.via} — YouTube доступен («${r.sample}»)`);
-  } catch (e) { toast(`❌ ${e.message}`, true); }
 });
 
 // ---------------- модули ----------------
